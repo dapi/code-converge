@@ -6,7 +6,7 @@ purpose: "Execution plan for implementing and validating automated reviewer GitH
 derived_from:
   - brief.md
   - design.md
-status: active
+status: archived
 audience: humans_and_agents
 must_not_define:
   - ft_003_scope
@@ -74,5 +74,4 @@ Implement the tag-triggered release lifecycle in `design.md` without performing 
 
 ## Готово для приемки
 
-Implementation is ready when local checks and final diff review pass. `delivery_status: done` may record code completion while the first live release URL remains explicit post-merge rollout evidence under `AG-01`.
-
+Implementation is accepted: local checks passed, `v0.1.0` was pushed with approval, and the hosted release workflow published and verified the release assets.

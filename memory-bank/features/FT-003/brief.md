@@ -9,7 +9,7 @@ derived_from:
   - ../../ops/release.md
   - ../../../README.md
 status: active
-delivery_status: in_progress
+delivery_status: done
 audience: humans_and_agents
 must_not_define:
   - implementation_sequence
@@ -138,6 +138,6 @@ The repository can build deterministic archives but has no official publication 
 | Evidence ID | Concrete carriers | Result |
 | --- | --- | --- |
 | `EVID-01` | `scripts/release_scripts_test.go`, `make verify`, shell syntax and dirty-worktree rejection checks | Pass locally. |
-| `EVID-02` | `tools/build-dist`, two independent `0.0.0` builds, matching `SHA256SUMS`, all checksum validations, native macOS ARM64 smoke | Local release evidence passes; first approved tag-push run remains pending rollout evidence. |
+| `EVID-02` | `tools/build-dist`, two independent `0.0.0` builds, matching `SHA256SUMS`, [Release v0.1.0](https://github.com/dapi/reviewer/releases/tag/v0.1.0), [Release workflow](https://github.com/dapi/reviewer/actions/runs/29860631840), [Verify workflow](https://github.com/dapi/reviewer/actions/runs/29860631895) | Pass: hosted release published all five assets; checksums and Linux AMD64 smoke passed. |
 | `EVID-03` | `actionlint` v1.7.7, `make docs-lint`, `git diff --check`, final semantic diff review | Pass locally. |
-| `EVID-04` | `internal/app/app_test.go`, version ldflags, `scripts/install.sh` shell syntax | Version output and installer checks pass locally; live download remains tied to first published release. |
+| `EVID-04` | `internal/app/app_test.go`, version ldflags, `scripts/install.sh` shell syntax, published latest installer smoke | Pass: native archive and one-line installer both report `reviewer v0.1.0`. |

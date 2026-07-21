@@ -11,4 +11,5 @@ This project follows Semantic Versioning.
 ### Added
 
 - Added tag-triggered GitHub Release automation for the supported binary matrix.
-
+- Added `reviewer --version` output with the embedded release version.
+- Added checksum-verifying one-line installation for macOS and Linux on AMD64/ARM64.
