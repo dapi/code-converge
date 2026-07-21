@@ -2,7 +2,7 @@
 title: Workflow States
 doc_kind: domain
 doc_function: canonical
-purpose: Defines the reviewer run state machine.
+purpose: Defines the code-converge run state machine.
 derived_from:
   - model.md
   - rules.md

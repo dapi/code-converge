@@ -28,7 +28,7 @@ canonical_for:
 
 ## Context
 
-The solution adapts `dapi/start-issue` while retaining reviewer's existing deterministic four-target build helper. The trust boundary is a Git tag granting a workflow `contents: write`; preparation remains an explicit operator action.
+The solution adapts `dapi/start-issue` while retaining code-converge's existing deterministic four-target build helper. The trust boundary is a Git tag granting a workflow `contents: write`; preparation remains an explicit operator action.
 
 ## C4 Applicability
 
@@ -49,7 +49,7 @@ flowchart LR
 - `SOL-02` `make release-patch|minor|major` requires a clean checkout, updates `VERSION` and changelog, runs verification/build, then creates a local release commit and annotated tag. Push remains explicit.
 - `SOL-03` `.github/workflows/release.yml` runs only for `v*` tags, rejects anything except `vX.Y.Z` matching `VERSION`, and publishes only after repository, checksum, and smoke gates pass.
 - `SOL-04` The release uploads the four existing normalized archives and aggregate `SHA256SUMS`; generated GitHub notes supplement the maintained changelog.
-- `SOL-05` The build embeds the release version in `internal/version.Version`; `reviewer --version` prints it. A small POSIX installer resolves the latest or pinned release, selects the host target, verifies the matching checksum, and installs to `~/.local/bin` by default.
+- `SOL-05` The build embeds the release version in `internal/version.Version`; `code-converge --version` prints it. A small POSIX installer resolves the latest or pinned release, selects the host target, verifies the matching checksum, and installs to `~/.local/bin` by default.
 
 ## Alternatives And Trade-offs
 
@@ -72,10 +72,10 @@ flowchart LR
 ## Contracts And Invariants
 
 - `CTR-01` Release identity is strict numeric `X.Y.Z`; Git tag is exactly `vX.Y.Z`; archive version omits `v`.
-- `CTR-02` Assets are `reviewer_X.Y.Z_{darwin,linux}_{amd64,arm64}.tar.gz` and `SHA256SUMS`.
+- `CTR-02` Assets are `code-converge_X.Y.Z_{darwin,linux}_{amd64,arm64}.tar.gz` and `SHA256SUMS`.
 - `CTR-03` Only the release workflow receives `contents: write`; ordinary Verify remains read-only.
-- `CTR-04` A release binary prints exactly `reviewer vX.Y.Z` for `reviewer --version`; source builds default to `reviewer vdev`.
-- `CTR-05` The installer supports only Darwin/Linux AMD64/ARM64, accepts `REVIEWER_VERSION=X.Y.Z`, and never installs before checksum verification.
+- `CTR-04` A release binary prints exactly `code-converge vX.Y.Z` for `code-converge --version`; source builds default to `code-converge vdev`.
+- `CTR-05` The installer supports only Darwin/Linux AMD64/ARM64, accepts `CODE_CONVERGE_VERSION=X.Y.Z`, and never installs before checksum verification.
 - `INV-01` No publication command executes before `make verify`, artifact build, checksum validation, and Linux AMD64 smoke succeed.
 - `INV-02` Implementation work does not itself push a tag or create a hosted release.
 

@@ -2,7 +2,7 @@
 title: Product Metrics
 doc_kind: product
 doc_function: canonical
-purpose: Defines observable reviewer run metrics and their ownership.
+purpose: Defines observable code-converge run metrics and their ownership.
 derived_from:
   - context.md
   - ../../README.md

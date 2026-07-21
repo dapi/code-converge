@@ -33,6 +33,7 @@ audience: humans_and_agents
 
 ## Current state
 
-- [`FT-002/README.md`](FT-002/README.md) — complete Reviewer CLI delivery for issue #2.
+- [`FT-002/README.md`](FT-002/README.md) — complete Code-Converge CLI delivery for issue #2.
 - [`FT-003/README.md`](FT-003/README.md) — automated GitHub Release delivery.
 - [`FT-005/README.md`](FT-005/README.md) — fast/best model and reasoning-effort profiles for issue #5.
+- [`FT-007/README.md`](FT-007/README.md) — planned project, CLI, configuration and release identity migration for issue #7; implementation is gated on compatibility and rollout decisions.

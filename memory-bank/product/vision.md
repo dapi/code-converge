@@ -2,7 +2,7 @@
 title: Product Vision
 doc_kind: product
 doc_function: canonical
-purpose: Confirmed product promise, experience principles, non-goals, and the intentionally bounded scope of reviewer.
+purpose: Confirmed product promise, experience principles, non-goals, and the intentionally bounded scope of code-converge.
 derived_from:
   - ../dna/governance.md
   - context.md
@@ -16,9 +16,9 @@ canonical_for:
 
 # Product Vision
 
-`reviewer` aims to make the local agent-development loop repeatable and observable: review the current repository, address findings, publish the result, and recover red CI through one CLI workflow. Codex is the supported agent, while Git hosting, CI, and the coding agent remain external systems.
+`code-converge` aims to make the local agent-development loop repeatable and observable: review the current repository, address findings, publish the result, and recover red CI through one CLI workflow. Codex is the supported agent, while Git hosting, CI, and the coding agent remain external systems.
 
-The documented CLI is the complete intended product, not a minimum version of a broader platform. `reviewer` is expected to remain a small, bounded utility. This document must not be used to infer a hosted product, business model, market expansion, support for additional agents, or a continuing feature roadmap.
+The documented CLI is the complete intended product, not a minimum version of a broader platform. `code-converge` is expected to remain a small, bounded utility. This document must not be used to infer a hosted product, business model, market expansion, support for additional agents, or a continuing feature roadmap.
 
 ## Product Promise
 

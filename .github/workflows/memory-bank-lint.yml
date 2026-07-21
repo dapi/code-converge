@@ -22,6 +22,6 @@ jobs:
       - run: make dist
       - name: Smoke Linux AMD64 artifact
         run: |
-          mkdir -p "$RUNNER_TEMP/reviewer-smoke"
-          tar -xzf dist/reviewer_dev_linux_amd64.tar.gz -C "$RUNNER_TEMP/reviewer-smoke"
-          HOME="$RUNNER_TEMP/reviewer-home" "$RUNNER_TEMP/reviewer-smoke/reviewer" config
+          mkdir -p "$RUNNER_TEMP/code-converge-smoke"
+          tar -xzf dist/code-converge_dev_linux_amd64.tar.gz -C "$RUNNER_TEMP/code-converge-smoke"
+          HOME="$RUNNER_TEMP/code-converge-home" "$RUNNER_TEMP/code-converge-smoke/code-converge" config

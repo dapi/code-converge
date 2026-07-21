@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/dapi/reviewer/internal/app"
+	"github.com/dapi/code-converge/internal/app"
 )
 
 func main() {

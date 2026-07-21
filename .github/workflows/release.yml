@@ -33,10 +33,10 @@ jobs:
       - name: Verify checksums and smoke Linux AMD64
         run: |
           (cd dist && sha256sum --check SHA256SUMS)
-          mkdir -p "$RUNNER_TEMP/reviewer-smoke"
-          tar -xzf "dist/reviewer_${GITHUB_REF_NAME#v}_linux_amd64.tar.gz" -C "$RUNNER_TEMP/reviewer-smoke"
-          test "$(HOME="$RUNNER_TEMP/reviewer-home" "$RUNNER_TEMP/reviewer-smoke/reviewer" --version)" = "reviewer v${GITHUB_REF_NAME#v}"
-          HOME="$RUNNER_TEMP/reviewer-home" "$RUNNER_TEMP/reviewer-smoke/reviewer" config
+          mkdir -p "$RUNNER_TEMP/code-converge-smoke"
+          tar -xzf "dist/code-converge_${GITHUB_REF_NAME#v}_linux_amd64.tar.gz" -C "$RUNNER_TEMP/code-converge-smoke"
+          test "$(HOME="$RUNNER_TEMP/code-converge-home" "$RUNNER_TEMP/code-converge-smoke/code-converge" --version)" = "code-converge v${GITHUB_REF_NAME#v}"
+          HOME="$RUNNER_TEMP/code-converge-home" "$RUNNER_TEMP/code-converge-smoke/code-converge" config
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

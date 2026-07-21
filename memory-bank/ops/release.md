@@ -2,7 +2,7 @@
 title: Release And Deployment
 doc_kind: ops
 doc_function: canonical
-purpose: Canonical reviewer release contract covering preparation, GitHub publication, verification, approval and rollback.
+purpose: Canonical code-converge release contract covering preparation, GitHub publication, verification, approval and rollback.
 derived_from:
   - ../dna/governance.md
   - ../../README.md
@@ -12,7 +12,7 @@ audience: humans_and_agents
 
 # Release And Deployment
 
-`reviewer` is distributed as versioned archives through GitHub Releases. There is no server deployment. A push to the default branch, green change-request CI, or local `dist/` directory is not by itself an official product release; publication requires an approved semantic-version tag.
+`code-converge` is distributed as versioned archives through GitHub Releases. There is no server deployment. A push to the default branch, green change-request CI, or local `dist/` directory is not by itself an official product release; publication requires an approved semantic-version tag.
 
 ## Release Flow
 
@@ -22,7 +22,7 @@ audience: humans_and_agents
 4. Publish the prepared commit and tag with `git push origin master --follow-tags` after operator approval.
 5. GitHub Actions verifies tag identity, reruns all checks, builds and validates artifacts, smoke-tests Linux AMD64, then creates the GitHub Release.
 
-The supported build matrix is macOS and Linux on AMD64 and ARM64. Each platform archive is a normalized `tar.gz` containing one `reviewer` binary; the release also contains aggregate `SHA256SUMS`. Installation remains manual checksum verification, extraction, and copy to an operator-owned directory on `PATH`.
+The supported build matrix is macOS and Linux on AMD64 and ARM64. Each platform archive is a normalized `tar.gz` containing one `code-converge` binary; the release also contains aggregate `SHA256SUMS`. Installation remains manual checksum verification, extraction, and copy to an operator-owned directory on `PATH`.
 
 ## Release Commands
 
@@ -41,7 +41,7 @@ make release-major
 - Run `make verify`.
 - Run `make dist` twice from the same revision and compare `SHA256SUMS`.
 - Validate every checksum from inside `dist/`.
-- Extract and run `reviewer config` from a native target archive; CI performs Linux AMD64 smoke.
+- Extract and run `code-converge config` from a native target archive; CI performs Linux AMD64 smoke.
 - Retain the commit SHA, checksum manifest, required-CI run, and smoke result as release evidence.
 - Confirm the GitHub Release contains exactly four archives plus `SHA256SUMS` and that its tag matches `VERSION`.
 

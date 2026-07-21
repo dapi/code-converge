@@ -67,7 +67,7 @@ func TestTargetEnvPinsAMD64(t *testing.T) {
 
 func TestBuildVersionLdflags(t *testing.T) {
 	version := "1.2.3"
-	ldflags := "-s -w -buildid= -X github.com/dapi/reviewer/internal/version.Version=" + version
+	ldflags := "-s -w -buildid= -X github.com/dapi/code-converge/internal/version.Version=" + version
 	if !strings.Contains(ldflags, "internal/version.Version=1.2.3") {
 		t.Fatalf("ldflags = %q", ldflags)
 	}
@@ -174,14 +174,14 @@ func TestFatalfExitsWithOne(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected non-zero exit, got output:\n%s", out)
 	}
-	if !strings.Contains(string(out), "reviewer-dist:") {
+	if !strings.Contains(string(out), "code-converge-dist:") {
 		t.Fatalf("missing fatalf prefix:\n%s", out)
 	}
 }
 
 func TestWriteArchive(t *testing.T) {
 	dir := t.TempDir()
-	binary := filepath.Join(dir, "reviewer")
+	binary := filepath.Join(dir, "code-converge")
 	if err := os.WriteFile(binary, []byte("fake binary"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestWriteArchive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if header.Name != "reviewer" || header.Mode != 0o755 || header.Typeflag != tar.TypeReg {
+	if header.Name != "code-converge" || header.Mode != 0o755 || header.Typeflag != tar.TypeReg {
 		t.Fatalf("unexpected header: %+v", header)
 	}
 	content, err := io.ReadAll(tr)

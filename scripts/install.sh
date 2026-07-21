@@ -2,8 +2,8 @@
 
 set -eu
 
-version="${REVIEWER_VERSION:-latest}"
-prefix="${REVIEWER_PREFIX:-$HOME/.local/bin}"
+version="${CODE_CONVERGE_VERSION:-latest}"
+prefix="${CODE_CONVERGE_PREFIX:-$HOME/.local/bin}"
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 arch="$(uname -m)"
 
@@ -12,21 +12,21 @@ case "$os:$arch" in
     darwin:arm64) target_os=darwin; target_arch=arm64 ;;
     linux:x86_64) target_os=linux; target_arch=amd64 ;;
     linux:aarch64|linux:arm64) target_os=linux; target_arch=arm64 ;;
-    *) echo "reviewer: unsupported platform $os/$arch" >&2; exit 1 ;;
+    *) echo "code-converge: unsupported platform $os/$arch" >&2; exit 1 ;;
 esac
 
 if [ "$version" = latest ]; then
-    api_url=https://api.github.com/repos/dapi/reviewer/releases/latest
+    api_url=https://api.github.com/repos/dapi/code-converge/releases/latest
     version="$(curl -fsSL "$api_url" | awk -F'"' '/"tag_name"/ { sub(/^v/, "", $4); print $4; exit }')"
 fi
 
 if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-    echo "reviewer: invalid version" >&2
+    echo "code-converge: invalid version" >&2
     exit 1
 fi
 
-base_url="https://github.com/dapi/reviewer/releases/download/v$version"
-archive="reviewer_${version}_${target_os}_${target_arch}.tar.gz"
+base_url="https://github.com/dapi/code-converge/releases/download/v$version"
+archive="code-converge_${version}_${target_os}_${target_arch}.tar.gz"
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT HUP INT TERM
 
@@ -39,5 +39,5 @@ else
 fi
 mkdir -p "$prefix"
 tar -xzf "$tmpdir/$archive" -C "$tmpdir"
-install -m 0755 "$tmpdir/reviewer" "$prefix/reviewer"
-printf 'Installed reviewer v%s to %s/reviewer\n' "$version" "$prefix"
+install -m 0755 "$tmpdir/code-converge" "$prefix/code-converge"
+printf 'Installed code-converge v%s to %s/code-converge\n' "$version" "$prefix"

@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dapi/reviewer/internal/config"
-	"github.com/dapi/reviewer/internal/runner"
+	"github.com/dapi/code-converge/internal/config"
+	"github.com/dapi/code-converge/internal/runner"
 )
 
 type Counts struct {
@@ -72,7 +72,7 @@ func (a Adapter) FixCI(ctx context.Context) error {
 }
 
 func (a Adapter) Finalize(ctx context.Context) (Finalization, error) {
-	dir, err := os.MkdirTemp("", "reviewer-finalize-")
+	dir, err := os.MkdirTemp("", "code-converge-finalize-")
 	if err != nil {
 		return Finalization{}, fmt.Errorf("create finalization workspace: %w", err)
 	}

@@ -233,7 +233,7 @@ Epic quality is a Q-Bundle, not one scalar.
 | Quality | What must be visible | Review question |
 | --- | --- | --- |
 | Intake decisiveness | Proposal names decision owner, open questions and disposition evidence | Can we approve, reroute, park or reject without inventing facts? |
-| Traceability | Source docs, decisions, requirements, UC and subissues linked by stable IDs | Can a reviewer trace each planned feature back to evidence? |
+| Traceability | Source docs, decisions, requirements, UC and subissues linked by stable IDs | Can a code-converge trace each planned feature back to evidence? |
 | Decomposability | Bounded contexts and slices are separated | Can we create one delivery issue without dragging the whole epic? |
 | Roadmap clarity | Waves, dependencies, gates and stop rules are explicit | Does the team know what should happen first and why? |
 | Decision provenance | Если существуют non-trivial local decisions, `decision-log.md` связывает facts, FPF reasoning и consequences | Are existing local decisions backed by evidence rather than preference? |

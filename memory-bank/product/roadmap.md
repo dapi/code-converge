@@ -2,13 +2,13 @@
 title: Product Roadmap
 doc_kind: product
 doc_function: canonical
-purpose: Current bounded reviewer delivery horizon and the explicit absence of planned product expansion.
+purpose: Current bounded code-converge delivery horizon and the explicit absence of planned product expansion.
 derived_from:
   - ../dna/governance.md
   - context.md
   - vision.md
   - metrics.md
-  - ../prd/PRD-001-reviewer-cli.md
+  - ../prd/PRD-001-code-converge-cli.md
   - ../../README.md
 status: active
 audience: humans_and_agents
@@ -19,13 +19,13 @@ canonical_for:
 
 # Product Roadmap
 
-The roadmap contains one product outcome: deliver the complete `reviewer` CLI described by the current specification. The utility is not a foundation for a broader platform, and no continuing feature roadmap is planned.
+The roadmap contains one product outcome: deliver the complete `code-converge` CLI described by the current specification. The utility is not a foundation for a broader platform, and no continuing feature roadmap is planned.
 
 ## Horizons
 
 | Horizon | Theme | Intended outcome | Current owner | Dependency | Status |
 | --- | --- | --- | --- | --- | --- |
-| `now` | Complete reviewer CLI | A distributable local Go CLI performs the full documented review/fix/finalization/CI-recovery workflow with observable terminal results | [`../features/FT-002/brief.md`](../features/FT-002/brief.md) | Implementation, deterministic tests, accepted PR and distribution evidence | completed |
+| `now` | Complete code-converge CLI | A distributable local Go CLI performs the full documented review/fix/finalization/CI-recovery workflow with observable terminal results | [`../features/FT-002/brief.md`](../features/FT-002/brief.md) | Implementation, deterministic tests, accepted PR and distribution evidence | completed |
 
 ## Roadmap Rules
 

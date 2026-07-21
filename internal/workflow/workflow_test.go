@@ -8,29 +8,29 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dapi/reviewer/internal/codex"
-	"github.com/dapi/reviewer/internal/config"
-	"github.com/dapi/reviewer/internal/event"
+	"github.com/dapi/code-converge/internal/codex"
+	"github.com/dapi/code-converge/internal/config"
+	"github.com/dapi/code-converge/internal/event"
 )
 
 type fakeAgent struct {
-	reviews       []codex.ReviewResult
-	reviewErrors  map[int]error
-	finalizations []codex.Finalization
-	finalizeErr   error
-	fixErr        error
-	ciFixErr      error
-	fixReports    []string
-	reviewCalls   int
-	fixCalls      int
-	finalizeCalls int
-	ciFixCalls    int
+	reviews        []codex.ReviewResult
+	reviewFailures map[int]error
+	finalizations  []codex.Finalization
+	finalizeErr    error
+	fixErr         error
+	ciFixErr       error
+	fixReports     []string
+	reviewCalls    int
+	fixCalls       int
+	finalizeCalls  int
+	ciFixCalls     int
 }
 
 func (f *fakeAgent) Review(context.Context) (codex.ReviewResult, error) {
 	index := f.reviewCalls
 	f.reviewCalls++
-	if err := f.reviewErrors[index]; err != nil {
+	if err := f.reviewFailures[index]; err != nil {
 		return codex.ReviewResult{}, err
 	}
 	if index >= len(f.reviews) {
@@ -173,7 +173,7 @@ func TestOperationalFailures(t *testing.T) {
 		agent     *fakeAgent
 		wantEvent []string
 	}{
-		{"review", &fakeAgent{reviewErrors: map[int]error{0: errors.New("bad report")}}, []string{"event=review_completed", "status=failed"}},
+		{"review", &fakeAgent{reviewFailures: map[int]error{0: errors.New("bad report")}}, []string{"event=review_completed", "status=failed"}},
 		{"fix", &fakeAgent{reviews: []codex.ReviewResult{findings()}, fixErr: errors.New("fix failed")}, []string{"event=stage_completed", "stage=fix-findings", "status=failed"}},
 		{"finalize", &fakeAgent{reviews: []codex.ReviewResult{clean()}, finalizeErr: errors.New("bad json")}, []string{"event=stage_completed", "stage=finalize", "status=failed"}},
 		{"failed verdict", &fakeAgent{reviews: []codex.ReviewResult{clean()}, finalizations: []codex.Finalization{{Verdict: "FAILED", Commit: "failed", Push: "skipped", ChangeRequest: "skipped", CI: "skipped"}}}, []string{"event=stage_completed", "verdict=FAILED"}},

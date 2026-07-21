@@ -8,7 +8,7 @@ derived_from:
   - ../../engineering/testing-policy.md
   - ../../engineering/validation-profiles.md
   - ../../../README.md
-  - https://github.com/dapi/reviewer/issues/5
+  - https://github.com/dapi/code-converge/issues/5
 status: active
 delivery_status: done
 audience: humans_and_agents
@@ -28,7 +28,7 @@ canonical_for:
 
 ### Problem
 
-Reviewer exposes independent model settings and only partial reasoning-effort settings. Operators must currently assemble a stage policy setting by setting, while the root README already documents two intended stage profiles as non-operative guidance. Issue [#5](https://github.com/dapi/reviewer/issues/5) requires one mode selector that makes those profiles executable without weakening explicit stage overrides or configuration explainability.
+Code-Converge exposes independent model settings and only partial reasoning-effort settings. Operators must currently assemble a stage policy setting by setting, while the root README already documents two intended stage profiles as non-operative guidance. Issue [#5](https://github.com/dapi/code-converge/issues/5) requires one mode selector that makes those profiles executable without weakening explicit stage overrides or configuration explainability.
 
 ### Outcome
 
@@ -36,14 +36,14 @@ Reviewer exposes independent model settings and only partial reasoning-effort se
 | --- | --- | --- | --- | --- |
 | `MET-01` | Default policy completeness | No operative mode; independent built-ins | An unconfigured run resolves all four stages from `fast` | Default-resolution and Codex invocation tests |
 | `MET-02` | Override preservation | Existing source precedence for stage settings | Every explicit stage setting wins over the profile; conflicts among explicit values retain existing CLI > project > user > environment precedence | Full source/profile precedence matrix |
-| `MET-03` | Explainability | `reviewer config` lists current settings and sources | Output identifies effective mode/source and every resolved stage model/effort/source | Golden config tests |
+| `MET-03` | Explainability | `code-converge config` lists current settings and sources | Output identifies effective mode/source and every resolved stage model/effort/source | Golden config tests |
 
 ### Scope
 
 - `REQ-01` Add one mode configuration value with valid values `fast` and `best`; absent configuration resolves to `fast`, and invalid or empty explicit values fail as configuration errors.
 - `REQ-02` Resolve Review, Fix findings, Finalize, and Fix CI model plus reasoning effort from the selected profile using the exact profile values documented by issue #5 and the root README.
 - `REQ-03` Treat any explicit per-stage model or reasoning-effort value from CLI, project, user, or environment as higher priority than the selected profile; among explicit values preserve the existing source precedence.
-- `REQ-04` Make `reviewer config` show effective mode, mode source, and every resolved stage model and reasoning effort with an unambiguous effective source.
+- `REQ-04` Make `code-converge config` show effective mode, mode source, and every resolved stage model and reasoning effort with an unambiguous effective source.
 - `REQ-05` Pass every resolved model and reasoning effort through the existing Codex adapter boundary for its stage and update the public CLI/configuration documentation.
 - `REQ-06` Provide deterministic coverage for defaults, both profiles, every configuration source and precedence conflict, invalid values, config rendering, and all four Codex invocations.
 
@@ -90,7 +90,7 @@ No unresolved blocking `DEC-*` remains. Feature-local decisions and their FPF pr
 - `EC-01` Default, `fast`, and `best` resolution produce the documented complete eight-value stage matrix.
 - `EC-02` Explicit stage overrides win over profiles while explicit-source conflicts retain the existing source order.
 - `EC-03` Invalid/empty modes and invalid/empty required stage settings fail before workflow execution with existing configuration-error semantics.
-- `EC-04` `reviewer config` exposes mode/source and every effective stage value/source without implying that a profile-derived value came from an explicit source.
+- `EC-04` `code-converge config` exposes mode/source and every effective stage value/source without implying that a profile-derived value came from an explicit source.
 - `EC-05` All four Codex invocations receive their resolved model and reasoning effort; repository tests, vet, docs lint, diff check, and independent convergence review pass.
 
 ### Traceability Matrix
@@ -106,7 +106,7 @@ No unresolved blocking `DEC-*` remains. Feature-local decisions and their FPF pr
 
 ### Acceptance Scenarios
 
-- `SC-01` With no mode or stage overrides, `reviewer config` reports `fast` as built-in and all eight stage values from the documented fast profile.
+- `SC-01` With no mode or stage overrides, `code-converge config` reports `fast` as built-in and all eight stage values from the documented fast profile.
 - `SC-02` Each explicit valid mode selects exactly its documented four model/effort pairs.
 - `SC-03` For each stage field, environment, user, project, and CLI explicit values override the selected profile; conflicts among those values resolve CLI > project > user > environment.
 - `SC-04` Config output reports the winning mode source and distinguishes profile-derived stage values from explicit stage-source winners, including equal-string overrides.
@@ -137,7 +137,7 @@ No unresolved blocking `DEC-*` remains. Feature-local decisions and their FPF pr
 
 ### Evidence
 
-- `EVID-01` Deterministic profile-resolution, validation, and `reviewer config` report.
+- `EVID-01` Deterministic profile-resolution, validation, and `code-converge config` report.
 - `EVID-02` Explicit cross-source/profile precedence matrix report for all eight stage fields.
 - `EVID-03` Fake-runner invocation report for Review, Fix findings, Finalize, and Fix CI.
 - `EVID-04` Repository verification, required CI, simplify-review, independent convergence-review, and documentation-contract results.
@@ -149,7 +149,7 @@ No unresolved blocking `DEC-*` remains. Feature-local decisions and their FPF pr
 | `EVID-01` | config/profile test report | deterministic Go tests | changed tests plus command output | `CHK-01` |
 | `EVID-02` | precedence matrix report | deterministic Go tests | changed config tests plus command output | `CHK-02` |
 | `EVID-03` | invocation argument report | fake-runner adapter tests | changed adapter tests plus command output | `CHK-03` |
-| `EVID-04` | verification/review bundle | local/CI runners and independent reviewer | command output, CI run, review result | `CHK-04` |
+| `EVID-04` | verification/review bundle | local/CI runners and independent code-converge | command output, CI run, review result | `CHK-04` |
 
 ### Delivery Evidence
 
@@ -158,4 +158,4 @@ No unresolved blocking `DEC-*` remains. Feature-local decisions and their FPF pr
 | `EVID-01` | pass | `internal/config/config_test.go`, `internal/app/app_test.go`; `go test ./internal/config ./internal/app` |
 | `EVID-02` | pass | `TestModePrecedence`, `TestEveryStageOverrideSourceBeatsProfile`, and `TestFormatProfileAndEqualExplicitSources` in `internal/config/config_test.go` |
 | `EVID-03` | pass | `TestAdapterInvocations` and `TestFixCIWithModel` in `internal/codex/adapter_test.go`; `go test ./internal/codex` |
-| `EVID-04` | pass | local `make verify`, `make dist`, `git diff --check`; PR [#6](https://github.com/dapi/reviewer/pull/6) required Verify check; independent `codex review --base master` with no findings and `overall_correctness=patch is correct` |
+| `EVID-04` | pass | local `make verify`, `make dist`, `git diff --check`; PR [#6](https://github.com/dapi/code-converge/pull/6) required Verify check; independent `codex review --base master` with no findings and `overall_correctness=patch is correct` |

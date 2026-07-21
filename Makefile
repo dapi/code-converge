@@ -4,7 +4,7 @@ VERSION ?= $(shell tr -d '\n' < VERSION)
 .PHONY: build dist docs-lint markdown-links memory-bank-lint print-version release-scripts-check test verify bump-patch bump-minor bump-major release-patch release-minor release-major
 
 build:
-	go build -trimpath -buildvcs=false -ldflags="-X github.com/dapi/reviewer/internal/version.Version=$(VERSION)" -o reviewer ./cmd/reviewer
+	go build -trimpath -buildvcs=false -ldflags="-X github.com/dapi/code-converge/internal/version.Version=$(VERSION)" -o code-converge ./cmd/code-converge
 
 test:
 	go test ./...

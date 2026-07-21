@@ -2,7 +2,7 @@
 title: "FT-003: Automated GitHub Releases Implementation Plan"
 doc_kind: feature
 doc_function: derived
-purpose: "Execution plan for implementing and validating automated reviewer GitHub Releases."
+purpose: "Execution plan for implementing and validating automated code-converge GitHub Releases."
 derived_from:
   - brief.md
   - design.md

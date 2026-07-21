@@ -2,7 +2,7 @@
 title: Frontend Engineering
 doc_kind: engineering
 doc_function: canonical
-purpose: Records frontend applicability for the current reviewer CLI.
+purpose: Records frontend applicability for the current code-converge CLI.
 derived_from:
   - ../dna/governance.md
   - ../product/context.md
@@ -13,7 +13,7 @@ audience: humans_and_agents
 
 # Frontend Engineering
 
-`reviewer` currently has no web, desktop, mobile, or other graphical frontend. Its user surface is a command-line interface, stdout records, process exit status, and local configuration files. The root [`README.md`](../../README.md) owns those public contracts; engineering and domain documents only interpret or implement them.
+`code-converge` currently has no web, desktop, mobile, or other graphical frontend. Its user surface is a command-line interface, stdout records, process exit status, and local configuration files. The root [`README.md`](../../README.md) owns those public contracts; engineering and domain documents only interpret or implement them.
 
 ## UI Surfaces
 
