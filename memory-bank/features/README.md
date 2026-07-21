@@ -35,3 +35,4 @@ audience: humans_and_agents
 
 - [`FT-002/README.md`](FT-002/README.md) — complete Reviewer CLI delivery for issue #2.
 - [`FT-003/README.md`](FT-003/README.md) — automated GitHub Release delivery.
+- [`FT-005/README.md`](FT-005/README.md) — fast/best model and reasoning-effort profiles for issue #5.

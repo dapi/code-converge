@@ -66,11 +66,7 @@ func (a Adapter) FixFindings(ctx context.Context, report string) error {
 }
 
 func (a Adapter) FixCI(ctx context.Context) error {
-	args := []string{}
-	if strings.TrimSpace(a.Config.CIFixModel) != "" {
-		args = append(args, "-c", "model="+strconv.Quote(a.Config.CIFixModel))
-	}
-	args = append(args, "exec", "-")
+	args := append(modelArgs(a.Config.CIFixModel, a.Config.CIFixEffort), "exec", "-")
 	_, err := a.Runner.Run(ctx, runner.Invocation{Args: args, Stdin: a.Config.CIFixPrompt})
 	return err
 }
@@ -87,7 +83,7 @@ func (a Adapter) Finalize(ctx context.Context) (Finalization, error) {
 		return Finalization{}, fmt.Errorf("write finalization schema: %w", err)
 	}
 	prompt := a.Config.FinalizePrompt + "\n\nReturn only the JSON object required by the supplied output schema. Report the actual outcomes of commit, push, change_request, and ci."
-	args := append(modelArgs(a.Config.FinalizeModel, ""), "exec", "--output-schema", schemaPath, "--output-last-message", messagePath, "-")
+	args := append(modelArgs(a.Config.FinalizeModel, a.Config.FinalizeEffort), "exec", "--output-schema", schemaPath, "--output-last-message", messagePath, "-")
 	if _, err := a.Runner.Run(ctx, runner.Invocation{Args: args, Stdin: prompt}); err != nil {
 		return Finalization{}, err
 	}

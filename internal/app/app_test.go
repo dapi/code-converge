@@ -25,12 +25,33 @@ func testRepo(t *testing.T) (string, string) {
 func TestConfigCommand(t *testing.T) {
 	root, home := testRepo(t)
 	var stdout, stderr bytes.Buffer
-	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home}).Run(context.Background(), []string{"config", "--max-cycles=4"})
+	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home}).Run(context.Background(), []string{"config", "--mode=best", "--max-cycles=4"})
 	if code != 0 || stderr.Len() != 0 {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "max-cycles: 4 (cli; built-in: 10)") || !strings.Contains(stdout.String(), "ci-fix-model: agent-default (built-in default)") {
+	for _, want := range []string{
+		"mode: best (cli; built-in: fast)",
+		"max-cycles: 4 (cli; built-in: 10)",
+		"review-model: gpt-5.6-sol (best profile; built-in: gpt-5.6-terra)",
+		"finalize-reasoning-effort: medium (best profile)",
+		"ci-fix-reasoning-effort: high (best profile; built-in: medium)",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("missing %q in config output:\n%s", want, stdout.String())
+		}
+	}
+	if t.Failed() {
 		t.Fatalf("config output:\n%s", stdout.String())
+	}
+}
+
+func TestInvalidModeDoesNotInvokeCodex(t *testing.T) {
+	root, home := testRepo(t)
+	var stdout, stderr bytes.Buffer
+	fake := &appFakeRunner{t: t}
+	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home, Runner: fake}).Run(context.Background(), []string{"--mode=unknown"})
+	if code != workflow.ExitOperational || len(fake.invocations) != 0 || !strings.Contains(stderr.String(), "mode must be one of") {
+		t.Fatalf("code=%d invocations=%d stderr=%q", code, len(fake.invocations), stderr.String())
 	}
 }
 

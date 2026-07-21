@@ -66,6 +66,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 	configCommand := len(args) > 0 && args[0] == "config"
 	flags := flag.NewFlagSet("reviewer", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
+	bind(flags, "mode", &overrides.Mode)
 	bind(flags, "max-cycles", &overrides.MaxCycles)
 	bind(flags, "max-ci-recoveries", &overrides.MaxCIRecoveries)
 	bind(flags, "review-model", &overrides.ReviewModel)
@@ -74,8 +75,10 @@ func (a App) Run(ctx context.Context, args []string) int {
 	bind(flags, "fix-reasoning-effort", &overrides.FixEffort)
 	bind(flags, "fix-prompt-file", &overrides.FixPromptPath)
 	bind(flags, "finalize-model", &overrides.FinalizeModel)
+	bind(flags, "finalize-reasoning-effort", &overrides.FinalizeEffort)
 	bind(flags, "finalize-prompt-file", &overrides.FinalizePromptPath)
 	bind(flags, "ci-fix-model", &overrides.CIFixModel)
+	bind(flags, "ci-fix-reasoning-effort", &overrides.CIFixEffort)
 	bind(flags, "ci-fix-prompt-file", &overrides.CIFixPromptPath)
 
 	if len(args) > 0 && args[0] == "config" {
