@@ -267,6 +267,28 @@ This matches the configuration approach of [`start-issue`](https://github.com/da
 
 Prompts are file-backed, so they can be reviewed and versioned with project configuration. An absent project/user prompt file means that source has no value and resolution continues. An explicitly supplied CLI or environment path that does not exist is a configuration error and exits `2`. Relative CLI/environment paths are resolved from the current directory; project and user prompt files are resolved inside their respective configuration directories.
 
+### Models by workflow stage
+
+| Stage | Built-in model | Project / user config key | `reviewer` flag | Environment variable |
+| --- | --- | --- | --- | --- |
+| Review | `gpt-5.6-sol` | `review-model` | `--review-model` | `REVIEWER_REVIEW_MODEL` |
+| Fix findings | `gpt-5.6-luna` | `fix-model` | `--fix-model` | `REVIEWER_FIX_MODEL` |
+| Finalize (commit, push, change request, CI) | `gpt-5.3-codex-spark` | `finalize-model` | `--finalize-model` | `REVIEWER_FINALIZE_MODEL` |
+| Fix CI | agent default | `ci-fix-model` | `--ci-fix-model` | `REVIEWER_CI_FIX_MODEL` |
+
+For the first three stages, `reviewer` passes the selected model to Codex as `-c model=<model>`. Fix CI uses the Codex agent default unless `ci-fix-model` is configured, in which case it also passes `-c model=<model>`.
+
+### Proposed model profiles (not implemented)
+
+The following profiles are a proposed default for a future mode-selection feature. They do not change the current configuration or runtime behavior.
+
+| Stage | Fast (proposed default) | Best | Escalate to `gpt-5.6-sol` when |
+| --- | --- | --- | --- |
+| Review | `gpt-5.6-terra`, `medium` | `gpt-5.6-sol`, `high` | Not applicable: independent quality judgment is the stage's primary purpose. |
+| Fix findings | `gpt-5.6-luna`, `medium` | `gpt-5.6-terra`, `high` | Findings involve architecture, security, migrations, concurrency, or several connected modules. |
+| Finalize | `gpt-5.6-luna`, `medium` | `gpt-5.6-luna`, `medium` | Finalization requires diagnosing an unusual Git, change-request, or CI workflow; otherwise route CI failures to Fix CI. |
+| Fix CI | `gpt-5.6-luna`, `medium` | `gpt-5.6-terra`, `high` | The cause is not localized by logs, spans multiple components, or persists after a repair. |
+
 ### Options and defaults
 
 | Option | Flag | Environment variable | Project / user file | Default |
