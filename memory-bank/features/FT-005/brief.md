@@ -10,7 +10,7 @@ derived_from:
   - ../../../README.md
   - https://github.com/dapi/reviewer/issues/5
 status: active
-delivery_status: in_progress
+delivery_status: done
 audience: humans_and_agents
 must_not_define:
   - implementation_sequence
@@ -150,3 +150,12 @@ No unresolved blocking `DEC-*` remains. Feature-local decisions and their FPF pr
 | `EVID-02` | precedence matrix report | deterministic Go tests | changed config tests plus command output | `CHK-02` |
 | `EVID-03` | invocation argument report | fake-runner adapter tests | changed adapter tests plus command output | `CHK-03` |
 | `EVID-04` | verification/review bundle | local/CI runners and independent reviewer | command output, CI run, review result | `CHK-04` |
+
+### Delivery Evidence
+
+| Evidence ID | Result | Concrete carriers |
+| --- | --- | --- |
+| `EVID-01` | pass | `internal/config/config_test.go`, `internal/app/app_test.go`; `go test ./internal/config ./internal/app` |
+| `EVID-02` | pass | `TestModePrecedence`, `TestEveryStageOverrideSourceBeatsProfile`, and `TestFormatProfileAndEqualExplicitSources` in `internal/config/config_test.go` |
+| `EVID-03` | pass | `TestAdapterInvocations` and `TestFixCIWithModel` in `internal/codex/adapter_test.go`; `go test ./internal/codex` |
+| `EVID-04` | pass | local `make verify`, `make dist`, `git diff --check`; PR [#6](https://github.com/dapi/reviewer/pull/6) required Verify check; independent `codex review --base master` with no findings and `overall_correctness=patch is correct` |

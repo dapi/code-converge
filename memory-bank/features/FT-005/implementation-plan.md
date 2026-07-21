@@ -6,7 +6,7 @@ purpose: "Grounded execution plan for fast/best profile resolution, configuratio
 derived_from:
   - brief.md
   - design.md
-status: active
+status: archived
 audience: humans_and_agents
 must_not_define:
   - ft_005_scope
