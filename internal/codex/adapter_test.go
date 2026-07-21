@@ -63,6 +63,7 @@ func TestParseFinalization(t *testing.T) {
 		`{"verdict":"FAILED","commit":"success","push":"success","change_request":"skipped","ci":"success"}`,
 		`{"verdict":"FAILED","commit":"skipped","push":"skipped","change_request":"skipped","ci":"skipped"}`,
 		`{"verdict":"SUCCESS","commit":"success","push":"success","change_request":"skipped","ci":"skipped","extra":true}`,
+		`{"verdict":"FAILED","verdict":"SUCCESS","commit":"success","push":"success","change_request":"skipped","ci":"skipped"}`,
 		`{"verdict":"SUCCESS","commit":"success","push":"success","change_request":"skipped","ci":"skipped"} trailing`,
 	}
 	for _, data := range invalid {

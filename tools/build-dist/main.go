@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"crypto/sha256"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -26,6 +27,13 @@ func main() {
 	if !validVersion(*version) {
 		fatalf("invalid version %q", *version)
 	}
+	workDir, err := os.Getwd()
+	if err != nil {
+		fatalf("resolve source directory: %v", err)
+	}
+	if err := validateOutputDir(*outDir, workDir); err != nil {
+		fatalf("invalid output directory: %v", err)
+	}
 	if err := os.RemoveAll(*outDir); err != nil {
 		fatalf("clean output: %v", err)
 	}
@@ -45,7 +53,7 @@ func main() {
 			fatalf("create build dir: %v", err)
 		}
 		cmd := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags=-s -w -buildid=", "-o", binary, "./cmd/reviewer")
-		cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS="+item.os, "GOARCH="+item.arch)
+		cmd.Env = targetEnv(os.Environ(), item)
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 		if err := cmd.Run(); err != nil {
 			fatalf("build %s/%s: %v", item.os, item.arch, err)
@@ -78,6 +86,69 @@ func main() {
 
 func validVersion(version string) bool {
 	return strings.TrimSpace(version) != "" && !strings.ContainsAny(version, "/\\ \t\r\n")
+}
+
+// validateOutputDir prevents the cleanup step from deleting the source checkout.
+// Both paths are resolved through their existing symlinks before containment is checked.
+func validateOutputDir(outDir, sourceDir string) error {
+	output, err := canonicalPath(outDir)
+	if err != nil {
+		return fmt.Errorf("resolve output directory: %w", err)
+	}
+	source, err := canonicalPath(sourceDir)
+	if err != nil {
+		return fmt.Errorf("resolve source directory: %w", err)
+	}
+	rel, err := filepath.Rel(output, source)
+	if err != nil {
+		return fmt.Errorf("compare output and source directories: %w", err)
+	}
+	if rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)) {
+		return errors.New("output directory must not contain the source checkout")
+	}
+	return nil
+}
+
+// canonicalPath resolves symlinks in the deepest existing parent, preserving any
+// not-yet-created path components. This also protects new output directories under
+// a symlinked ancestor.
+func canonicalPath(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	for existing := abs; ; existing = filepath.Dir(existing) {
+		resolved, err := filepath.EvalSymlinks(existing)
+		if err == nil {
+			rel, err := filepath.Rel(existing, abs)
+			if err != nil {
+				return "", err
+			}
+			return filepath.Join(resolved, rel), nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return "", err
+		}
+	}
+}
+
+func targetEnv(base []string, item target) []string {
+	env := make([]string, 0, len(base)+4)
+	for _, value := range base {
+		if strings.HasPrefix(value, "CGO_ENABLED=") || strings.HasPrefix(value, "GOOS=") || strings.HasPrefix(value, "GOARCH=") || strings.HasPrefix(value, "GOAMD64=") {
+			continue
+		}
+		env = append(env, value)
+	}
+	env = append(env, "CGO_ENABLED=0", "GOOS="+item.os, "GOARCH="+item.arch)
+	if item.arch == "amd64" {
+		env = append(env, "GOAMD64=v1")
+	}
+	return env
 }
 
 func writeArchive(path, binary string) error {

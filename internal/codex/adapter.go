@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -187,7 +188,10 @@ func isExplicitClean(text string) bool {
 }
 
 func ParseFinalization(data []byte) (Finalization, error) {
-	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	if err := rejectDuplicateJSONKeys(data); err != nil {
+		return Finalization{}, fmt.Errorf("parse finalization response: %w", err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	var result Finalization
 	if err := decoder.Decode(&result); err != nil {
@@ -200,6 +204,66 @@ func ParseFinalization(data []byte) (Finalization, error) {
 		return Finalization{}, err
 	}
 	return result, nil
+}
+
+func rejectDuplicateJSONKeys(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := scanJSONValue(decoder); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return errors.New("finalization response contains trailing data")
+	}
+	return nil
+}
+
+func scanJSONValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, isDelimiter := token.(json.Delim)
+	if !isDelimiter {
+		return nil
+	}
+	switch delimiter {
+	case '{':
+		keys := make(map[string]struct{})
+		for decoder.More() {
+			key, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			name, ok := key.(string)
+			if !ok {
+				return errors.New("finalization response contains an invalid object key")
+			}
+			if _, exists := keys[name]; exists {
+				return fmt.Errorf("finalization response contains duplicate field %q", name)
+			}
+			keys[name] = struct{}{}
+			if err := scanJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		end, err := decoder.Token()
+		if err != nil || end != json.Delim('}') {
+			return errors.New("finalization response contains an unclosed object")
+		}
+	case '[':
+		for decoder.More() {
+			if err := scanJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		end, err := decoder.Token()
+		if err != nil || end != json.Delim(']') {
+			return errors.New("finalization response contains an unclosed array")
+		}
+	default:
+		return errors.New("finalization response contains an unexpected delimiter")
+	}
+	return nil
 }
 
 func validateFinalization(result Finalization) error {

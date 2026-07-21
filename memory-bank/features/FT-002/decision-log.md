@@ -91,3 +91,11 @@ Resolved by `DL-03`; the table below is retained as historical provenance.
 - **FPF closures:** Evidence Graph links acceptance claims to tests, CI, distribution checks and the independent review session; Trust/Assurance is sufficient for the declared local-artifact scope.
 - **Changes:** stale architecture/development/release/config facts reconciled; concrete evidence linked; `brief.md` moved to `done`; execution plan archived.
 - **Human gate:** no.
+
+### Cycle 4
+
+- **Summary:** External review identified three release/parser hardening gaps after the prior closure: checkout-destructive output cleanup, duplicate finalization fields accepted by the standard decoder, and inherited AMD64 ISA tuning.
+- **Critical / important:** all three were important and are resolved. The affected documents were `tools/build-dist/main.go`, `internal/codex/adapter.go`, and the canonical `design.md`; no documents conflicted.
+- **FPF closures:** retaining broad output-directory cleanup is not required for artifact generation, so containment validation is the least-permissive control before cleanup. The fail-closed finalization contract requires inspecting object-key cardinality before standard decoding. The generic `amd64` artifact claim requires a stable baseline, selected as `GOAMD64=v1` rather than ambient host tuning.
+- **Changes:** output containment validation resolves existing symlinks; build environments remove inherited Go target variables and set `GOAMD64=v1` only for AMD64; finalization rejects duplicate JSON object keys; deterministic tests and the solution design were updated.
+- **Human gate:** no; each choice follows existing fail-closed and generic-artifact commitments without adding product scope.
