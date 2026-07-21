@@ -2,7 +2,7 @@
 title: Product Vision
 doc_kind: product
 doc_function: canonical
-purpose: Confirmed product promise, experience principles, non-goals, and the current limit of reviewer strategy evidence.
+purpose: Confirmed product promise, experience principles, non-goals, and the intentionally bounded scope of reviewer.
 derived_from:
   - ../dna/governance.md
   - context.md
@@ -16,9 +16,9 @@ canonical_for:
 
 # Product Vision
 
-`reviewer` aims to make the local agent-development loop repeatable and observable: review the current repository, address findings, publish the result, and recover red CI through one CLI workflow. Codex is the default agent, while Git hosting, CI, and the coding agent remain external systems.
+`reviewer` aims to make the local agent-development loop repeatable and observable: review the current repository, address findings, publish the result, and recover red CI through one CLI workflow. Codex is the supported agent, while Git hosting, CI, and the coding agent remain external systems.
 
-No strategy beyond the MVP contract has been supplied. This document must not be used to infer a hosted product, business model, market expansion, or support for additional agents.
+The documented CLI is the complete intended product, not a minimum version of a broader platform. `reviewer` is expected to remain a small, bounded utility. This document must not be used to infer a hosted product, business model, market expansion, support for additional agents, or a continuing feature roadmap.
 
 ## Product Promise
 
@@ -28,7 +28,7 @@ An operator should receive an explicit terminal result rather than having to int
 
 | Bet ID | Bet | Why now | Evidence | Review cadence |
 | --- | --- | --- | --- | --- |
-| `BET-01` | Deliver the complete local review → fix → finalization → CI-recovery loop before expanding product scope. | This is the only approved product outcome. | [`context.md`](context.md), [`../../README.md`](../../README.md) | No cadence has been defined. |
+| `BET-01` | Deliver the complete local review → fix → finalization → CI-recovery loop as one bounded utility. | This is the intended product outcome, not a stepping stone to broader scope. | [`context.md`](context.md), [`../../README.md`](../../README.md) | No ongoing feature cadence is planned. |
 | `BET-02` | Treat explicit outcomes and observable review trends as part of the product contract. | Operators must distinguish success from unresolved findings or stage failure. | [`metrics.md`](metrics.md), [`../../README.md`](../../README.md) | Revisit when implementation evidence exists. |
 
 ## Experience Principles
@@ -40,8 +40,8 @@ An operator should receive an explicit terminal result rather than having to int
 ## Product Non-Goals
 
 - `PNG-01` Replacing Codex, Git, Git hosting, CI, or a task tracker.
-- `PNG-02` Hosted dashboards, persistent metric storage, or cross-run analytics in the MVP.
-- `PNG-03` Support for non-Codex agents in the MVP.
+- `PNG-02` Hosted dashboards, persistent metric storage, or cross-run analytics.
+- `PNG-03` Support for non-Codex agents.
 - `PNG-04` A business model or enterprise operating model; neither has been defined.
 
 ## Decision Rules
@@ -56,4 +56,4 @@ An operator should receive an explicit terminal result rather than having to int
 - [`metrics.md`](metrics.md)
 - [`../../README.md`](../../README.md)
 
-No strategy memo, customer research, or approved post-MVP roadmap has been supplied.
+No broader product strategy or continuing expansion roadmap is planned. Any future scope expansion would require a new explicit product decision.

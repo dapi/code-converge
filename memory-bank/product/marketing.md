@@ -27,7 +27,7 @@ canonical_for:
 
 ## Messaging
 
-- `MSG-01` Agentic CLI for automated review → fix → publish → CI loops, powered by Codex by default.
+- `MSG-01` Agentic CLI for automated review → fix → publish → CI loops, powered by Codex.
 - `MSG-02` The workflow stays local and reports explicit outcomes and progress instead of leaving failures implicit in raw agent output.
 
 ## Channels
@@ -43,6 +43,6 @@ canonical_for:
 
 ## Launch Constraints
 
-- `LC-01` The MVP must be implemented and meet its documented acceptance/evidence contract before it is described as working software.
+- `LC-01` The complete utility must be implemented and meet its documented acceptance/evidence contract before it is described as working software.
 - `LC-02` An official distribution or release requires a separately defined release process; none exists today.
 - `LC-03` Do not claim production readiness, adoption, reliability, time savings, or superiority without implementation and user evidence.

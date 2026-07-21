@@ -49,4 +49,4 @@ Product-документы не определяют предметную мод
 - [Customers](customers.md) — customer/user segments, jobs to be done, pains, evidence и assumptions.
 - [Metrics](metrics.md) — product metrics, baselines, targets, measurement ownership и instrumentation constraints.
 - [Marketing](marketing.md) — подтверждённое positioning и явные пробелы в go-to-market evidence.
-- [Roadmap](roadmap.md) — текущий MVP horizon и явно не определённые post-MVP themes.
+- [Roadmap](roadmap.md) — единая поставка законченной CLI-утилиты и явное отсутствие планового расширения продукта.
