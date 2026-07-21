@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -63,6 +64,32 @@ func TestExecIncludesCapturedDiagnosticOnFailure(t *testing.T) {
 	}
 	_, err := (Exec{Executable: "sh"}).Run(context.Background(), Invocation{Args: []string{"-c", "printf 'model unavailable' >&2; exit 7"}})
 	if err == nil || !strings.Contains(err.Error(), "model unavailable") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestExecContextCancelledBeforeStart(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := (Exec{Executable: "sh"}).Run(ctx, Invocation{Args: []string{"-c", "echo ok"}})
+	if err == nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestExecLongStderrTruncation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is POSIX-only")
+	}
+	_, err := (Exec{Executable: "sh"}).Run(context.Background(), Invocation{Args: []string{"-c", "printf '%*s' 10000 '' | tr ' ' 'x' >&2; exit 1"}})
+	if err == nil || !strings.Contains(err.Error(), "…") || len(err.Error()) < 8200 {
+		t.Fatalf("error not truncated: len=%d", len(err.Error()))
+	}
+}
+
+func TestExecDefaultExecutableName(t *testing.T) {
+	_, err := (Exec{}).Run(context.Background(), Invocation{Args: []string{"__nonexistent_subcommand__"}})
+	if err == nil || !strings.Contains(err.Error(), "codex") {
 		t.Fatalf("error = %v", err)
 	}
 }

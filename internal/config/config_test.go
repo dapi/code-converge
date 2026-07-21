@@ -114,3 +114,57 @@ func source(cfg Config, name string) string {
 	}
 	return ""
 }
+
+func TestLoadEmptyModelValidation(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	t.Setenv("REVIEWER_REVIEW_MODEL", "   ")
+	_, err := Load(root, home, Overrides{})
+	if err == nil || !strings.Contains(err.Error(), "review-model must not be empty") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestResolveFileReadError(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	path := filepath.Join(home, ".reviewer", "max-cycles")
+	write(t, path, "5\n")
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(path, 0o600)
+	_, err := Load(root, home, Overrides{})
+	if err == nil {
+		t.Fatal("expected read error")
+	}
+}
+
+func TestReadExplicitPromptAbsolutePath(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "prompt.md")
+	if err := os.WriteFile(path, []byte("absolute prompt\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(root, home, Overrides{FixPromptPath: OptionalString{Value: path, Set: true}})
+	if err != nil || cfg.FixPrompt != "absolute prompt\n" {
+		t.Fatalf("prompt = %q, %v", cfg.FixPrompt, err)
+	}
+}
+
+func TestFormatDefaultSource(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	cfg, err := Load(root, home, Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	formatted := Format(cfg)
+	for _, line := range strings.Split(formatted, "\n") {
+		if line != "" && strings.Contains(line, "built-in:") {
+			t.Fatalf("default source should not show built-in: %q", line)
+		}
+	}
+}

@@ -147,3 +147,105 @@ func TestFinalizationSchemaIsStrictJSON(t *testing.T) {
 		t.Fatal("unexpected filepath behavior")
 	}
 }
+
+func TestCountsTotal(t *testing.T) {
+	counts := Counts{Critical: 1, High: 2, Medium: 3, Low: 4, Unknown: 5}
+	if got := counts.Total(); got != 15 {
+		t.Fatalf("Total() = %d, want 15", got)
+	}
+}
+
+func TestReviewWithUnclassifiableReport(t *testing.T) {
+	r := &recordingRunner{result: runner.Result{Stdout: "Looks mostly good to me."}}
+	a := Adapter{Runner: r, Config: config.Config{ReviewModel: "m", ReviewEffort: "e"}}
+	_, err := a.Review(context.Background())
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+}
+
+type codexFakeRunner struct {
+	result      runner.Result
+	err         error
+	writePath   string
+	writeBytes  []byte
+	writeFile   bool
+}
+
+func (r *codexFakeRunner) Run(_ context.Context, invocation runner.Invocation) (runner.Result, error) {
+	for i, arg := range invocation.Args {
+		if arg == "--output-last-message" && i+1 < len(invocation.Args) && r.writeFile {
+			_ = os.WriteFile(invocation.Args[i+1], r.writeBytes, 0o600)
+		}
+	}
+	return r.result, r.err
+}
+
+func TestFixCIWithModel(t *testing.T) {
+	r := &recordingRunner{}
+	a := Adapter{Runner: r, Config: config.Config{CIFixModel: "ci-model", CIFixPrompt: "fix ci"}}
+	if err := a.FixCI(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	args := strings.Join(r.invocations[0].Args, " ")
+	if !strings.Contains(args, `model="ci-model"`) {
+		t.Fatalf("missing ci model in args: %s", args)
+	}
+}
+
+func TestFinalizeReadMessageError(t *testing.T) {
+	r := &codexFakeRunner{result: runner.Result{}, writeFile: false}
+	a := Adapter{Runner: r, Config: config.Config{FinalizeModel: "m", FinalizePrompt: "p"}}
+	_, err := a.Finalize(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "read finalization response") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestFinalizeParseError(t *testing.T) {
+	r := &codexFakeRunner{result: runner.Result{}, writeFile: true, writeBytes: []byte(`not json`)}
+	a := Adapter{Runner: r, Config: config.Config{FinalizeModel: "m", FinalizePrompt: "p"}}
+	_, err := a.Finalize(context.Background())
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+}
+
+func TestRejectDuplicateJSONKeysNestedCases(t *testing.T) {
+	valid := []string{
+		`{"verdict":"SUCCESS","nested":{"a":1,"b":[1,2,{"c":3}]}}`,
+		`{"verdict":"SUCCESS","list":[{"a":1},{"a":2}]}`,
+	}
+	for _, data := range valid {
+		if err := rejectDuplicateJSONKeys([]byte(data)); err != nil {
+			t.Errorf("valid data rejected: %s: %v", data, err)
+		}
+	}
+	invalid := []string{
+		`{"verdict":"SUCCESS","nested":{"a":1,"a":2}}`,
+		`{"verdict":"SUCCESS","list":[{"a":1,"a":2}]}`,
+		`{"verdict":"SUCCESS","a":{"b":1},"a":2}`,
+		`{"verdict":"SUCCESS"} trailing`,
+	}
+	for _, data := range invalid {
+		if err := rejectDuplicateJSONKeys([]byte(data)); err == nil {
+			t.Errorf("invalid data accepted: %s", data)
+		}
+	}
+}
+
+func TestValidateFinalizationEdgeCases(t *testing.T) {
+	invalid := []Finalization{
+		{Verdict: "SUCCESS", Commit: "success", Push: "success", ChangeRequest: "success", CI: "ok"},
+		{Verdict: "UNKNOWN", Commit: "success", Push: "success", ChangeRequest: "success", CI: "success"},
+		{Verdict: "FAILED", Commit: "success", Push: "success", ChangeRequest: "skipped", CI: "success"},
+		{Verdict: "FAILED", Commit: "success", Push: "success", ChangeRequest: "skipped", CI: "failed"},
+		{Verdict: "FAILED", Commit: "skipped", Push: "skipped", ChangeRequest: "skipped", CI: "skipped"},
+	}
+	for _, value := range invalid {
+		data, _ := json.Marshal(value)
+		if _, err := ParseFinalization(data); err == nil {
+			t.Errorf("invalid result accepted: %#v", value)
+		}
+	}
+}

@@ -224,6 +224,76 @@ func TestEventFailureStopsBeforeAgentSideEffects(t *testing.T) {
 	}
 }
 
+type configurableFailingWriter struct {
+	writes   int
+	failAfter int
+}
+
+func (w *configurableFailingWriter) Write(data []byte) (int, error) {
+	w.writes++
+	if w.writes >= w.failAfter {
+		return 0, errors.New("closed stdout")
+	}
+	return len(data), nil
+}
+
+func TestEmitFailureMidWorkflow(t *testing.T) {
+	tests := []struct {
+		name      string
+		failAfter int
+		agent     *fakeAgent
+	}{
+		{"review_completed", 3, &fakeAgent{reviews: []codex.ReviewResult{clean()}}},
+		{"fix-findings stage_started", 3, &fakeAgent{reviews: []codex.ReviewResult{findings()}}},
+		{"finalize stage_started", 4, &fakeAgent{reviews: []codex.ReviewResult{clean()}}},
+		{"run_completed", 10, &fakeAgent{reviews: []codex.ReviewResult{clean()}, finalizations: []codex.Finalization{success()}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			writer := &configurableFailingWriter{failAfter: test.failAfter}
+			var stderr bytes.Buffer
+			w := Workflow{Config: config.Config{MaxCycles: 1}, Agent: test.agent, Log: event.Logger{Out: writer}, Err: &stderr}
+			if code := w.Run(context.Background()); code != ExitOperational {
+				t.Fatalf("code=%d", code)
+			}
+			if !strings.Contains(stderr.String(), "write event stream") {
+				t.Fatalf("stderr=%q", stderr.String())
+			}
+		})
+	}
+}
+
+func TestMillisecondsNegative(t *testing.T) {
+	if got := milliseconds(-time.Second); got != "0" {
+		t.Fatalf("milliseconds(-1s) = %q, want 0", got)
+	}
+}
+
+func TestEmitStepsFailure(t *testing.T) {
+	writer := &configurableFailingWriter{failAfter: 5}
+	var stderr bytes.Buffer
+	agent := &fakeAgent{reviews: []codex.ReviewResult{clean()}, finalizations: []codex.Finalization{success()}}
+	w := Workflow{Config: config.Config{}, Agent: agent, Log: event.Logger{Out: writer}, Err: &stderr}
+	if code := w.Run(context.Background()); code != ExitOperational {
+		t.Fatalf("code=%d", code)
+	}
+}
+
+func TestCIFixResetsPhaseAndFixes(t *testing.T) {
+	agent := &fakeAgent{
+		reviews:       []codex.ReviewResult{clean(), findings(), clean()},
+		finalizations: []codex.Finalization{ciFailed(), success()},
+	}
+	code, output, _ := run(t, config.Config{MaxCycles: 1, MaxCIRecoveries: 1}, agent)
+	if code != ExitSuccess {
+		t.Fatalf("code=%d", code)
+	}
+	assertRecord(t, output, "event=stage_started", "stage=review", "review_phase=2", "cycle=1")
+	if agent.fixCalls != 1 {
+		t.Fatalf("expected one fix attempt in second phase, got %d", agent.fixCalls)
+	}
+}
+
 func assertRecord(t *testing.T, output string, fragments ...string) {
 	t.Helper()
 	for _, line := range strings.Split(output, "\n") {

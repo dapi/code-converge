@@ -12,13 +12,17 @@ import (
 var markdownLink = regexp.MustCompile(`\[[^\]]*\]\(([^)]+)\)`)
 
 func main() {
-	if len(os.Args) < 2 {
+	os.Exit(run(os.Args[1:]))
+}
+
+func run(args []string) int {
+	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "usage: check-markdown-links FILE...")
-		os.Exit(2)
+		return 2
 	}
 
 	failed := false
-	for _, source := range os.Args[1:] {
+	for _, source := range args {
 		contents, err := os.ReadFile(source)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s: %v\n", source, err)
@@ -49,8 +53,9 @@ func main() {
 	}
 
 	if failed {
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 func hasExternalScheme(target string) bool {
