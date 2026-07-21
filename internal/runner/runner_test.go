@@ -41,6 +41,22 @@ func TestExecCancellation(t *testing.T) {
 	}
 }
 
+func TestExecCancellationTerminatesDescendants(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("process groups are POSIX-only")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	_, err := (Exec{Executable: "sh"}).Run(ctx, Invocation{Args: []string{"-c", "(sleep 5) & wait"}})
+	if err == nil {
+		t.Fatal("cancelled process succeeded")
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("cancellation took %s; descendant likely survived", elapsed)
+	}
+}
+
 func TestExecIncludesCapturedDiagnosticOnFailure(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture is POSIX-only")

@@ -108,7 +108,7 @@ func modelArgs(model, effort string) []string {
 
 var (
 	ansiPattern          = regexp.MustCompile(`\x1b\[[0-9;]*[[:alpha:]]`)
-	bracketedFindingLine = regexp.MustCompile(`^\s*(?:[-*]\s+)?\[([^]]+)\]\s+.+$`)
+	bracketedFindingLine = regexp.MustCompile(`^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)?\[([^]]+)\]\s+.+$`)
 	priorityToken        = regexp.MustCompile(`^P[0-9]+$`)
 	findingHeading       = regexp.MustCompile(`(?i)^#{1,6}\s+findings\s*:?[[:space:]]*$`)
 )
@@ -133,14 +133,12 @@ func ParseReview(raw string) (ReviewResult, error) {
 		match := bracketedFindingLine.FindStringSubmatch(line)
 		if len(match) == 2 {
 			priority := strings.ToUpper(match[1])
-			if inFindings && !priorityToken.MatchString(priority) {
+			if !priorityToken.MatchString(priority) {
 				return ReviewResult{}, fmt.Errorf("review report contains unsupported finding label %q", match[1])
 			}
-			if priorityToken.MatchString(priority) {
-				addPriority(&counts, priority)
-				found++
-				continue
-			}
+			addPriority(&counts, priority)
+			found++
+			continue
 		}
 	}
 	if found > 0 {

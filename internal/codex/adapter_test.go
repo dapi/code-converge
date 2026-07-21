@@ -27,6 +27,8 @@ func TestParseReview(t *testing.T) {
 		{"priorities", "## Findings\n- [P0] critical\n- [P1] high\n- [P2] medium\n- [P3] low\n- [P4] future\n- no priority\n", ReviewResult{Counts: Counts{Critical: 1, High: 1, Medium: 1, Low: 1, Unknown: 1}}, false},
 		{"nested explanatory bullet", "## Findings\n- [P1] bug\n  - explanatory detail\n", ReviewResult{Counts: Counts{High: 1}}, false},
 		{"inline finding", "[P1] unsafe change — file.go:12", ReviewResult{Counts: Counts{High: 1}}, false},
+		{"markdown finding prefixes", "### [P1] heading\n+ [P2] plus\n1. [P3] ordered\n", ReviewResult{Counts: Counts{Medium: 1, High: 1, Low: 1}}, false},
+		{"headerless unsupported label", "[P1] bug\n[NOTE] context", ReviewResult{}, true},
 		{"non-priority finding label", "## Findings\n- [NOTE] context\n", ReviewResult{}, true},
 		{"non-priority label beside finding", "## Findings\n- [P1] bug\n- [NOTE] context\n", ReviewResult{}, true},
 		{"empty", "", ReviewResult{}, true},
