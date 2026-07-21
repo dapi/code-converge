@@ -221,20 +221,20 @@ The required event catalog is:
 | Event | Required event-specific fields |
 | --- | --- |
 | `run_started` | No fields beyond `ts` and `event`. |
-| `stage_started` | `stage`; also `review_phase` and `cycle` for `review` and `fix-findings`. |
-| `review_completed` | `stage=review`, `review_phase`, `cycle`, `status=clean\|findings\|failed`, and `duration_ms`. A classified result (`clean` or `findings`) also requires all findings counters; on command or classification failure the counters are omitted. This is the review stage's sole completion record. |
-| `stage_completed` | `stage=fix-findings\|finalize\|fix-ci`, `status=success\|failed`, and `duration_ms`. A successfully parsed finalization response also requires `verdict=SUCCESS\|CI_FAILED\|FAILED`; an invocation or parsing failure uses `status=failed` and omits `verdict`. |
-| `step_completed` | `stage=finalize`, `step=commit\|push\|change_request\|ci`, and `status=success\|skipped\|failed\|unknown`. Each finalization attempt emits one record for every listed step; a step that is inapplicable or not reached is `skipped`, while an outcome that cannot be established is `unknown`. |
+| `stage_started` | `stage`, `model`, `reasoning_effort`; also `review_phase` and `cycle` for `review` and `fix-findings`. |
+| `review_completed` | `stage=review`, `model`, `reasoning_effort`, `review_phase`, `cycle`, `status=clean\|findings\|failed`, and `duration_ms`. A classified result (`clean` or `findings`) also requires all findings counters; on command or classification failure the counters are omitted. This is the review stage's sole completion record. |
+| `stage_completed` | `stage=fix-findings\|finalize\|fix-ci`, `model`, `reasoning_effort`, `status=success\|failed`, and `duration_ms`. A successfully parsed finalization response also requires `verdict=SUCCESS\|CI_FAILED\|FAILED`; an invocation or parsing failure uses `status=failed` and omits `verdict`. |
+| `step_completed` | `stage=finalize`, `model`, `reasoning_effort`, `step=commit\|push\|change_request\|ci`, and `status=success\|skipped\|failed\|unknown`. Each finalization attempt emits one record for every listed step; a step that is inapplicable or not reached is `skipped`, while an outcome that cannot be established is `unknown`. |
 | `run_completed` | `status=success\|findings_remaining\|operational_failure\|ci_failure`, `exit_code`, and `total_duration_ms`. |
 
 For example:
 
 ```text
-ts=2026-07-21T10:04:05Z event=stage_started stage=review review_phase=1 cycle=2
-ts=2026-07-21T10:06:18Z event=review_completed stage=review review_phase=1 cycle=2 status=findings findings_total=3 findings_critical=0 findings_high=1 findings_medium=2 findings_low=0 findings_unknown=0 duration_ms=133000
-ts=2026-07-21T10:06:19Z event=stage_started stage=fix-findings review_phase=1 cycle=2
-ts=2026-07-21T10:10:42Z event=stage_completed stage=fix-findings review_phase=1 cycle=2 status=success duration_ms=263000
-ts=2026-07-21T10:12:00Z event=step_completed stage=finalize step=change_request status=skipped
+ts=2026-07-21T10:04:05Z event=stage_started stage=review model=gpt-5.6-sol reasoning_effort=medium review_phase=1 cycle=2
+ts=2026-07-21T10:06:18Z event=review_completed stage=review model=gpt-5.6-sol reasoning_effort=medium review_phase=1 cycle=2 status=findings findings_total=3 findings_critical=0 findings_high=1 findings_medium=2 findings_low=0 findings_unknown=0 duration_ms=133000
+ts=2026-07-21T10:06:19Z event=stage_started stage=fix-findings model=gpt-5.6-luna reasoning_effort=medium review_phase=1 cycle=2
+ts=2026-07-21T10:10:42Z event=stage_completed stage=fix-findings model=gpt-5.6-luna reasoning_effort=medium review_phase=1 cycle=2 status=success duration_ms=263000
+ts=2026-07-21T10:12:00Z event=step_completed stage=finalize model=gpt-5.3-codex-spark reasoning_effort=agent-default step=change_request status=skipped
 ```
 
 ### Review metrics
@@ -244,7 +244,7 @@ Every successfully classified review logs `findings_total` plus `findings_critic
 The review-completion record is emitted even when there are no findings, for example:
 
 ```text
-ts=2026-07-21T10:12:09Z event=review_completed stage=review review_phase=1 cycle=3 status=clean findings_total=0 findings_critical=0 findings_high=0 findings_medium=0 findings_low=0 findings_unknown=0 duration_ms=87000
+ts=2026-07-21T10:12:09Z event=review_completed stage=review model=gpt-5.6-sol reasoning_effort=medium review_phase=1 cycle=3 status=clean findings_total=0 findings_critical=0 findings_high=0 findings_medium=0 findings_low=0 findings_unknown=0 duration_ms=87000
 ```
 
 This makes the trend across cycles directly measurable without requiring it to be monotonic: the `findings_*` fields show how the number and severity change, while `duration_ms` measures the cost of each review, fix, finalization, and CI-fix stage. `run_completed` contains `status`, `exit_code`, and `total_duration_ms`.

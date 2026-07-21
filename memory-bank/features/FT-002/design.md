@@ -73,7 +73,7 @@ flowchart LR
 
 - `CTR-01` Review command: `codex -c model=<model> -c model_reasoning_effort=<effort> review --uncommitted`; exit zero plus classified stdout is required. Recognized findings map `P0/P1/P2/P3` to `critical/high/medium/low`; any other recognized finding priority is `unknown` only when an explicit bracketed priority token is present.
 - `CTR-02` Agent command: `codex [model overrides] exec ... -`, with prompt on stdin and captured streams. Finalization adds schema and last-message paths; fix stages do not expose agent output to workflow stdout.
-- `CTR-03` Event records contain ordered `key=value` fields with encoded values that reject whitespace, `=`, or newlines. Each started stage has exactly one completion record; each run has exactly one terminal record.
+- `CTR-03` Event records contain ordered `key=value` fields with encoded values that reject whitespace, `=`, or newlines. Stage records include the selected `model` and `reasoning_effort`; each started stage has exactly one completion record; each run has exactly one terminal record.
 - `CTR-04` Finalization consistency: `SUCCESS` requires every step=`success|skipped`; `CI_FAILED` requires commit/push/change_request=`success|skipped` and ci=`failed`; `FAILED` requires at least one failed/unknown step. `skipped` covers an inapplicable no-change step; invalid combinations are parsing failures.
 - `INV-01` `findings_total` always equals the five normalized counters for a classified review.
 - `INV-02` A workflow success can only follow a clean review and consistent finalization `SUCCESS`.

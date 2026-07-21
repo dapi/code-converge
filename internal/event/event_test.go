@@ -10,10 +10,10 @@ import (
 func TestEmit(t *testing.T) {
 	var out bytes.Buffer
 	logger := Logger{Out: &out, Now: func() time.Time { return time.Date(2026, 7, 21, 10, 4, 5, 0, time.FixedZone("x", 3600)) }}
-	if err := logger.Emit("stage_started", F("stage", "review"), F("cycle", "1")); err != nil {
+	if err := logger.Emit("stage_started", F("stage", "review"), F("model", "gpt-test"), F("reasoning_effort", "medium"), F("cycle", "1")); err != nil {
 		t.Fatal(err)
 	}
-	want := "ts=2026-07-21T09:04:05Z event=stage_started stage=review cycle=1\n"
+	want := "ts=2026-07-21T09:04:05Z event=stage_started stage=review model=gpt-test reasoning_effort=medium cycle=1\n"
 	if out.String() != want {
 		t.Fatalf("record = %q, want %q", out.String(), want)
 	}
