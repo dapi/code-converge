@@ -25,7 +25,7 @@ The roadmap contains one product outcome: deliver the complete `reviewer` CLI de
 
 | Horizon | Theme | Intended outcome | Current owner | Dependency | Status |
 | --- | --- | --- | --- | --- | --- |
-| `now` | Complete reviewer CLI | A distributable local Go CLI performs the full documented review/fix/finalization/CI-recovery workflow with observable terminal results | [`../prd/PRD-001-reviewer-cli.md`](../prd/PRD-001-reviewer-cli.md) | One Feature Flow package, implementation, tests, acceptance, and distribution evidence | active |
+| `now` | Complete reviewer CLI | A distributable local Go CLI performs the full documented review/fix/finalization/CI-recovery workflow with observable terminal results | [`../features/FT-002/brief.md`](../features/FT-002/brief.md) | Implementation, deterministic tests, accepted PR and distribution evidence | completed |
 
 ## Roadmap Rules
 

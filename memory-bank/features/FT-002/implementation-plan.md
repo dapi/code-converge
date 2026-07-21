@@ -6,7 +6,7 @@ purpose: "Execution plan for implementing, validating and publishing the complet
 derived_from:
   - brief.md
   - design.md
-status: active
+status: archived
 audience: humans_and_agents
 must_not_define:
   - ft_002_scope

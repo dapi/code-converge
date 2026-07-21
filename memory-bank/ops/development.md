@@ -15,30 +15,28 @@ canonical_for:
 
 ## Current state
 
-The repository currently contains its public specification and adapted Memory Bank. The Go module and implementation commands do not exist yet and are outside the Memory Bank adoption scope.
+The repository contains the public specification, governed Memory Bank, Go module, CLI implementation, deterministic tests, and distribution tooling.
 
 ## Prerequisites
 
-- Go `1.21.13` or a compatible newer toolchain for the current documentation checks. This is a tooling pin, not the future application's minimum supported Go version.
-- The application's minimum Go version remains undecided and must be selected when implementation begins.
-- Local Git access for development. Remote-hosting credentials are not needed for Memory Bank adoption.
+- Go `1.21.13` or a compatible newer toolchain; this is the application's minimum supported build version.
+- Local Git access for development. Remote-hosting credentials are needed only for publication work.
 - `codex` installed and authenticated for manual Codex adapter verification.
 
-## Documentation checks
+## Required checks
 
 ```sh
 make docs-lint
+go test ./...
+go vet ./...
 git diff --check
 ```
 
-## Future implementation checks
-
-Once the Go module exists, the expected baseline is:
+The combined local baseline is:
 
 ```sh
-go test ./...
-go vet ./...
-make docs-lint
+make verify
+git diff --check
 ```
 
-Hosted CI and manual publication tests are optional future validation surfaces. If later required, use a disposable repository and non-default branch; never exercise commit/push/change-request behavior against a production repository merely to prove local setup.
+`make dist` builds the supported artifact matrix. Hosted CI repeats verify, distribution, and Linux AMD64 archive smoke. Tests must not exercise commit/push/change-request behavior against a real remote merely to prove setup.

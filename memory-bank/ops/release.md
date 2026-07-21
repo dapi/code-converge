@@ -11,29 +11,36 @@ audience: humans_and_agents
 
 # Release And Deployment
 
-No official `reviewer` release or deployment flow exists yet. The repository contains the product specification and Memory Bank; the Go module, binary build, versioning policy, release artifacts, and distribution channels are not established. A push to the default branch or green change-request CI is not by itself an official product release.
+No official hosted `reviewer` release has been published yet. The repository can produce deterministic installable artifacts, but a push to the default branch, green change-request CI, or local `dist/` directory is not by itself an official product release.
 
 ## Release Flow
 
-N/A until a release change defines and validates the process.
+The supported build matrix is macOS and Linux on AMD64 and ARM64. Each release unit is a normalized `tar.gz` containing one `reviewer` binary plus the aggregate `SHA256SUMS`. The current distribution path is manual checksum verification, extraction, and copy to an operator-owned directory on `PATH`.
 
 ## Release Commands
 
-None. The project must not advertise or automate release creation, package publication, or production deployment until commands and approval boundaries are designed and tested.
+```sh
+VERSION=<version> make dist
+```
+
+This produces local artifacts only. Creating a GitHub Release, signing, or publishing to a package manager remains an explicit external action requiring its own approval.
 
 ## Release Test Plan
 
-No release test-plan format exists. Before the first official release, the owning change must define artifact identity, supported platforms, build reproducibility, acceptance/smoke checks, and evidence storage.
+- Run `make verify`.
+- Run `make dist` twice from the same revision and compare `SHA256SUMS`.
+- Validate every checksum from inside `dist/`.
+- Extract and run `reviewer config` from a native target archive; CI performs Linux AMD64 smoke.
+- Retain the commit SHA, checksum manifest, required-CI run, and smoke result as release evidence.
 
 ## Rollback
 
-N/A because there is no deployed reviewer service or published release unit. Source changes remain recoverable through normal Git history, but that is not a substitute for a future release rollback policy.
+The CLI has no persistent state or migration. Backout replaces or removes the installed binary and restores the prior verified artifact. Local `dist/` is disposable and can be rebuilt from the source revision.
 
 ## Unresolved Release Decisions
 
-- Versioning and changelog policy.
-- Minimum Go version and supported build targets.
-- Artifact formats, signing/checksums, and distribution channel.
-- Release approval owner, CI gates, and rollback unit.
+- Versioning and changelog policy beyond the caller-supplied artifact version.
+- Signing policy and any package-manager or hosted release channel.
+- Official release approval owner.
 
-Resolve these through an explicitly governed release/deployment change; do not infer them from generic Go or repository-hosting conventions.
+These unresolved official-publication decisions do not block deterministic local artifacts. Resolve them before claiming or publishing an official release.

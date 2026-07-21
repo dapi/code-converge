@@ -16,6 +16,6 @@ canonical_for:
 
 The root [`README.md`](../../README.md) solely owns configuration source precedence, option names, and built-in values. This document records operational interpretation without maintaining a second copy of that public contract.
 
-The future `reviewer config` command prints each effective value and its source. If the effective value differs from its built-in default, it prints that default too.
+`reviewer config` prints each effective value and its source. If the effective value differs from its built-in default, it prints that default too.
 
 `codex` authentication and credentials for any configured Git remote or hosting provider are environment prerequisites, not `reviewer` configuration values. Provider-specific credentials are required only when the selected finalization workflow needs them. The application must not log secrets or token values.

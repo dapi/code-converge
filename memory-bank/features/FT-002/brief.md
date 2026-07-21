@@ -13,7 +13,7 @@ derived_from:
   - ../../engineering/validation-profiles.md
   - ../../ops/release.md
 status: active
-delivery_status: in_progress
+delivery_status: done
 audience: humans_and_agents
 must_not_define:
   - implementation_sequence
@@ -176,3 +176,14 @@ Issue [#2](https://github.com/dapi/reviewer/issues/2) delivers the product defin
 | `EVID-04` | Test/vet/CI/review bundle | local/CI runners and independent reviewer | `artifacts/ft-002/verify/chk-04/` | `CHK-04` |
 | `EVID-05` | Docs/diff reports | local or CI runner | `artifacts/ft-002/verify/chk-05/` | `CHK-05` |
 | `EVID-06` | Release evidence bundle | approved release verifier | `artifacts/ft-002/verify/chk-06/` | `CHK-06` |
+
+### Evidence Results
+
+| Evidence ID | Concrete carriers | Result |
+| --- | --- | --- |
+| `EVID-01` | `internal/config/config_test.go`, `internal/workflow/workflow_test.go` | Pass locally and in required CI. |
+| `EVID-02` | `internal/codex/adapter_test.go`, `internal/runner/runner_test.go` | Parser/process corpus, failure diagnostics and cancellation pass. |
+| `EVID-03` | `internal/event/event_test.go`, workflow terminal-path tests | Schema, counters, ordering and failed-writer behavior pass. |
+| `EVID-04` | [PR #4](https://github.com/dapi/reviewer/pull/4), [Verify CI](https://github.com/dapi/reviewer/actions/runs/29839977861/job/88666073511), Codex review session `019f8519-b65f-77b1-81c1-141503394e38` | CI green; fourth independent review found no correctness issue. |
+| `EVID-05` | `make docs-lint`, `git diff --check`, same CI job | Pass. |
+| `EVID-06` | `tools/build-dist`, `SHA256SUMS` generated twice, native macOS ARM64 smoke, CI Linux AMD64 smoke | Identical checksums; all four archives verify; native and CI smoke pass. |
