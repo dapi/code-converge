@@ -23,7 +23,9 @@ func TestParseReview(t *testing.T) {
 	}{
 		{"clean", "No findings.\n", ReviewResult{Clean: true}, false},
 		{"clean heading", "## Review\nNo issues found.\n", ReviewResult{Clean: true}, false},
-		{"priorities", "## Findings\n- [P0] critical\n- [P1] high\n- [P2] medium\n- [P3] low\n- [P4] future\n- no priority\n", ReviewResult{Counts: Counts{Critical: 1, High: 1, Medium: 1, Low: 1, Unknown: 2}}, false},
+		{"clean findings heading", "## Findings\n- None found\n", ReviewResult{Clean: true}, false},
+		{"priorities", "## Findings\n- [P0] critical\n- [P1] high\n- [P2] medium\n- [P3] low\n- [P4] future\n- no priority\n", ReviewResult{Counts: Counts{Critical: 1, High: 1, Medium: 1, Low: 1, Unknown: 1}}, false},
+		{"nested explanatory bullet", "## Findings\n- [P1] bug\n  - explanatory detail\n", ReviewResult{Counts: Counts{High: 1}}, false},
 		{"inline finding", "[P1] unsafe change — file.go:12", ReviewResult{Counts: Counts{High: 1}}, false},
 		{"empty", "", ReviewResult{}, true},
 		{"ambiguous prose", "Looks mostly good to me.", ReviewResult{}, true},
@@ -90,15 +92,16 @@ func (r *recordingRunner) Run(_ context.Context, invocation runner.Invocation) (
 }
 
 func TestAdapterInvocations(t *testing.T) {
-	r := &recordingRunner{result: runner.Result{Stdout: "No findings.\n"}}
+	const report = "## Findings\n- [P1] preserve this finding\n"
+	r := &recordingRunner{result: runner.Result{Stdout: report}}
 	a := Adapter{Runner: r, Config: config.Config{
 		ReviewModel: "review", ReviewEffort: "high", FixModel: "fix", FixEffort: "medium", FixPrompt: "fix it",
 		FinalizeModel: "final", FinalizePrompt: "finalize", CIFixPrompt: "ci",
 	}}
-	if result, err := a.Review(context.Background()); err != nil || !result.Clean {
+	if result, err := a.Review(context.Background()); err != nil || result.Clean || result.Report != strings.TrimSpace(report) {
 		t.Fatalf("review = %#v, %v", result, err)
 	}
-	if err := a.FixFindings(context.Background()); err != nil {
+	if err := a.FixFindings(context.Background(), strings.TrimSpace(report)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := a.Finalize(context.Background()); err != nil {
@@ -110,7 +113,7 @@ func TestAdapterInvocations(t *testing.T) {
 	if got := strings.Join(r.invocations[0].Args, " "); !strings.Contains(got, `model="review"`) || !strings.HasSuffix(got, "review --uncommitted") {
 		t.Errorf("review args = %s", got)
 	}
-	if r.invocations[1].Stdin != "fix it" || r.invocations[3].Stdin != "ci" {
+	if r.invocations[1].Stdin != "fix it\n\nReview findings to address:\n\n"+strings.TrimSpace(report) || r.invocations[3].Stdin != "ci" {
 		t.Errorf("prompts not passed through: %#v", r.invocations)
 	}
 	finalArgs := strings.Join(r.invocations[2].Args, " ")

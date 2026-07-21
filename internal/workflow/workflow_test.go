@@ -20,6 +20,7 @@ type fakeAgent struct {
 	finalizeErr   error
 	fixErr        error
 	ciFixErr      error
+	fixReports    []string
 	reviewCalls   int
 	fixCalls      int
 	finalizeCalls int
@@ -38,7 +39,11 @@ func (f *fakeAgent) Review(context.Context) (codex.ReviewResult, error) {
 	return f.reviews[index], nil
 }
 
-func (f *fakeAgent) FixFindings(context.Context) error { f.fixCalls++; return f.fixErr }
+func (f *fakeAgent) FixFindings(_ context.Context, report string) error {
+	f.fixCalls++
+	f.fixReports = append(f.fixReports, report)
+	return f.fixErr
+}
 
 func (f *fakeAgent) Finalize(context.Context) (codex.Finalization, error) {
 	index := f.finalizeCalls
@@ -62,7 +67,9 @@ func ciFailed() codex.Finalization {
 	return codex.Finalization{Verdict: "CI_FAILED", Commit: "success", Push: "success", ChangeRequest: "success", CI: "failed"}
 }
 
-func findings() codex.ReviewResult { return codex.ReviewResult{Counts: codex.Counts{High: 1}} }
+func findings() codex.ReviewResult {
+	return codex.ReviewResult{Counts: codex.Counts{High: 1}, Report: "## Findings\n- [P1] a finding"}
+}
 
 func clean() codex.ReviewResult { return codex.ReviewResult{Clean: true} }
 
@@ -106,6 +113,15 @@ func TestZeroFixBudget(t *testing.T) {
 	code, _, _ := run(t, config.Config{MaxCycles: 0}, agent)
 	if code != ExitFindingsRemaining || agent.fixCalls != 0 || agent.reviewCalls != 1 {
 		t.Fatalf("code=%d fixes=%d reviews=%d", code, agent.fixCalls, agent.reviewCalls)
+	}
+}
+
+func TestFixReceivesReviewReport(t *testing.T) {
+	result := findings()
+	agent := &fakeAgent{reviews: []codex.ReviewResult{result, clean()}, finalizations: []codex.Finalization{success()}}
+	code, _, _ := run(t, config.Config{MaxCycles: 1}, agent)
+	if code != ExitSuccess || len(agent.fixReports) != 1 || agent.fixReports[0] != result.Report {
+		t.Fatalf("code=%d reports=%q", code, agent.fixReports)
 	}
 }
 

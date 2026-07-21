@@ -44,6 +44,18 @@ func TestInvalidConfigurationEmitsTerminalRun(t *testing.T) {
 	}
 }
 
+func TestInvalidFlagEmitsTerminalRun(t *testing.T) {
+	root, home := testRepo(t)
+	var stdout, stderr bytes.Buffer
+	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home}).Run(context.Background(), []string{"--unknown"})
+	if code != 2 {
+		t.Fatalf("code=%d", code)
+	}
+	if !strings.Contains(stdout.String(), "event=run_started") || !strings.Contains(stdout.String(), "event=run_completed status=operational_failure exit_code=2") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+}
+
 func TestUnknownCommandFailsWithoutWorkflow(t *testing.T) {
 	root, home := testRepo(t)
 	var stdout, stderr bytes.Buffer

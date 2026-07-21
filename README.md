@@ -36,7 +36,7 @@ For metrics, Codex priorities are normalized as follows: `P0` → `critical`, `P
 
 ### 2. Fix findings
 
-When the review has findings, `reviewer` starts Codex with the configured fix-findings prompt. By default, the prompt is:
+When the review has findings, `reviewer` starts a fresh Codex session with the configured fix-findings prompt followed by the complete classified review report. This gives the stateless remediation session the findings it must address without forwarding the report to workflow stdout. By default, the prompt is:
 
 ```text
 fix findings

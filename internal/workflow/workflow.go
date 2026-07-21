@@ -21,7 +21,7 @@ const (
 
 type Agent interface {
 	Review(context.Context) (codex.ReviewResult, error)
-	FixFindings(context.Context) error
+	FixFindings(context.Context, string) error
 	Finalize(context.Context) (codex.Finalization, error)
 	FixCI(context.Context) error
 }
@@ -79,7 +79,7 @@ func (w Workflow) Run(ctx context.Context) int {
 			if !w.emit("stage_started", event.F("stage", "fix-findings"), intField("review_phase", phase), intField("cycle", cycle)) {
 				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 			}
-			err = w.Agent.FixFindings(ctx)
+			err = w.Agent.FixFindings(ctx, review.Report)
 			stageStatus := "success"
 			if err != nil {
 				stageStatus = "failed"

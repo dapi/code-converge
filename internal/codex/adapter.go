@@ -30,6 +30,7 @@ func (c Counts) Total() int { return c.Critical + c.High + c.Medium + c.Low + c.
 type ReviewResult struct {
 	Clean  bool
 	Counts Counts
+	Report string
 }
 
 type Finalization struct {
@@ -50,11 +51,17 @@ func (a Adapter) Review(ctx context.Context) (ReviewResult, error) {
 	if err != nil {
 		return ReviewResult{}, err
 	}
-	return ParseReview(result.Stdout)
+	review, err := ParseReview(result.Stdout)
+	if err != nil {
+		return ReviewResult{}, err
+	}
+	review.Report = strings.TrimSpace(ansiPattern.ReplaceAllString(result.Stdout, ""))
+	return review, nil
 }
 
-func (a Adapter) FixFindings(ctx context.Context) error {
-	_, err := a.Runner.Run(ctx, runner.Invocation{Args: append(modelArgs(a.Config.FixModel, a.Config.FixEffort), "exec", "-"), Stdin: a.Config.FixPrompt})
+func (a Adapter) FixFindings(ctx context.Context, report string) error {
+	prompt := a.Config.FixPrompt + "\n\nReview findings to address:\n\n" + report
+	_, err := a.Runner.Run(ctx, runner.Invocation{Args: append(modelArgs(a.Config.FixModel, a.Config.FixEffort), "exec", "-"), Stdin: prompt})
 	return err
 }
 
@@ -103,7 +110,6 @@ var (
 	ansiPattern    = regexp.MustCompile(`\x1b\[[0-9;]*[[:alpha:]]`)
 	priorityLine   = regexp.MustCompile(`^\s*(?:[-*]\s+)?\[(P[0-9]+|[^]]+)\]\s+.+$`)
 	findingHeading = regexp.MustCompile(`(?i)^#{1,6}\s+findings\s*:?[[:space:]]*$`)
-	bulletLine     = regexp.MustCompile(`^\s*[-*]\s+\S`)
 )
 
 func ParseReview(raw string) (ReviewResult, error) {
@@ -129,10 +135,6 @@ func ParseReview(raw string) (ReviewResult, error) {
 			found++
 			continue
 		}
-		if inFindings && bulletLine.MatchString(line) {
-			counts.Unknown++
-			found++
-		}
 	}
 	if found > 0 {
 		if containsExplicitCleanLine(text) {
@@ -140,7 +142,7 @@ func ParseReview(raw string) (ReviewResult, error) {
 		}
 		return ReviewResult{Counts: counts}, nil
 	}
-	if isExplicitClean(text) {
+	if isExplicitCleanReport(text) {
 		return ReviewResult{Clean: true}, nil
 	}
 	return ReviewResult{}, errors.New("review report is not safely classifiable")
@@ -172,10 +174,13 @@ func addPriority(counts *Counts, priority string) {
 
 func isExplicitClean(text string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(text))
+	normalized = strings.TrimSpace(strings.TrimPrefix(normalized, "- "))
+	normalized = strings.TrimSpace(strings.TrimPrefix(normalized, "* "))
 	normalized = strings.TrimSpace(strings.TrimPrefix(normalized, "## review"))
 	normalized = strings.TrimSpace(strings.TrimPrefix(normalized, "## findings"))
 	normalized = strings.TrimSpace(strings.TrimPrefix(normalized, ":"))
 	allowed := map[string]bool{
+		"none found": true, "none found.": true,
 		"no findings": true, "no findings.": true,
 		"no findings found": true, "no findings found.": true,
 		"no issues found": true, "no issues found.": true,
@@ -185,6 +190,27 @@ func isExplicitClean(text string) bool {
 		"i found no issues in the changes": true, "i found no issues in the changes.": true,
 	}
 	return allowed[normalized]
+}
+
+// isExplicitCleanReport accepts only a heading plus an allowlisted clean line
+// (or a standalone allowlisted clean line). Arbitrary prose is rejected.
+func isExplicitCleanReport(text string) bool {
+	cleanLine := false
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || findingHeading.MatchString(trimmed) || strings.EqualFold(trimmed, "## review") {
+			continue
+		}
+		if isExplicitClean(trimmed) {
+			if cleanLine {
+				return false
+			}
+			cleanLine = true
+			continue
+		}
+		return false
+	}
+	return cleanLine
 }
 
 func ParseFinalization(data []byte) (Finalization, error) {

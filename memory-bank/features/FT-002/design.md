@@ -36,7 +36,7 @@ No separate solution artifact is required. C3, contracts, state semantics, relea
 ## Accepted Local Decisions
 
 - `SD-01` Finalization invokes `codex exec` with a strict JSON Schema and reads only `--output-last-message`. The JSON object has `verdict`, `commit`, `push`, `change_request`, and `ci`; additional, missing, or duplicate fields are rejected.
-- `SD-02` Ordinary review accepts findings only from lines beginning with optional Markdown list syntax followed by `[P0]`–`[P3]`. A clean result must match an anchored explicit-clean allowlist after Markdown/whitespace normalization and contain no finding line. Unknown output fails closed.
+- `SD-02` Ordinary review accepts findings only from lines beginning with optional Markdown list syntax followed by `[P0]`–`[P3]`. A clean result must match an anchored explicit-clean allowlist after Markdown/whitespace normalization and contain no finding line. Unknown output fails closed. For a classified findings result, the normalized complete report is passed with the configured remediation prompt to the fresh Codex session; it is never emitted in workflow stdout.
 - `SD-03` Child processes inherit operator Codex sandbox/network/approval configuration. Reviewer adds no timeout/config surface; process cancellation follows the parent context.
 - `SD-04` Release baseline is Go `1.21.13`, targets `darwin/linux × amd64/arm64` (`GOAMD64=v1`), `tar.gz` archives, `SHA256SUMS`, and manual PATH installation. No signing, package-manager, hosted release or official registry promise is made.
 - `SD-05` Deterministic fake process/corpus tests plus repository CI and independent Codex review are the acceptance authority for this first delivery.

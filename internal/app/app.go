@@ -58,6 +58,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 	}
 
 	overrides := config.Overrides{}
+	configCommand := len(args) > 0 && args[0] == "config"
 	flags := flag.NewFlagSet("reviewer", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	bind(flags, "max-cycles", &overrides.MaxCycles)
@@ -77,6 +78,12 @@ func (a App) Run(ctx context.Context, args []string) int {
 	}
 	if err := flags.Parse(args); err != nil {
 		fmt.Fprintf(stderr, "reviewer: %v\n", err)
+		if !configCommand {
+			logger := event.Logger{Out: stdout, Now: a.Now}
+			started := time.Now()
+			_ = logger.Emit("run_started")
+			_ = logger.Emit("run_completed", event.F("status", "operational_failure"), event.F("exit_code", "2"), event.F("total_duration_ms", fmt.Sprint(time.Since(started).Milliseconds())))
+		}
 		return workflow.ExitOperational
 	}
 	if flags.NArg() > 1 || (flags.NArg() == 1 && flags.Arg(0) != "config") {
