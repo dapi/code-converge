@@ -26,13 +26,136 @@ flowchart TD
     G -- other failure --> X2[Exit 2]
 ```
 
+### Implementation flow
+
+```text
+┌─────────────────────────────────────────────────────────────────────┐
+│                        reviewer CLI                                  │
+└─────────────────────────────────────────────────────────────────────┘
+
+  args ──► parse flags ──► load config ──┬── config cmd? ──► print & exit 0
+                                        │
+                                        ▼
+                              ┌──────────────────┐
+                              │   run_started     │
+                              └────────┬─────────┘
+                                       │
+                 ┌─────────────────────┘
+                 │  phase=1, cycle=1, fixes=0, recoveries=0
+                 │
+                 ▼
+        ╔═══════════════════╗     ◄──────────────────────────────┐
+        ║   REVIEW STAGE    ║                                   │
+        ║                   ║                                   │
+        ║ codex review      ║                                   │
+        ║   --uncommitted   ║                                   │
+        ╚════════╤══════════╝                                   │
+                 │                                              │
+                 ▼                                              │
+        ┌────────────────┐                                      │
+        │  Parse review  │                                      │
+        │  report text   │                                      │
+        └───────┬────────┘                                      │
+                │                                               │
+       ┌────────┴────────┐                                      │
+       │                 │                                      │
+       ▼                 ▼                                      │
+  ┌─────────┐     ┌───────────┐                                 │
+  │  CLEAN  │     │  FINDINGS │                                 │
+  │         │     │           │                                 │
+  │  counts │     │  counts   │                                 │
+  │  = 0    │     │  P0..P3   │                                 │
+  └────┬────┘     └─────┬─────┘                                 │
+       │                │                                       │
+       │           fixes < max_cycles?                          │
+       │           ┌────┴────┐                                  │
+       │          yes        no ──► exit 1 (findings_remaining) │
+       │           │                                              │
+       │           ▼                                              │
+       │  ╔══════════════════════╗                               │
+       │  ║   FIX-FINDINGS      ║                               │
+       │  ║                     ║                               │
+       │  ║ codex exec -        ║                               │
+       │  ║ stdin:              ║                               │
+       │  ║  fix_prompt +       ║                               │
+       │  ║  "\n\n" +           ║                               │
+       │  ║  review_report      ║                               │
+       │  ╚═════════╤═══════════╝                               │
+       │            │                                           │
+       │         fixes++                                        │
+       │         cycle++                                        │
+       │            │                                           │
+       │            └───────────────────────────────────────────┘
+       │
+       ▼
+  ╔══════════════════════╗
+  ║   FINALIZE STAGE     ║
+  ║                      ║
+  ║ codex exec -         ║
+  ║   --output-schema    ║
+  ║   --output-last-msg  ║
+  ║ stdin: finalize      ║
+  ║   prompt             ║
+  ╚════════╤═════════════╝
+           │
+           ▼
+  ┌────────────────────┐
+  │  Parse JSON verdict│
+  │                    │
+  │  {verdict, commit, │
+  │   push, cr, ci}    │
+  └─────────┬──────────┘
+            │
+     ┌──────┼──────────┐
+     │      │          │
+     ▼      ▼          ▼
+ SUCCESS  CI_FAILED  FAILED
+     │      │          │
+     │      │          └──► exit 2 (operational_failure)
+     │      │
+     │  recoveries < max?
+     │  ┌────┴────┐
+     │ yes        no ──► exit 3 (ci_failure)
+     │  │
+     │  ▼
+     │ ╔══════════════╗
+     │ ║  FIX-CI      ║
+     │ ║              ║
+     │ ║ codex exec - ║
+     │ ║ stdin: ci    ║
+     │ ║   fix prompt ║
+     │ ╚══════╤═══════╝
+     │        │
+     │   recoveries++
+     │   phase++
+     │   cycle=1, fixes=0
+     │        │
+     │        └──────► back to REVIEW
+     │
+     ▼
+  ╔═══════════════╗
+  ║ run_completed ║
+  ║ status=success║
+  ║ exit_code=0   ║
+  ╚═══════════════╝
+```
+
+Key points:
+
+- **Review** — `codex review --uncommitted`, parses the report for `[P0]`..`[P3]` finding lines.
+- **Fix** — `codex exec -`, stdin = fix-prompt + full review report. The stateless remediation session receives the findings it must address.
+- **Finalize** — `codex exec --output-schema`, strict JSON verdict with hard validation.
+- **CI recovery** — on `CI_FAILED`, fixes CI, resets the fix cycle, and restarts from Review.
+- **Budget** — `max-cycles` counts only fix attempts, not the initial review.
+- **Fail closed** — unknown output ≠ clean; mixed output = error.
+
 ### 1. Review
 
 `reviewer` runs the normal non-interactive `codex review` command in the current directory. It uses the configured review model; the built-in default is `gpt-5.6-sol` with reasoning effort `medium`.
 
 The review adapter reads the ordinary Codex review report and distinguishes findings from an explicitly clean review. It does not require JSON or a caller-supplied output schema. A non-zero command exit or a report that cannot be classified safely is an operational failure and exits with code `2`; ambiguous output is never treated as a clean review.
 
-For metrics, Codex priorities are normalized as follows: `P0` → `critical`, `P1` → `high`, `P2` → `medium`, and `P3` → `low`. A finding without a recognized priority is counted as `unknown`. `findings_total` must equal the sum of all five counters.
+For metrics, Codex priorities are normalized as follows: `P0` → `critical`, `P1` → `high`, `P2` → `medium`, and `P3` → `low`. A bracketed numeric priority outside that range is counted as `unknown`; other bracket labels are not findings and make a findings report unclassifiable. `findings_total` must equal the sum of all five counters.
 
 ### 2. Fix findings
 

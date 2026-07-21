@@ -107,9 +107,10 @@ func modelArgs(model, effort string) []string {
 }
 
 var (
-	ansiPattern    = regexp.MustCompile(`\x1b\[[0-9;]*[[:alpha:]]`)
-	priorityLine   = regexp.MustCompile(`^\s*(?:[-*]\s+)?\[(P[0-9]+|[^]]+)\]\s+.+$`)
-	findingHeading = regexp.MustCompile(`(?i)^#{1,6}\s+findings\s*:?[[:space:]]*$`)
+	ansiPattern          = regexp.MustCompile(`\x1b\[[0-9;]*[[:alpha:]]`)
+	bracketedFindingLine = regexp.MustCompile(`^\s*(?:[-*]\s+)?\[([^]]+)\]\s+.+$`)
+	priorityToken        = regexp.MustCompile(`^P[0-9]+$`)
+	findingHeading       = regexp.MustCompile(`(?i)^#{1,6}\s+findings\s*:?[[:space:]]*$`)
 )
 
 func ParseReview(raw string) (ReviewResult, error) {
@@ -129,11 +130,17 @@ func ParseReview(raw string) (ReviewResult, error) {
 		if strings.HasPrefix(trimmed, "#") && inFindings {
 			inFindings = false
 		}
-		match := priorityLine.FindStringSubmatch(line)
-		if len(match) == 2 && (inFindings || strings.HasPrefix(strings.ToUpper(match[1]), "P")) {
-			addPriority(&counts, strings.ToUpper(match[1]))
-			found++
-			continue
+		match := bracketedFindingLine.FindStringSubmatch(line)
+		if len(match) == 2 {
+			priority := strings.ToUpper(match[1])
+			if inFindings && !priorityToken.MatchString(priority) {
+				return ReviewResult{}, fmt.Errorf("review report contains unsupported finding label %q", match[1])
+			}
+			if priorityToken.MatchString(priority) {
+				addPriority(&counts, priority)
+				found++
+				continue
+			}
 		}
 	}
 	if found > 0 {
@@ -311,6 +318,9 @@ func validateFinalization(result Finalization) error {
 	case "FAILED":
 		if oneOf(result.Commit, "success", "skipped") && oneOf(result.Push, "success", "skipped") && oneOf(result.ChangeRequest, "success", "skipped") && oneOf(result.CI, "success", "skipped") {
 			return errors.New("FAILED is inconsistent with successful step outcomes")
+		}
+		if oneOf(result.Commit, "success", "skipped") && oneOf(result.Push, "success", "skipped") && oneOf(result.ChangeRequest, "success", "skipped") && result.CI == "failed" {
+			return errors.New("FAILED is inconsistent with a CI-only failure")
 		}
 	default:
 		return errors.New("finalization response contains an unknown verdict")
