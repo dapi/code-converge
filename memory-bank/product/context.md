@@ -16,7 +16,7 @@ canonical_for:
 
 # Product Context
 
-`reviewer` is a local Go CLI for teams using coding agents. It turns the repeated manual loop of code review, fixing findings, publishing changes, and checking applicable CI into a single observable workflow. The MVP uses Codex.
+`reviewer` is a local Go CLI for teams using coding agents. It turns the repeated manual loop of code review, fixing findings, publishing changes, and checking applicable CI into a single observable workflow. The utility uses Codex.
 
 The product boundary is orchestration of the local agent-development loop. It does not replace Git hosting, CI, the coding agent, or a task tracker. It must make the outcome and unresolved failures explicit rather than claiming success from agent prose.
 
@@ -29,7 +29,7 @@ The product boundary is orchestration of the local agent-development loop. It do
 
 ## Product constraints
 
-- `PCON-01` The default integration is the locally installed and authenticated Codex CLI.
+- `PCON-01` The supported agent integration is the locally installed and authenticated Codex CLI.
 - `PCON-02` Every important step must be observable in one stdout line; review trend data must include severity counts and duration.
 - `PCON-03` Publication actions are delegated to the finalization agent and require credentials for the configured Git remote or hosting provider. No particular provider is required by the product contract.
 

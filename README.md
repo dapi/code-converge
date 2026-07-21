@@ -2,7 +2,7 @@
 
 `reviewer` (also known as `review-fixes` and `improver`) is a Go CLI that closes the agent-development loop: it asks an agent to review the current repository, fixes the findings, commits and publishes the result, and makes sure required CI is green when CI applies.
 
-The MVP supports [Codex](https://github.com/openai/codex) as its only agent. The command is intended to be run from the repository that should be reviewed.
+`reviewer` supports [Codex](https://github.com/openai/codex) as its only agent. The command is intended to be run from the repository that should be reviewed.
 
 ## Workflow
 
@@ -204,7 +204,7 @@ fix prompt:   .reviewer/fix-findings.md      (project; built-in: "fix findings")
 ## Requirements
 
 - Go runtime is not required to run a released binary; it is required to build from source.
-- `codex` must be installed, authenticated, and available on `PATH` when using the default agent.
+- `codex` must be installed, authenticated, and available on `PATH` when running `reviewer`.
 - The authenticated account must have access to the configured models; in particular, the default finalization model `gpt-5.3-codex-spark` is not available to every Codex account.
 - The target directory must be a Git repository.
 - `git` and any tooling or credentials required by the target repository's chosen remote-hosting workflow must be available to the finalization agent. No hosting provider is required by `reviewer`; provider-specific tooling is needed only when the selected finalization actions depend on it.
