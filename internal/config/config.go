@@ -23,6 +23,7 @@ type OptionalString struct {
 }
 
 type Overrides struct {
+	Mode               OptionalString
 	MaxCycles          OptionalString
 	MaxCIRecoveries    OptionalString
 	ReviewModel        OptionalString
@@ -31,8 +32,10 @@ type Overrides struct {
 	FixEffort          OptionalString
 	FixPromptPath      OptionalString
 	FinalizeModel      OptionalString
+	FinalizeEffort     OptionalString
 	FinalizePromptPath OptionalString
 	CIFixModel         OptionalString
+	CIFixEffort        OptionalString
 	CIFixPromptPath    OptionalString
 }
 
@@ -48,6 +51,7 @@ type Setting struct {
 type Config struct {
 	Root string
 
+	Mode            string
 	MaxCycles       int
 	MaxCIRecoveries int
 	ReviewModel     string
@@ -56,8 +60,10 @@ type Config struct {
 	FixEffort       string
 	FixPrompt       string
 	FinalizeModel   string
+	FinalizeEffort  string
 	FinalizePrompt  string
 	CIFixModel      string
+	CIFixEffort     string
 	CIFixPrompt     string
 
 	Settings []Setting
@@ -68,8 +74,38 @@ type spec struct {
 	file       string
 	env        string
 	def        string
+	builtIn    string
+	defSource  string
 	override   OptionalString
 	promptFile bool
+}
+
+type stageProfile struct {
+	reviewModel, reviewEffort     string
+	fixModel, fixEffort           string
+	finalizeModel, finalizeEffort string
+	ciFixModel, ciFixEffort       string
+}
+
+func profileFor(mode string) (stageProfile, bool) {
+	switch mode {
+	case "fast":
+		return stageProfile{
+			reviewModel: "gpt-5.6-terra", reviewEffort: "medium",
+			fixModel: "gpt-5.6-luna", fixEffort: "medium",
+			finalizeModel: "gpt-5.6-luna", finalizeEffort: "medium",
+			ciFixModel: "gpt-5.6-luna", ciFixEffort: "medium",
+		}, true
+	case "best":
+		return stageProfile{
+			reviewModel: "gpt-5.6-sol", reviewEffort: "high",
+			fixModel: "gpt-5.6-terra", fixEffort: "high",
+			finalizeModel: "gpt-5.6-luna", finalizeEffort: "medium",
+			ciFixModel: "gpt-5.6-terra", ciFixEffort: "high",
+		}, true
+	default:
+		return stageProfile{}, false
+	}
 }
 
 func Load(cwd, home string, overrides Overrides) (Config, error) {
@@ -85,22 +121,37 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 	}
 	projectDir := filepath.Join(root, ".reviewer")
 	userDir := filepath.Join(home, ".reviewer")
+	mode, modeSetting, err := resolve(spec{
+		name: "mode", file: "mode", env: "REVIEWER_MODE", def: "fast", builtIn: "fast", defSource: SourceDefault, override: overrides.Mode,
+	}, cwd, userDir, projectDir)
+	if err != nil {
+		return Config{}, err
+	}
+	profile, ok := profileFor(mode)
+	if !ok {
+		return Config{}, fmt.Errorf("mode must be one of: fast, best")
+	}
+	fast, _ := profileFor("fast")
+	profileSource := mode + " profile"
 	specs := []spec{
-		{"max-cycles", "max-cycles", "REVIEWER_MAX_CYCLES", "10", overrides.MaxCycles, false},
-		{"max-ci-recoveries", "max-ci-recoveries", "REVIEWER_MAX_CI_RECOVERIES", "3", overrides.MaxCIRecoveries, false},
-		{"review-model", "review-model", "REVIEWER_REVIEW_MODEL", "gpt-5.6-sol", overrides.ReviewModel, false},
-		{"review-reasoning-effort", "review-reasoning-effort", "REVIEWER_REVIEW_REASONING_EFFORT", "medium", overrides.ReviewEffort, false},
-		{"fix-model", "fix-model", "REVIEWER_FIX_MODEL", "gpt-5.6-luna", overrides.FixModel, false},
-		{"fix-reasoning-effort", "fix-reasoning-effort", "REVIEWER_FIX_REASONING_EFFORT", "medium", overrides.FixEffort, false},
-		{"fix-prompt", "fix-findings.md", "REVIEWER_FIX_PROMPT_FILE", "fix findings", overrides.FixPromptPath, true},
-		{"finalize-model", "finalize-model", "REVIEWER_FINALIZE_MODEL", "gpt-5.3-codex-spark", overrides.FinalizeModel, false},
-		{"finalize-prompt", "finalize.md", "REVIEWER_FINALIZE_PROMPT_FILE", "commit, push, create PR, ensure CI is green", overrides.FinalizePromptPath, true},
-		{"ci-fix-model", "ci-fix-model", "REVIEWER_CI_FIX_MODEL", "", overrides.CIFixModel, false},
-		{"ci-fix-prompt", "fix-ci.md", "REVIEWER_CI_FIX_PROMPT_FILE", "Исправь CI", overrides.CIFixPromptPath, true},
+		{name: "max-cycles", file: "max-cycles", env: "REVIEWER_MAX_CYCLES", def: "10", builtIn: "10", defSource: SourceDefault, override: overrides.MaxCycles},
+		{name: "max-ci-recoveries", file: "max-ci-recoveries", env: "REVIEWER_MAX_CI_RECOVERIES", def: "3", builtIn: "3", defSource: SourceDefault, override: overrides.MaxCIRecoveries},
+		{name: "review-model", file: "review-model", env: "REVIEWER_REVIEW_MODEL", def: profile.reviewModel, builtIn: fast.reviewModel, defSource: profileSource, override: overrides.ReviewModel},
+		{name: "review-reasoning-effort", file: "review-reasoning-effort", env: "REVIEWER_REVIEW_REASONING_EFFORT", def: profile.reviewEffort, builtIn: fast.reviewEffort, defSource: profileSource, override: overrides.ReviewEffort},
+		{name: "fix-model", file: "fix-model", env: "REVIEWER_FIX_MODEL", def: profile.fixModel, builtIn: fast.fixModel, defSource: profileSource, override: overrides.FixModel},
+		{name: "fix-reasoning-effort", file: "fix-reasoning-effort", env: "REVIEWER_FIX_REASONING_EFFORT", def: profile.fixEffort, builtIn: fast.fixEffort, defSource: profileSource, override: overrides.FixEffort},
+		{name: "fix-prompt", file: "fix-findings.md", env: "REVIEWER_FIX_PROMPT_FILE", def: "fix findings", builtIn: "fix findings", defSource: SourceDefault, override: overrides.FixPromptPath, promptFile: true},
+		{name: "finalize-model", file: "finalize-model", env: "REVIEWER_FINALIZE_MODEL", def: profile.finalizeModel, builtIn: fast.finalizeModel, defSource: profileSource, override: overrides.FinalizeModel},
+		{name: "finalize-reasoning-effort", file: "finalize-reasoning-effort", env: "REVIEWER_FINALIZE_REASONING_EFFORT", def: profile.finalizeEffort, builtIn: fast.finalizeEffort, defSource: profileSource, override: overrides.FinalizeEffort},
+		{name: "finalize-prompt", file: "finalize.md", env: "REVIEWER_FINALIZE_PROMPT_FILE", def: "commit, push, create PR, ensure CI is green", builtIn: "commit, push, create PR, ensure CI is green", defSource: SourceDefault, override: overrides.FinalizePromptPath, promptFile: true},
+		{name: "ci-fix-model", file: "ci-fix-model", env: "REVIEWER_CI_FIX_MODEL", def: profile.ciFixModel, builtIn: fast.ciFixModel, defSource: profileSource, override: overrides.CIFixModel},
+		{name: "ci-fix-reasoning-effort", file: "ci-fix-reasoning-effort", env: "REVIEWER_CI_FIX_REASONING_EFFORT", def: profile.ciFixEffort, builtIn: fast.ciFixEffort, defSource: profileSource, override: overrides.CIFixEffort},
+		{name: "ci-fix-prompt", file: "fix-ci.md", env: "REVIEWER_CI_FIX_PROMPT_FILE", def: "Исправь CI", builtIn: "Исправь CI", defSource: SourceDefault, override: overrides.CIFixPromptPath, promptFile: true},
 	}
 
 	values := make(map[string]string, len(specs))
-	settings := make([]Setting, 0, len(specs))
+	settings := make([]Setting, 0, len(specs)+1)
+	settings = append(settings, modeSetting)
 	for _, item := range specs {
 		value, setting, resolveErr := resolve(item, cwd, userDir, projectDir)
 		if resolveErr != nil {
@@ -118,24 +169,24 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	for _, name := range []string{"review-model", "review-reasoning-effort", "fix-model", "fix-reasoning-effort", "finalize-model"} {
+	for _, name := range []string{"review-model", "review-reasoning-effort", "fix-model", "fix-reasoning-effort", "finalize-model", "finalize-reasoning-effort", "ci-fix-model", "ci-fix-reasoning-effort"} {
 		if strings.TrimSpace(values[name]) == "" {
 			return Config{}, fmt.Errorf("%s must not be empty", name)
 		}
 	}
 
 	return Config{
-		Root: root, MaxCycles: maxCycles, MaxCIRecoveries: maxCI,
+		Root: root, Mode: mode, MaxCycles: maxCycles, MaxCIRecoveries: maxCI,
 		ReviewModel: values["review-model"], ReviewEffort: values["review-reasoning-effort"],
 		FixModel: values["fix-model"], FixEffort: values["fix-reasoning-effort"], FixPrompt: values["fix-prompt"],
-		FinalizeModel: values["finalize-model"], FinalizePrompt: values["finalize-prompt"],
-		CIFixModel: values["ci-fix-model"], CIFixPrompt: values["ci-fix-prompt"], Settings: settings,
+		FinalizeModel: values["finalize-model"], FinalizeEffort: values["finalize-reasoning-effort"], FinalizePrompt: values["finalize-prompt"],
+		CIFixModel: values["ci-fix-model"], CIFixEffort: values["ci-fix-reasoning-effort"], CIFixPrompt: values["ci-fix-prompt"], Settings: settings,
 	}, nil
 }
 
 func resolve(item spec, cwd, userDir, projectDir string) (string, Setting, error) {
-	value, source := item.def, SourceDefault
-	display := displayDefault(item)
+	value, source := item.def, item.defSource
+	display := displayValue(item.def, item.promptFile)
 	if envValue, ok := os.LookupEnv(item.env); ok {
 		if item.promptFile {
 			content, path, err := readExplicitPrompt(cwd, envValue)
@@ -176,17 +227,21 @@ func resolve(item spec, cwd, userDir, projectDir string) (string, Setting, error
 		}
 		source = SourceCLI
 	}
-	return value, Setting{Name: item.name, Value: value, Source: source, Default: item.def, DisplayValue: display, DisplayDefault: displayDefault(item)}, nil
+	return value, Setting{Name: item.name, Value: value, Source: source, Default: item.builtIn, DisplayValue: display, DisplayDefault: displayDefault(item)}, nil
 }
 
 func displayDefault(item spec) string {
-	if item.promptFile {
-		return strconv.Quote(item.def)
+	return displayValue(item.builtIn, item.promptFile)
+}
+
+func displayValue(value string, promptFile bool) string {
+	if promptFile {
+		return strconv.Quote(value)
 	}
-	if item.def == "" {
+	if value == "" {
 		return "agent-default"
 	}
-	return item.def
+	return value
 }
 
 func readExplicitPrompt(cwd, path string) (string, string, error) {
@@ -229,7 +284,7 @@ func Format(cfg Config) string {
 	var out strings.Builder
 	for _, setting := range cfg.Settings {
 		fmt.Fprintf(&out, "%s: %s (%s", setting.Name, setting.DisplayValue, setting.Source)
-		if setting.Source != SourceDefault {
+		if setting.Value != setting.Default {
 			fmt.Fprintf(&out, "; built-in: %s", setting.DisplayDefault)
 		}
 		out.WriteString(")\n")

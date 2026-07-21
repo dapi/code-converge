@@ -151,7 +151,7 @@ Key points:
 
 ### 1. Review
 
-`reviewer` runs the normal non-interactive `codex review` command in the current directory. It uses the configured review model; the built-in default is `gpt-5.6-sol` with reasoning effort `medium`.
+`reviewer` runs the normal non-interactive `codex review` command in the current directory. It uses the model and reasoning effort resolved from the selected mode and any explicit stage overrides.
 
 The review adapter reads the ordinary Codex review report and distinguishes findings from an explicitly clean review. It does not require JSON or a caller-supplied output schema. A non-zero command exit or a report that cannot be classified safely is an operational failure and exits with code `2`; ambiguous output is never treated as a clean review.
 
@@ -165,7 +165,7 @@ When the review has findings, `reviewer` starts a fresh Codex session with the c
 fix findings
 ```
 
-The default model is `gpt-5.6-luna` with reasoning effort `medium`. After a successful agent run, the workflow returns to **Review**.
+The default `fast` profile uses `gpt-5.6-luna` with reasoning effort `medium`. After a successful agent run, the workflow returns to **Review**.
 
 `max-cycles` is the maximum number of fix-findings attempts in one review phase; its built-in default is `10` and it must be non-negative. The initial review does not consume this budget. After the final allowed fix attempt, `reviewer` always performs one verification review. If that review still has findings, `reviewer` reports that the limit has been reached and exits with code `1`. A failed fix-findings command is an operational failure and exits with code `2`.
 
@@ -177,7 +177,7 @@ Once a review returns no findings, `reviewer` asks Codex to finalize the changes
 commit, push, create PR, ensure CI is green
 ```
 
-The default model for this stage is `gpt-5.3-codex-spark`. The final agent response must report exactly one of these states:
+The default `fast` profile uses `gpt-5.6-luna` with reasoning effort `medium` for this stage. The final agent response must report exactly one of these states:
 
 | State | Meaning | Next action |
 | --- | --- | --- |
@@ -194,6 +194,8 @@ When finalization reports `CI_FAILED`, `reviewer` starts Codex with the configur
 ```text
 Исправь CI
 ```
+
+The default `fast` profile uses `gpt-5.6-luna` with reasoning effort `medium` for this stage.
 
 If the agent completes successfully, the entire workflow begins again with a new **Review** phase and a fresh `max-cycles` budget, rather than only re-checking CI. The run also has a separate non-negative `max-ci-recoveries` budget, default `3`, to prevent an endless clean-review/failing-CI loop. If the CI-fix command fails, or CI is still red after all recovery attempts have been used, `reviewer` exits with code `3`.
 
@@ -263,26 +265,17 @@ Resolution order is highest to lowest priority:
 4. Environment variables
 5. Built-in defaults
 
+`mode` resolves through this order and defaults to `fast`. Each explicit per-stage model or reasoning-effort setting from any of the first four sources overrides the selected profile; source precedence is then applied among those explicit settings. An unset stage setting inherits from the effective mode.
+
 This matches the configuration approach of [`start-issue`](https://github.com/dapi/start-issue): a project may pin shared behavior, a user may set personal defaults, and a one-off invocation can override either.
 
 Prompts are file-backed, so they can be reviewed and versioned with project configuration. An absent project/user prompt file means that source has no value and resolution continues. An explicitly supplied CLI or environment path that does not exist is a configuration error and exits `2`. Relative CLI/environment paths are resolved from the current directory; project and user prompt files are resolved inside their respective configuration directories.
 
-### Models by workflow stage
+### Model profiles
 
-| Stage | Built-in model | Project / user config key | `reviewer` flag | Environment variable |
-| --- | --- | --- | --- | --- |
-| Review | `gpt-5.6-sol` | `review-model` | `--review-model` | `REVIEWER_REVIEW_MODEL` |
-| Fix findings | `gpt-5.6-luna` | `fix-model` | `--fix-model` | `REVIEWER_FIX_MODEL` |
-| Finalize (commit, push, change request, CI) | `gpt-5.3-codex-spark` | `finalize-model` | `--finalize-model` | `REVIEWER_FINALIZE_MODEL` |
-| Fix CI | agent default | `ci-fix-model` | `--ci-fix-model` | `REVIEWER_CI_FIX_MODEL` |
+The `fast` and `best` modes select these operative stage profiles. `fast` is the built-in mode. Reviewer passes both resolved values to Codex as `-c model=<model>` and `-c model_reasoning_effort=<effort>` for every stage.
 
-For the first three stages, `reviewer` passes the selected model to Codex as `-c model=<model>`. Fix CI uses the Codex agent default unless `ci-fix-model` is configured, in which case it also passes `-c model=<model>`.
-
-### Proposed model profiles (not implemented)
-
-The following profiles are a proposed default for a future mode-selection feature. They do not change the current configuration or runtime behavior.
-
-| Stage | Fast (proposed default) | Best | Escalate to `gpt-5.6-sol` when |
+| Stage | Fast | Best | Escalate to `gpt-5.6-sol` when |
 | --- | --- | --- | --- |
 | Review | `gpt-5.6-terra`, `medium` | `gpt-5.6-sol`, `high` | Not applicable: independent quality judgment is the stage's primary purpose. |
 | Fix findings | `gpt-5.6-luna`, `medium` | `gpt-5.6-terra`, `high` | Findings involve architecture, security, migrations, concurrency, or several connected modules. |
@@ -293,26 +286,34 @@ The following profiles are a proposed default for a future mode-selection featur
 
 | Option | Flag | Environment variable | Project / user file | Default |
 | --- | --- | --- | --- | --- |
+| Mode | `--mode` | `REVIEWER_MODE` | `mode` | `fast` |
 | Maximum fix-findings attempts per review phase | `--max-cycles` | `REVIEWER_MAX_CYCLES` | `max-cycles` | `10` |
 | Maximum CI recoveries | `--max-ci-recoveries` | `REVIEWER_MAX_CI_RECOVERIES` | `max-ci-recoveries` | `3` |
-| Review model | `--review-model` | `REVIEWER_REVIEW_MODEL` | `review-model` | `gpt-5.6-sol` |
-| Review reasoning effort | `--review-reasoning-effort` | `REVIEWER_REVIEW_REASONING_EFFORT` | `review-reasoning-effort` | `medium` |
-| Fix-findings model | `--fix-model` | `REVIEWER_FIX_MODEL` | `fix-model` | `gpt-5.6-luna` |
-| Fix-findings reasoning effort | `--fix-reasoning-effort` | `REVIEWER_FIX_REASONING_EFFORT` | `fix-reasoning-effort` | `medium` |
+| Review model | `--review-model` | `REVIEWER_REVIEW_MODEL` | `review-model` | selected profile |
+| Review reasoning effort | `--review-reasoning-effort` | `REVIEWER_REVIEW_REASONING_EFFORT` | `review-reasoning-effort` | selected profile |
+| Fix-findings model | `--fix-model` | `REVIEWER_FIX_MODEL` | `fix-model` | selected profile |
+| Fix-findings reasoning effort | `--fix-reasoning-effort` | `REVIEWER_FIX_REASONING_EFFORT` | `fix-reasoning-effort` | selected profile |
 | Fix-findings prompt | `--fix-prompt-file` | `REVIEWER_FIX_PROMPT_FILE` | `fix-findings.md` | `fix findings` |
-| Finalization model | `--finalize-model` | `REVIEWER_FINALIZE_MODEL` | `finalize-model` | `gpt-5.3-codex-spark` |
+| Finalization model | `--finalize-model` | `REVIEWER_FINALIZE_MODEL` | `finalize-model` | selected profile |
+| Finalization reasoning effort | `--finalize-reasoning-effort` | `REVIEWER_FINALIZE_REASONING_EFFORT` | `finalize-reasoning-effort` | selected profile |
 | Finalization prompt | `--finalize-prompt-file` | `REVIEWER_FINALIZE_PROMPT_FILE` | `finalize.md` | `commit, push, create PR, ensure CI is green` |
-| CI-fix model | `--ci-fix-model` | `REVIEWER_CI_FIX_MODEL` | `ci-fix-model` | agent default |
+| CI-fix model | `--ci-fix-model` | `REVIEWER_CI_FIX_MODEL` | `ci-fix-model` | selected profile |
+| CI-fix reasoning effort | `--ci-fix-reasoning-effort` | `REVIEWER_CI_FIX_REASONING_EFFORT` | `ci-fix-reasoning-effort` | selected profile |
 | CI-fix prompt | `--ci-fix-prompt-file` | `REVIEWER_CI_FIX_PROMPT_FILE` | `fix-ci.md` | `Исправь CI` |
 
 For example, a team can commit these files:
 
 ```text
 .reviewer/
+├── mode
 ├── review-model
+├── review-reasoning-effort
 ├── fix-model
+├── fix-reasoning-effort
 ├── finalize-model
+├── finalize-reasoning-effort
 ├── ci-fix-model
+├── ci-fix-reasoning-effort
 ├── max-cycles
 ├── max-ci-recoveries
 ├── fix-findings.md
@@ -336,21 +337,22 @@ Use the dedicated configuration command to inspect the active configuration:
 reviewer config
 ```
 
-It prints every setting, its effective value, and its source. Whenever an effective value differs from the built-in default, the built-in default is shown too. This makes overrides and configuration precedence explicit without starting a review.
+It prints the effective mode and every setting with its effective value and source. Profile-derived settings identify the selected profile; explicit settings identify their winning source. Whenever an effective value differs from the global `fast` built-in baseline, that baseline is shown too. This makes overrides and configuration precedence explicit without starting a review.
 
 Example shape of the output:
 
 ```text
-review-model: gpt-5.6-sol                    (built-in default)
-max-cycles:   3                              (project; built-in: 10)
-fix prompt:   .reviewer/fix-findings.md      (project; built-in: "fix findings")
+mode: fast (built-in default)
+review-model: gpt-5.6-terra (fast profile)
+max-cycles: 3 (project; built-in: 10)
+fix-prompt: .reviewer/fix-findings.md (project; built-in: "fix findings")
 ```
 
 ## Requirements
 
 - Go runtime is not required to run a released binary; it is required to build from source.
 - `codex` must be installed, authenticated, and available on `PATH` when running `reviewer`.
-- The authenticated account must have access to the configured models; in particular, the default finalization model `gpt-5.3-codex-spark` is not available to every Codex account.
+- The authenticated account must have access to every model selected by the effective profile and any explicit stage overrides.
 - The target directory must be a Git repository.
 - `git` and any tooling or credentials required by the target repository's chosen remote-hosting workflow must be available to the finalization agent. No hosting provider is required by `reviewer`; provider-specific tooling is needed only when the selected finalization actions depend on it.
 

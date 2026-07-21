@@ -100,8 +100,9 @@ func TestAdapterInvocations(t *testing.T) {
 	const report = "## Findings\n- [P1] preserve this finding\n"
 	r := &recordingRunner{result: runner.Result{Stdout: report}}
 	a := Adapter{Runner: r, Config: config.Config{
-		ReviewModel: "review", ReviewEffort: "high", FixModel: "fix", FixEffort: "medium", FixPrompt: "fix it",
-		FinalizeModel: "final", FinalizePrompt: "finalize", CIFixPrompt: "ci",
+		ReviewModel: "gpt-5.6-sol", ReviewEffort: "high", FixModel: "gpt-5.6-terra", FixEffort: "high", FixPrompt: "fix it",
+		FinalizeModel: "gpt-5.6-luna", FinalizeEffort: "medium", FinalizePrompt: "finalize",
+		CIFixModel: "gpt-5.6-terra", CIFixEffort: "high", CIFixPrompt: "ci",
 	}}
 	if result, err := a.Review(context.Background()); err != nil || result.Clean || result.Report != strings.TrimSpace(report) {
 		t.Fatalf("review = %#v, %v", result, err)
@@ -115,7 +116,14 @@ func TestAdapterInvocations(t *testing.T) {
 	if err := a.FixCI(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(r.invocations[0].Args, " "); !strings.Contains(got, `model="review"`) || !strings.HasSuffix(got, "review --uncommitted") {
+	wantPairs := []struct{ model, effort string }{{"gpt-5.6-sol", "high"}, {"gpt-5.6-terra", "high"}, {"gpt-5.6-luna", "medium"}, {"gpt-5.6-terra", "high"}}
+	for i, want := range wantPairs {
+		got := strings.Join(r.invocations[i].Args, " ")
+		if !strings.Contains(got, `model="`+want.model+`"`) || !strings.Contains(got, `model_reasoning_effort="`+want.effort+`"`) {
+			t.Errorf("invocation %d args = %s", i, got)
+		}
+	}
+	if got := strings.Join(r.invocations[0].Args, " "); !strings.HasSuffix(got, "review --uncommitted") {
 		t.Errorf("review args = %s", got)
 	}
 	if r.invocations[1].Stdin != "fix it\n\nReview findings to address:\n\n"+strings.TrimSpace(report) || r.invocations[3].Stdin != "ci" {
@@ -165,11 +173,11 @@ func TestReviewWithUnclassifiableReport(t *testing.T) {
 }
 
 type codexFakeRunner struct {
-	result      runner.Result
-	err         error
-	writePath   string
-	writeBytes  []byte
-	writeFile   bool
+	result     runner.Result
+	err        error
+	writePath  string
+	writeBytes []byte
+	writeFile  bool
 }
 
 func (r *codexFakeRunner) Run(_ context.Context, invocation runner.Invocation) (runner.Result, error) {
@@ -183,13 +191,13 @@ func (r *codexFakeRunner) Run(_ context.Context, invocation runner.Invocation) (
 
 func TestFixCIWithModel(t *testing.T) {
 	r := &recordingRunner{}
-	a := Adapter{Runner: r, Config: config.Config{CIFixModel: "ci-model", CIFixPrompt: "fix ci"}}
+	a := Adapter{Runner: r, Config: config.Config{CIFixModel: "ci-model", CIFixEffort: "high", CIFixPrompt: "fix ci"}}
 	if err := a.FixCI(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	args := strings.Join(r.invocations[0].Args, " ")
-	if !strings.Contains(args, `model="ci-model"`) {
-		t.Fatalf("missing ci model in args: %s", args)
+	if !strings.Contains(args, `model="ci-model"`) || !strings.Contains(args, `model_reasoning_effort="high"`) {
+		t.Fatalf("missing ci model/effort in args: %s", args)
 	}
 }
 
