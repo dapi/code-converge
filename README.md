@@ -209,6 +209,24 @@ fix prompt:   .reviewer/fix-findings.md      (project; built-in: "fix findings")
 - The target directory must be a Git repository.
 - `git` and any tooling or credentials required by the target repository's chosen remote-hosting workflow must be available to the finalization agent. No hosting provider is required by `reviewer`; provider-specific tooling is needed only when the selected finalization actions depend on it.
 
+## Build and install
+
+The supported first-release targets are macOS and Linux on AMD64 and ARM64. Released archives contain a single statically built `reviewer` binary and are accompanied by `SHA256SUMS`; a Go runtime is not required after installation.
+
+Build the current platform binary with Go 1.21.13 or newer:
+
+```sh
+make build
+```
+
+Build the complete deterministic artifact matrix:
+
+```sh
+VERSION=0.1.0 make dist
+```
+
+Verify the checksum, extract the archive for the target platform, and copy `reviewer` to a directory on `PATH`, for example `/usr/local/bin` or a user-owned bin directory. No package-manager, registry, signing, or hosted-release channel is currently promised.
+
 ## Project documentation
 
 Start with [`memory-bank/README.md`](memory-bank/README.md) for project context and governance. The import/adaptation plan and its acceptance criteria are recorded in [`.protocols/memory-bank-integration.md`](.protocols/memory-bank-integration.md); those documents refer back here instead of duplicating the public CLI contract.

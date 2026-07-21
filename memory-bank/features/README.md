@@ -33,4 +33,4 @@ audience: humans_and_agents
 
 ## Current state
 
-No feature packages have been created for `reviewer`. Importing and adapting Memory Bank does not require creating a delivery task or feature package.
+- [`FT-002/README.md`](FT-002/README.md) — complete Reviewer CLI delivery for issue #2.

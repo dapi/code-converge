@@ -1,31 +1,15 @@
-name: Memory Bank lint
+name: Verify
 
 permissions:
   contents: read
 
 on:
   pull_request:
-    paths:
-      - 'memory-bank/**'
-      - 'AGENTS.md'
-      - '.protocols/**'
-      - 'README.md'
-      - 'Makefile'
-      - 'scripts/check-markdown-links.go'
-      - '.github/workflows/memory-bank-lint.yml'
   push:
     branches: [master]
-    paths:
-      - 'memory-bank/**'
-      - 'AGENTS.md'
-      - '.protocols/**'
-      - 'README.md'
-      - 'Makefile'
-      - 'scripts/check-markdown-links.go'
-      - '.github/workflows/memory-bank-lint.yml'
 
 jobs:
-  lint:
+  verify:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -34,4 +18,10 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: '1.21.13'
-      - run: make docs-lint
+      - run: make verify
+      - run: make dist
+      - name: Smoke Linux AMD64 artifact
+        run: |
+          mkdir -p "$RUNNER_TEMP/reviewer-smoke"
+          tar -xzf dist/reviewer_dev_linux_amd64.tar.gz -C "$RUNNER_TEMP/reviewer-smoke"
+          HOME="$RUNNER_TEMP/reviewer-home" "$RUNNER_TEMP/reviewer-smoke/reviewer" config
