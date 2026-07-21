@@ -1,6 +1,19 @@
 MEMORY_BANK_LINT_VERSION := 2e7324181af3034d9e22a411eb977b6729fae2b8
 
-.PHONY: docs-lint markdown-links memory-bank-lint
+.PHONY: build dist docs-lint markdown-links memory-bank-lint test verify
+
+build:
+	go build -trimpath -buildvcs=false -o reviewer ./cmd/reviewer
+
+test:
+	go test ./...
+
+verify: test
+	go vet ./...
+	$(MAKE) docs-lint
+
+dist:
+	go run ./tools/build-dist -version="$${VERSION:-dev}"
 
 docs-lint: memory-bank-lint markdown-links
 
