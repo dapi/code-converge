@@ -65,6 +65,14 @@ func TestTargetEnvPinsAMD64(t *testing.T) {
 	}
 }
 
+func TestBuildVersionLdflags(t *testing.T) {
+	version := "1.2.3"
+	ldflags := "-s -w -buildid= -X github.com/dapi/reviewer/internal/version.Version=" + version
+	if !strings.Contains(ldflags, "internal/version.Version=1.2.3") {
+		t.Fatalf("ldflags = %q", ldflags)
+	}
+}
+
 func TestCanonicalPathNonExistentParent(t *testing.T) {
 	base := t.TempDir()
 	got, err := canonicalPath(filepath.Join(base, "dist", "v1"))

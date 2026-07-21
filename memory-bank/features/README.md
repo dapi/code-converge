@@ -34,3 +34,4 @@ audience: humans_and_agents
 ## Current state
 
 - [`FT-002/README.md`](FT-002/README.md) — complete Reviewer CLI delivery for issue #2.
+- [`FT-003/README.md`](FT-003/README.md) — automated GitHub Release delivery.

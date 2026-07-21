@@ -101,10 +101,10 @@ These are contract-conformance targets for the complete utility. Adoption, time 
 - `RISK-03` The default models are not available to every Codex account, which can block first-run success unless configuration and diagnostics are clear.
 - `RISK-04` Repeated review and CI-recovery loops can consume substantial time and model budget even when correctly bounded.
 - `RISK-05` The intended user pain and adoption hypothesis are specified but not validated by interviews or usage analytics.
-- `RISK-06` No official release process, artifact matrix, or supported-platform policy exists yet.
+- `RISK-06` Resolved by FT-002 (artifact matrix/platform baseline) and FT-003 (official GitHub Release process); signing and package-manager distribution remain outside the supported policy.
 - `OQ-01` Which representative repositories and failure fixtures form the minimum credible acceptance corpus?
 - `OQ-02` Who owns final product acceptance?
-- `OQ-03` Which platforms and installation paths must the first official release support?
+- `OQ-03` Resolved by FT-002 and FT-003: macOS/Linux on AMD64/ARM64, GitHub Release archives, and manual installation to an operator-owned `PATH` directory.
 
 ## Downstream Delivery
 

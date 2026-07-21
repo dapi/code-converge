@@ -52,7 +52,8 @@ func main() {
 		if err := os.MkdirAll(filepath.Dir(binary), 0o755); err != nil {
 			fatalf("create build dir: %v", err)
 		}
-		cmd := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags=-s -w -buildid=", "-o", binary, "./cmd/reviewer")
+		ldflags := fmt.Sprintf("-s -w -buildid= -X github.com/dapi/reviewer/internal/version.Version=%s", *version)
+		cmd := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags="+ldflags, "-o", binary, "./cmd/reviewer")
 		cmd.Env = targetEnv(os.Environ(), item)
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 		if err := cmd.Run(); err != nil {

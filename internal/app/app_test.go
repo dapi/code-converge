@@ -34,6 +34,14 @@ func TestConfigCommand(t *testing.T) {
 	}
 }
 
+func TestVersionCommand(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := (App{Stdout: &stdout, Stderr: &stderr}).Run(context.Background(), []string{"--version"})
+	if code != 0 || stdout.String() != "reviewer vdev\n" || stderr.Len() != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestInvalidConfigurationEmitsTerminalRun(t *testing.T) {
 	root, home := testRepo(t)
 	var stdout, stderr bytes.Buffer

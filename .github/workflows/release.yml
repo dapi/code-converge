@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.21.13'
+      - name: Verify release identity
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          test "$GITHUB_REF_NAME" = "v$tag_version"
+          test "$tag_version" = "$(tr -d '\n' < VERSION)"
+          printf '%s' "$tag_version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+      - name: Run checks
+        run: make verify
+      - name: Build release artifacts
+        run: VERSION="${GITHUB_REF_NAME#v}" make dist
+      - name: Verify checksums and smoke Linux AMD64
+        run: |
+          (cd dist && sha256sum --check SHA256SUMS)
+          mkdir -p "$RUNNER_TEMP/reviewer-smoke"
+          tar -xzf "dist/reviewer_${GITHUB_REF_NAME#v}_linux_amd64.tar.gz" -C "$RUNNER_TEMP/reviewer-smoke"
+          test "$(HOME="$RUNNER_TEMP/reviewer-home" "$RUNNER_TEMP/reviewer-smoke/reviewer" --version)" = "reviewer v${GITHUB_REF_NAME#v}"
+          HOME="$RUNNER_TEMP/reviewer-home" "$RUNNER_TEMP/reviewer-smoke/reviewer" config
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/SHA256SUMS --verify-tag --generate-notes

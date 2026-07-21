@@ -32,7 +32,7 @@ There are no remote console, cluster, database, or hosted-log operations. Local 
 
 ## Version And Health Checks
 
-N/A. There is no deployed version, health endpoint, smoke URL, or application dashboard. Future released binaries require a version-reporting contract defined by the release owner.
+N/A for runtime health: there is no deployed service, health endpoint, smoke URL, or application dashboard. Binary release identity is carried by the Git tag, root `VERSION`, archive name, and GitHub Release; the CLI still exposes no runtime version command.
 
 ## Logs And Observability
 

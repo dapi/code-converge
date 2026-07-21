@@ -13,6 +13,7 @@ import (
 	"github.com/dapi/reviewer/internal/config"
 	"github.com/dapi/reviewer/internal/event"
 	"github.com/dapi/reviewer/internal/runner"
+	"github.com/dapi/reviewer/internal/version"
 	"github.com/dapi/reviewer/internal/workflow"
 )
 
@@ -46,6 +47,10 @@ func (a App) Run(ctx context.Context, args []string) int {
 	}
 	if stderr == nil {
 		stderr = os.Stderr
+	}
+	if len(args) == 1 && args[0] == "--version" {
+		fmt.Fprintf(stdout, "reviewer v%s\n", version.Version)
+		return workflow.ExitSuccess
 	}
 	cwd := a.Cwd
 	if cwd == "" {

@@ -336,6 +336,14 @@ fix prompt:   .reviewer/fix-findings.md      (project; built-in: "fix findings")
 
 The supported first-release targets are macOS and Linux on AMD64 and ARM64. Released archives contain a single statically built `reviewer` binary and are accompanied by `SHA256SUMS`; a Go runtime is not required after installation.
 
+Check the installed binary version with:
+
+```sh
+reviewer --version
+```
+
+It prints `reviewer vX.Y.Z` for a release binary.
+
 Build the current platform binary with Go 1.21.13 or newer:
 
 ```sh
@@ -348,7 +356,32 @@ Build the complete deterministic artifact matrix:
 VERSION=0.1.0 make dist
 ```
 
-Verify the checksum, extract the archive for the target platform, and copy `reviewer` to a directory on `PATH`, for example `/usr/local/bin` or a user-owned bin directory. No package-manager, registry, signing, or hosted-release channel is currently promised.
+Versioned archives and `SHA256SUMS` are published through [GitHub Releases](https://github.com/dapi/reviewer/releases). Verify the checksum, extract the archive for the target platform, and copy `reviewer` to a directory on `PATH`, for example `/usr/local/bin` or a user-owned bin directory. No package-manager, registry, or signing channel is currently promised.
+
+Maintainers record user-facing changes under `## [Unreleased]` in `CHANGELOG.md`, then prepare a semantic release locally:
+
+```sh
+make release-patch  # or release-minor / release-major
+git push origin master --follow-tags
+```
+
+The preparation command requires a clean worktree, updates `VERSION` and the changelog, runs verification, creates the release commit, and creates an annotated `vX.Y.Z` tag. Pushing the tag triggers CI, which rebuilds and verifies the complete artifact matrix before publishing the GitHub Release.
+
+### One-line installation
+
+Download and install the latest release on macOS or Linux with one command (the archive is selected from the current OS and CPU architecture):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/dapi/reviewer/master/scripts/install.sh | sh
+```
+
+The installer verifies `SHA256SUMS` before placing `reviewer` in `~/.local/bin`. Add that directory to `PATH` if needed. For a pinned release, set `REVIEWER_VERSION`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/dapi/reviewer/master/scripts/install.sh | REVIEWER_VERSION=0.1.0 sh
+```
+
+The installer is intentionally limited to macOS and Linux on AMD64/ARM64 and does not require Go.
 
 ## Project documentation
 

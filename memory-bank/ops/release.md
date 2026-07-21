@@ -2,28 +2,39 @@
 title: Release And Deployment
 doc_kind: ops
 doc_function: canonical
-purpose: Canonical record of the current reviewer release state and unresolved release decisions.
+purpose: Canonical reviewer release contract covering preparation, GitHub publication, verification, approval and rollback.
 derived_from:
   - ../dna/governance.md
+  - ../../README.md
 status: active
 audience: humans_and_agents
 ---
 
 # Release And Deployment
 
-No official hosted `reviewer` release has been published yet. The repository can produce deterministic installable artifacts, but a push to the default branch, green change-request CI, or local `dist/` directory is not by itself an official product release.
+`reviewer` is distributed as versioned archives through GitHub Releases. There is no server deployment. A push to the default branch, green change-request CI, or local `dist/` directory is not by itself an official product release; publication requires an approved semantic-version tag.
 
 ## Release Flow
 
-The supported build matrix is macOS and Linux on AMD64 and ARM64. Each release unit is a normalized `tar.gz` containing one `reviewer` binary plus the aggregate `SHA256SUMS`. The current distribution path is manual checksum verification, extraction, and copy to an operator-owned directory on `PATH`.
+1. Add user-facing changes under `## [Unreleased]` in `CHANGELOG.md`.
+2. Run `make release-patch`, `make release-minor`, or `make release-major` from a clean worktree.
+3. The command updates `VERSION` and the changelog, runs `make verify` and `make dist`, creates `Release vX.Y.Z`, and creates an annotated tag.
+4. Publish the prepared commit and tag with `git push origin master --follow-tags` after operator approval.
+5. GitHub Actions verifies tag identity, reruns all checks, builds and validates artifacts, smoke-tests Linux AMD64, then creates the GitHub Release.
+
+The supported build matrix is macOS and Linux on AMD64 and ARM64. Each platform archive is a normalized `tar.gz` containing one `reviewer` binary; the release also contains aggregate `SHA256SUMS`. Installation remains manual checksum verification, extraction, and copy to an operator-owned directory on `PATH`.
 
 ## Release Commands
 
 ```sh
 VERSION=<version> make dist
+make print-version
+make release-patch
+make release-minor
+make release-major
 ```
 
-This produces local artifacts only. Creating a GitHub Release, signing, or publishing to a package manager remains an explicit external action requiring its own approval.
+`make dist` produces local artifacts only. The `release-*` commands prepare a local commit and tag but do not push them. A tag push is an explicit external action requiring operator approval and triggers automated GitHub publication. Signing and package-manager publication are not supported.
 
 ## Release Test Plan
 
@@ -32,15 +43,15 @@ This produces local artifacts only. Creating a GitHub Release, signing, or publi
 - Validate every checksum from inside `dist/`.
 - Extract and run `reviewer config` from a native target archive; CI performs Linux AMD64 smoke.
 - Retain the commit SHA, checksum manifest, required-CI run, and smoke result as release evidence.
+- Confirm the GitHub Release contains exactly four archives plus `SHA256SUMS` and that its tag matches `VERSION`.
 
 ## Rollback
 
-The CLI has no persistent state or migration. Backout replaces or removes the installed binary and restores the prior verified artifact. Local `dist/` is disposable and can be rebuilt from the source revision.
+The CLI has no persistent state or migration. Backout replaces or removes the installed binary and restores the prior verified release. Publish a fixed patch release instead of mutating existing versioned assets. If urgent withdrawal is necessary, removing or marking the GitHub Release requires separate operator approval. Local `dist/` is disposable and can be rebuilt from the source revision.
 
 ## Unresolved Release Decisions
 
-- Versioning and changelog policy beyond the caller-supplied artifact version.
-- Signing policy and any package-manager or hosted release channel.
-- Official release approval owner.
+- Signing policy and any package-manager channel.
+- Named approval owner beyond the repository operator who pushes the release tag.
 
-These unresolved official-publication decisions do not block deterministic local artifacts. Resolve them before claiming or publishing an official release.
+These decisions do not block GitHub Release publication under the explicit tag-push approval gate.

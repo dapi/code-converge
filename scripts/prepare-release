@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: scripts/prepare-release <patch|minor|major>
+
+This command requires a clean worktree, bumps VERSION, moves the Unreleased
+changelog entries to the new version, verifies the repository, and creates a
+release commit plus a local annotated tag.
+
+Publish the commit and tag afterwards with:
+  git push origin <branch> --follow-tags
+EOF
+}
+
+update_changelog() {
+    local next_version="$1"
+    local release_date="$2"
+    local changelog_file="CHANGELOG.md"
+    local tmpfile
+
+    if [[ ! -f "$changelog_file" ]] || ! grep -Eq '^## \[Unreleased\]$' "$changelog_file"; then
+        echo "CHANGELOG.md must contain a '## [Unreleased]' section." >&2
+        return 1
+    fi
+    if grep -Eq "^## \\[$next_version\\] -" "$changelog_file"; then
+        echo "CHANGELOG.md already contains $next_version." >&2
+        return 1
+    fi
+    if ! awk '
+        /^## \[Unreleased\]$/ { in_unreleased = 1; next }
+        in_unreleased && /^## \[/ { in_unreleased = 0 }
+        in_unreleased && $0 !~ /^[[:space:]]*$/ && $0 !~ /^###[[:space:]]/ { found = 1 }
+        END { exit found ? 0 : 1 }
+    ' "$changelog_file"; then
+        echo "CHANGELOG.md has no entries under '## [Unreleased]'." >&2
+        return 1
+    fi
+
+    tmpfile="$(mktemp)"
+    awk -v next_version="$next_version" -v release_date="$release_date" '
+        /^## \[Unreleased\]$/ {
+            print
+            print ""
+            print "## [" next_version "] - " release_date
+            next
+        }
+        { print }
+    ' "$changelog_file" > "$tmpfile"
+    mv "$tmpfile" "$changelog_file"
+}
+
+if [[ $# -ne 1 ]]; then
+    usage >&2
+    exit 1
+fi
+
+kind="$1"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+if [[ -n "$(git status --porcelain)" ]]; then
+    echo "Refusing to prepare a release from a dirty worktree." >&2
+    exit 1
+fi
+
+backup_dir="$(mktemp -d)"
+cp VERSION CHANGELOG.md "$backup_dir/"
+restore_required=1
+cleanup() {
+    if [[ "$restore_required" == "1" ]]; then
+        cp "$backup_dir/VERSION" VERSION
+        cp "$backup_dir/CHANGELOG.md" CHANGELOG.md
+    fi
+    rm -r -- "$backup_dir"
+}
+on_error() {
+    local status="$?"
+    cleanup
+    exit "$status"
+}
+on_interrupt() {
+    cleanup
+    exit 130
+}
+trap on_error ERR
+trap on_interrupt INT TERM
+
+next_version="$(bash scripts/bump-version "$kind")"
+tag="v$next_version"
+if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
+    echo "Tag $tag already exists." >&2
+    false
+fi
+
+update_changelog "$next_version" "$(date +%F)"
+make verify
+VERSION="$next_version" make dist
+
+git add VERSION CHANGELOG.md
+git commit -m "Release $tag"
+restore_required=0
+git tag -a "$tag" -m "Release $tag"
+
+trap - ERR INT TERM
+rm -r -- "$backup_dir"
+branch="$(git branch --show-current)"
+printf 'Prepared %s\n' "$tag"
+printf 'Next step: git push origin %s --follow-tags\n' "$branch"
