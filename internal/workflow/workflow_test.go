@@ -87,11 +87,16 @@ func run(t *testing.T, cfg config.Config, agent *fakeAgent) (int, string, string
 
 func TestHappyPath(t *testing.T) {
 	agent := &fakeAgent{reviews: []codex.ReviewResult{clean()}, finalizations: []codex.Finalization{success()}}
-	code, output, stderr := run(t, config.Config{MaxCycles: 10, MaxCIRecoveries: 3}, agent)
+	code, output, stderr := run(t, config.Config{MaxCycles: 10, MaxCIRecoveries: 3, ReviewModel: "review-model", ReviewEffort: "high", FixModel: "fix-model", FixEffort: "low", FinalizeModel: "finalize-model"}, agent)
 	if code != ExitSuccess || stderr != "" {
 		t.Fatalf("code=%d stderr=%q", code, stderr)
 	}
 	assertRecord(t, output, "event=review_completed", "status=clean", "findings_total=0")
+	assertRecord(t, output, "event=stage_started", "stage=review", "model=review-model")
+	assertRecord(t, output, "event=stage_started", "stage=review", "reasoning_effort=high")
+	assertRecord(t, output, "event=stage_started", "stage=finalize", "model=finalize-model")
+	assertRecord(t, output, "event=stage_started", "stage=finalize", "reasoning_effort=agent-default")
+	assertRecord(t, output, "event=step_completed", "stage=finalize", "model=finalize-model")
 	assertRecord(t, output, "event=run_completed", "status=success", "exit_code=0")
 	for _, step := range []string{"commit", "push", "change_request", "ci"} {
 		assertRecord(t, output, "event=step_completed", "step="+step)
@@ -132,6 +137,14 @@ func TestCIRecoveryRestartsReviewPhase(t *testing.T) {
 		t.Fatalf("code=%d ci fixes=%d", code, agent.ciFixCalls)
 	}
 	assertRecord(t, output, "event=stage_started", "stage=review", "review_phase=2", "cycle=1")
+}
+
+func TestStageModelsAreLogged(t *testing.T) {
+	agent := &fakeAgent{reviews: []codex.ReviewResult{findings(), clean(), clean()}, finalizations: []codex.Finalization{ciFailed(), success()}}
+	_, output, _ := run(t, config.Config{MaxCycles: 1, MaxCIRecoveries: 1, ReviewModel: "review", ReviewEffort: "high", FixModel: "fix", FixEffort: "low", FinalizeModel: "final", CIFixModel: "ci"}, agent)
+	for _, stage := range []struct{ name, model, effort string }{{"review", "review", "high"}, {"fix-findings", "fix", "low"}, {"finalize", "final", "agent-default"}, {"fix-ci", "ci", "agent-default"}} {
+		assertRecord(t, output, "event=stage_started", "stage="+stage.name, "model="+stage.model, "reasoning_effort="+stage.effort)
+	}
 }
 
 func TestCIFailurePaths(t *testing.T) {
@@ -225,7 +238,7 @@ func TestEventFailureStopsBeforeAgentSideEffects(t *testing.T) {
 }
 
 type configurableFailingWriter struct {
-	writes   int
+	writes    int
 	failAfter int
 }
 
