@@ -6,6 +6,8 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-22
+
 ### Added
 
 - Added `fast` and `best` model profiles with per-stage model and reasoning-effort resolution and explicit override support.
