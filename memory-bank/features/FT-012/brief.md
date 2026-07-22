@@ -13,7 +13,7 @@ derived_from:
   - ../../../README.md
   - https://github.com/dapi/code-converge/issues/12
 status: active
-delivery_status: planned
+delivery_status: done
 audience: humans_and_agents
 must_not_define:
   - implementation_sequence
@@ -144,3 +144,13 @@ Installed users can install a verified GitHub Release through `scripts/install.s
 | `EVID-03` | Verified replacement and failure-recovery log | test runner | `artifacts/ft-012/verify/chk-03/` | `CHK-03` |
 | `EVID-04` | Docs lint and semantic contract review | test runner/reviewer | `artifacts/ft-012/verify/chk-04/` | `CHK-04` |
 | `EVID-05` | Smoke/full verification logs and CI reference | test runner/CI | `artifacts/ft-012/verify/chk-05/` | `CHK-05` |
+
+### Execution Evidence Status
+
+| Evidence ID | Status | Concrete carrier |
+| --- | --- | --- |
+| `EVID-01` | pass | `TestUpdateCommandDispatchesWithoutStartingWorkflow`, confirmation/no-input tests; `go test ./internal/app ./internal/update` |
+| `EVID-02` | pass | current, unsupported, malformed metadata, download, missing asset/checksum and preservation tests in `internal/update` |
+| `EVID-03` | pass | checksum mismatch, rename failure and `TestInstalledArchiveReportsTargetVersion` |
+| `EVID-04` | pass | `make docs-lint` and reviewed README/Memory Bank contract diff |
+| `EVID-05` | pass | `go test ./...`, `go test -race ./internal/update ./internal/app`, `go vet ./...`, `make verify`, local macOS ARM64 release-artifact smoke, required [Verify run](https://github.com/dapi/code-converge/actions/runs/29918486428) and PR [#18](https://github.com/dapi/code-converge/pull/18) |

@@ -57,3 +57,9 @@ must_not_define:
 - **Review scope:** `D-01` alternatives against issue #12 and the existing public exit taxonomy.
 - **Critical/important findings:** none after accepting candidate 1.
 - **Action:** Promoted the resolved exit/output contract into `brief.md`; created downstream solution and plan artifacts.
+
+### Delivery Review — 2026-07-22
+
+- **Implementation review:** deterministic updater tests, race tests, full repository verification and release-artifact smoke are passing. A Codex review against `master` produced no critical/high finding.
+- **CI:** required `verify` check passed for PR #18.
+- **Result:** no open critical/high implementation or document finding remains.
