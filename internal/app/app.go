@@ -53,6 +53,10 @@ func (a App) Run(ctx context.Context, args []string) int {
 	if stderr == nil {
 		stderr = os.Stderr
 	}
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		rootUsage(stdout)
+		return workflow.ExitSuccess
+	}
 	if len(args) == 1 && args[0] == "--version" {
 		fmt.Fprintf(stdout, "code-converge v%s\n", version.Version)
 		return workflow.ExitSuccess
@@ -155,6 +159,10 @@ func (a App) Run(ctx context.Context, args []string) int {
 	}
 	w := workflow.Workflow{Config: cfg, Agent: agent, Repository: repository.Status{Runner: processRunner}, Log: &logger, Err: stderr, Now: a.Now}
 	return w.Run(ctx)
+}
+
+func rootUsage(out io.Writer) {
+	fmt.Fprintln(out, "usage: code-converge [flags] [config]")
 }
 
 func updateArgs(args []string) (bool, error) {

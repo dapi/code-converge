@@ -95,6 +95,28 @@ func TestVersionCommand(t *testing.T) {
 	}
 }
 
+func TestRootHelpAliasesExitBeforeOperationalSetup(t *testing.T) {
+	for _, args := range [][]string{{"-h"}, {"--help"}} {
+		t.Run(args[0], func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			fake := &appFakeRunner{t: t}
+			updater := &appFakeUpdater{code: workflow.ExitOperational}
+			code := (App{
+				Stdout:  &stdout,
+				Stderr:  &stderr,
+				Runner:  fake,
+				Updater: updater,
+			}).Run(context.Background(), args)
+			if code != workflow.ExitSuccess || stdout.String() != "usage: code-converge [flags] [config]\n" || stderr.Len() != 0 {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			if len(fake.invocations) != 0 || updater.called {
+				t.Fatalf("invocations=%#v updater.called=%v", fake.invocations, updater.called)
+			}
+		})
+	}
+}
+
 func TestUpdateCommandDispatchesWithoutStartingWorkflow(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	updater := &appFakeUpdater{code: 0}
