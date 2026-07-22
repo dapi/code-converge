@@ -6,6 +6,11 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Enriched human progress with local timestamps, retry-attempt context, resolved model/reasoning effort, and clearer review, fix, CI-recovery, and liveness status lines.
+- In interactive terminals, the live stage indicator now replaces the duplicate permanent stage-start line.
+
 ## [0.3.0] - 2026-07-22
 
 ### Added
