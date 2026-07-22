@@ -39,3 +39,4 @@ audience: humans_and_agents
 - [`FT-007/README.md`](FT-007/README.md) — planned project, CLI, configuration and release identity migration for issue #7; implementation is gated on compatibility and rollout decisions.
 - [`FT-009/README.md`](FT-009/README.md) — planned human/kv progress formats and bounded liveness indicators for issue #9.
 - [`FT-012/README.md`](FT-012/README.md) — active self-update command delivery for issue #12, including verified release replacement and its public CLI contract.
+- [`FT-015/README.md`](FT-015/README.md) — complete strict structured Codex review classification and successful no-change completion for issue #15.

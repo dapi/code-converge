@@ -9,8 +9,9 @@ import (
 )
 
 type Invocation struct {
-	Args  []string
-	Stdin string
+	Executable string
+	Args       []string
+	Stdin      string
 }
 
 type Result struct {
@@ -29,6 +30,9 @@ type Exec struct {
 
 func (r Exec) Run(ctx context.Context, invocation Invocation) (Result, error) {
 	name := r.Executable
+	if invocation.Executable != "" {
+		name = invocation.Executable
+	}
 	if name == "" {
 		name = "codex"
 	}

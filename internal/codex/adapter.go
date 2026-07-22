@@ -33,6 +33,31 @@ type ReviewResult struct {
 	Report string
 }
 
+type structuredReview struct {
+	Findings               *[]structuredFinding `json:"findings"`
+	OverallCorrectness     *string              `json:"overall_correctness"`
+	OverallExplanation     *string              `json:"overall_explanation"`
+	OverallConfidenceScore *float64             `json:"overall_confidence_score"`
+}
+
+type structuredFinding struct {
+	Title           *string                 `json:"title"`
+	Body            *string                 `json:"body"`
+	ConfidenceScore *float64                `json:"confidence_score"`
+	Priority        *int                    `json:"priority"`
+	CodeLocation    *structuredCodeLocation `json:"code_location"`
+}
+
+type structuredCodeLocation struct {
+	AbsoluteFilePath *string              `json:"absolute_file_path"`
+	LineRange        *structuredLineRange `json:"line_range"`
+}
+
+type structuredLineRange struct {
+	Start *int `json:"start"`
+	End   *int `json:"end"`
+}
+
 type Finalization struct {
 	Verdict       string `json:"verdict"`
 	Commit        string `json:"commit"`
@@ -114,6 +139,9 @@ func ParseReview(raw string) (ReviewResult, error) {
 	if text == "" {
 		return ReviewResult{}, errors.New("empty review report")
 	}
+	if strings.HasPrefix(text, "{") {
+		return parseStructuredReview([]byte(text))
+	}
 	var counts Counts
 	inFindings := false
 	found := 0
@@ -147,6 +175,109 @@ func ParseReview(raw string) (ReviewResult, error) {
 		return ReviewResult{Clean: true}, nil
 	}
 	return ReviewResult{}, errors.New("review report is not safely classifiable")
+}
+
+func parseStructuredReview(data []byte) (ReviewResult, error) {
+	if err := rejectDuplicateJSONKeys(data); err != nil {
+		return ReviewResult{}, fmt.Errorf("parse structured review response: %w", err)
+	}
+	if err := validateStructuredReviewKeys(data); err != nil {
+		return ReviewResult{}, fmt.Errorf("parse structured review response: %w", err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var response structuredReview
+	if err := decoder.Decode(&response); err != nil {
+		return ReviewResult{}, fmt.Errorf("parse structured review response: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return ReviewResult{}, errors.New("structured review response contains trailing data")
+	}
+	if err := validateStructuredReview(response); err != nil {
+		return ReviewResult{}, err
+	}
+	if len(*response.Findings) == 0 {
+		return ReviewResult{Clean: true}, nil
+	}
+	var counts Counts
+	for _, finding := range *response.Findings {
+		switch *finding.Priority {
+		case 0:
+			counts.Critical++
+		case 1:
+			counts.High++
+		case 2:
+			counts.Medium++
+		case 3:
+			counts.Low++
+		}
+	}
+	return ReviewResult{Counts: counts}, nil
+}
+
+func validateStructuredReviewKeys(data []byte) error {
+	var response map[string]json.RawMessage
+	if err := json.Unmarshal(data, &response); err != nil {
+		return err
+	}
+	if err := requireExactJSONKeys(response, "findings", "overall_correctness", "overall_explanation", "overall_confidence_score"); err != nil {
+		return fmt.Errorf("structured review response: %w", err)
+	}
+	var findings []json.RawMessage
+	if err := json.Unmarshal(response["findings"], &findings); err != nil {
+		return fmt.Errorf("structured review response findings: %w", err)
+	}
+	for _, rawFinding := range findings {
+		var finding map[string]json.RawMessage
+		if err := json.Unmarshal(rawFinding, &finding); err != nil {
+			return fmt.Errorf("structured review response finding: %w", err)
+		}
+		if err := requireExactJSONKeys(finding, "title", "body", "confidence_score", "priority", "code_location"); err != nil {
+			return fmt.Errorf("structured review response finding: %w", err)
+		}
+		var location map[string]json.RawMessage
+		if err := json.Unmarshal(finding["code_location"], &location); err != nil {
+			return fmt.Errorf("structured review response code location: %w", err)
+		}
+		if err := requireExactJSONKeys(location, "absolute_file_path", "line_range"); err != nil {
+			return fmt.Errorf("structured review response code location: %w", err)
+		}
+		var lineRange map[string]json.RawMessage
+		if err := json.Unmarshal(location["line_range"], &lineRange); err != nil {
+			return fmt.Errorf("structured review response line range: %w", err)
+		}
+		if err := requireExactJSONKeys(lineRange, "start", "end"); err != nil {
+			return fmt.Errorf("structured review response line range: %w", err)
+		}
+	}
+	return nil
+}
+
+func requireExactJSONKeys(object map[string]json.RawMessage, names ...string) error {
+	if len(object) != len(names) {
+		return errors.New("contains unknown or missing fields")
+	}
+	for _, name := range names {
+		if _, ok := object[name]; !ok {
+			return errors.New("contains unknown or missing fields")
+		}
+	}
+	return nil
+}
+
+func validateStructuredReview(response structuredReview) error {
+	if response.Findings == nil || response.OverallCorrectness == nil || response.OverallExplanation == nil || response.OverallConfidenceScore == nil {
+		return errors.New("structured review response is incomplete")
+	}
+	for _, finding := range *response.Findings {
+		if finding.Title == nil || finding.Body == nil || finding.ConfidenceScore == nil || finding.Priority == nil || finding.CodeLocation == nil || finding.CodeLocation.AbsoluteFilePath == nil || finding.CodeLocation.LineRange == nil || finding.CodeLocation.LineRange.Start == nil || finding.CodeLocation.LineRange.End == nil {
+			return errors.New("structured review response contains an incomplete finding")
+		}
+		if *finding.Priority < 0 || *finding.Priority > 3 {
+			return errors.New("structured review response contains an invalid finding priority")
+		}
+	}
+	return nil
 }
 
 func containsExplicitCleanLine(text string) bool {
@@ -263,10 +394,10 @@ func scanJSONValue(decoder *json.Decoder) error {
 			}
 			name, ok := key.(string)
 			if !ok {
-				return errors.New("finalization response contains an invalid object key")
+				return errors.New("JSON contains an invalid object key")
 			}
 			if _, exists := keys[name]; exists {
-				return fmt.Errorf("finalization response contains duplicate field %q", name)
+				return fmt.Errorf("JSON contains duplicate field %q", name)
 			}
 			keys[name] = struct{}{}
 			if err := scanJSONValue(decoder); err != nil {
@@ -275,7 +406,7 @@ func scanJSONValue(decoder *json.Decoder) error {
 		}
 		end, err := decoder.Token()
 		if err != nil || end != json.Delim('}') {
-			return errors.New("finalization response contains an unclosed object")
+			return errors.New("JSON contains an unclosed object")
 		}
 	case '[':
 		for decoder.More() {
@@ -285,10 +416,10 @@ func scanJSONValue(decoder *json.Decoder) error {
 		}
 		end, err := decoder.Token()
 		if err != nil || end != json.Delim(']') {
-			return errors.New("finalization response contains an unclosed array")
+			return errors.New("JSON contains an unclosed array")
 		}
 	default:
-		return errors.New("finalization response contains an unexpected delimiter")
+		return errors.New("JSON contains an unexpected delimiter")
 	}
 	return nil
 }

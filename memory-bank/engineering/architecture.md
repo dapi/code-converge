@@ -22,12 +22,13 @@ The product is a dependency-free Go CLI that coordinates a sequential state mach
 | --- | --- | --- |
 | CLI boundary (`cmd/code-converge`, `internal/app`) | Argument parsing, command selection, signal context, dependency wiring | Workflow transition policy and agent-report interpretation |
 | Configuration resolution (`internal/config`) | Settings sources, precedence, source metadata, validated Git root | Ad hoc per-stage configuration lookup |
-| Codex boundary (`internal/codex`) | Command invocation, ordinary review-report classification, strict finalization response parsing | Exit-code policy and workflow stdout formatting |
+| Codex boundary (`internal/codex`) | Command invocation, plain-text and strictly structured review-report classification, strict finalization response parsing | Exit-code policy and workflow stdout formatting |
+| Repository status (`internal/repository`) | Git status query for staged, unstaged and untracked changes | Workflow transition policy and Codex-output interpretation |
 | Workflow orchestration (`internal/workflow`) | State transitions, budgets, stage timing and exit outcomes | Subprocess mechanics |
 | Process runner (`internal/runner`) | Working directory, context cancellation, captured stdin/stdout/stderr and exit status | Agent-report interpretation |
 | Progress presentation (`internal/event`) | Structured/human stdout rendering, duration/count formatting, terminal liveness and serialized clearing/diagnostic coordination defined by the root README | Workflow decisions and raw agent output |
 
-Review uses normal `codex review` output without requiring JSON or a caller-supplied schema. The Codex boundary must recognize an explicitly clean report or concrete finding entries; ambiguous or non-zero output becomes an operational failure. Finalization keeps the exact verdict contract from the root README because that verdict controls workflow transitions.
+Review uses normal `codex review` output without requiring a caller-supplied schema. The Codex boundary recognizes the established plain-text reports and the exact validated structured response shape from supported Codex CLI output; ambiguous, malformed or non-zero output becomes an operational failure. After a clean classification, the repository-status collaborator determines whether finalization is applicable. Finalization keeps the exact verdict contract from the root README because that verdict controls workflow transitions.
 
 External process execution is a trust boundary. The runner preserves the operator's invocation directory, captures stdin/stdout/stderr, propagates context cancellation, and never forwards raw Codex output to workflow stdout. Code-Converge does not add a timeout or override Codex sandbox, approval, or network configuration. Publication behavior remains hosting-provider-neutral.
 

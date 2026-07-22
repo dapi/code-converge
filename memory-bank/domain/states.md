@@ -20,7 +20,8 @@ stateDiagram-v2
   [*] --> Review
   Review --> FixFindings: findings and fix budget remaining
   FixFindings --> Review: success
-  Review --> Finalize: clean report
+  Review --> Finalize: clean report and changes exist
+  Review --> Exit0: clean report and no changes
   Review --> Exit1: findings after final fix
   Review --> Exit2: command/report failure
   FixFindings --> Exit2: command failure

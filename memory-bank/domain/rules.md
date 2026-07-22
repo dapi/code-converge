@@ -15,7 +15,7 @@ canonical_for:
 
 # Domain Rules
 
-- `RULE-01`: Finalization starts only after a completed review with zero findings.
+- `RULE-01`: Finalization starts only after a completed review with zero findings and Git status confirms at least one staged, unstaged or untracked change. A clean worktree exits successfully without finalization.
 - `RULE-02`: `max-cycles` limits fix-findings attempts in one review phase. The final allowed fix is followed by a verification review; remaining findings then exit `1`.
 - `RULE-03`: A successful CI fix starts a new review phase with a fresh review budget, preserving the possibility that the fix introduced findings. `max-ci-recoveries` bounds these restarts.
 - `RULE-04`: Only finalization may produce `SUCCESS`, `CI_FAILED`, or `FAILED`; an unrecognized agent response is not any of these verdicts.

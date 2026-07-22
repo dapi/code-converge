@@ -25,12 +25,17 @@ type Agent interface {
 	FixCI(context.Context) error
 }
 
+type Repository interface {
+	HasChanges(context.Context) (bool, error)
+}
+
 type Workflow struct {
-	Config config.Config
-	Agent  Agent
-	Log    *event.Logger
-	Err    io.Writer
-	Now    func() time.Time
+	Config     config.Config
+	Agent      Agent
+	Repository Repository
+	Log        *event.Logger
+	Err        io.Writer
+	Now        func() time.Time
 }
 
 func (w *Workflow) Run(ctx context.Context) int {
@@ -110,6 +115,17 @@ func (w *Workflow) Run(ctx context.Context) int {
 			fixes++
 			cycle++
 			continue
+		}
+
+		if w.Repository != nil {
+			hasChanges, err := w.Repository.HasChanges(ctx)
+			if err != nil {
+				w.diagnostic("repository status failed", err)
+				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+			}
+			if !hasChanges {
+				return w.complete("success", ExitSuccess, now().Sub(runStarted))
+			}
 		}
 
 		stageStarted = now()

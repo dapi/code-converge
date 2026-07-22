@@ -31,6 +31,17 @@ type fakeAgent struct {
 	ciFixStarted   chan struct{}
 }
 
+type fakeRepository struct {
+	hasChanges bool
+	err        error
+	calls      int
+}
+
+func (f *fakeRepository) HasChanges(context.Context) (bool, error) {
+	f.calls++
+	return f.hasChanges, f.err
+}
+
 func (f *fakeAgent) Review(ctx context.Context) (codex.ReviewResult, error) {
 	index := f.reviewCalls
 	f.reviewCalls++
@@ -95,6 +106,10 @@ func findings() codex.ReviewResult {
 func clean() codex.ReviewResult { return codex.ReviewResult{Clean: true} }
 
 func run(t *testing.T, cfg config.Config, agent *fakeAgent) (int, string, string) {
+	return runWithRepository(t, cfg, agent, &fakeRepository{hasChanges: true})
+}
+
+func runWithRepository(t *testing.T, cfg config.Config, agent *fakeAgent, repository Repository) (int, string, string) {
 	t.Helper()
 	var out, stderr bytes.Buffer
 	tick := 0
@@ -102,7 +117,7 @@ func run(t *testing.T, cfg config.Config, agent *fakeAgent) (int, string, string
 		tick++
 		return time.Date(2026, 7, 21, 10, 0, 0, tick*int(time.Millisecond), time.UTC)
 	}
-	w := Workflow{Config: cfg, Agent: agent, Log: &event.Logger{Out: &out, Now: now, Format: cfg.LogFormat, Heartbeat: cfg.Heartbeat}, Err: &stderr, Now: now}
+	w := Workflow{Config: cfg, Agent: agent, Repository: repository, Log: &event.Logger{Out: &out, Now: now, Format: cfg.LogFormat, Heartbeat: cfg.Heartbeat}, Err: &stderr, Now: now}
 	return w.Run(context.Background()), out.String(), stderr.String()
 }
 
@@ -166,6 +181,34 @@ func TestHappyPath(t *testing.T) {
 	assertRecord(t, output, "event=run_completed", "status=success", "exit_code=0")
 	for _, step := range []string{"commit", "push", "change_request", "ci"} {
 		assertRecord(t, output, "event=step_completed", "step="+step)
+	}
+}
+
+func TestCleanNoChangeCompletesWithoutFinalization(t *testing.T) {
+	agent := &fakeAgent{reviews: []codex.ReviewResult{clean()}}
+	repository := &fakeRepository{}
+	code, output, stderr := runWithRepository(t, config.Config{}, agent, repository)
+	if code != ExitSuccess || stderr != "" || repository.calls != 1 || agent.finalizeCalls != 0 {
+		t.Fatalf("code=%d stderr=%q status calls=%d finalize calls=%d", code, stderr, repository.calls, agent.finalizeCalls)
+	}
+	assertRecord(t, output, "event=review_completed", "status=clean", "findings_total=0")
+	assertRecord(t, output, "event=run_completed", "status=success", "exit_code=0")
+	if strings.Contains(output, "stage=finalize") {
+		t.Fatalf("no-change run started finalization:\n%s", output)
+	}
+}
+
+func TestRepositoryStatusFailureIsOperational(t *testing.T) {
+	agent := &fakeAgent{reviews: []codex.ReviewResult{clean()}}
+	repository := &fakeRepository{err: errors.New("git unavailable")}
+	code, output, stderr := runWithRepository(t, config.Config{}, agent, repository)
+	if code != ExitOperational || agent.finalizeCalls != 0 {
+		t.Fatalf("code=%d finalize calls=%d", code, agent.finalizeCalls)
+	}
+	assertRecord(t, output, "event=review_completed", "status=clean")
+	assertRecord(t, output, "event=run_completed", "status=operational_failure", "exit_code=2")
+	if !strings.Contains(stderr, "repository status failed") {
+		t.Fatalf("stderr=%q", stderr)
 	}
 }
 

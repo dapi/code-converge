@@ -151,12 +151,17 @@ type appFakeRunner struct {
 	t           *testing.T
 	invocations []runner.Invocation
 	review      runner.Result
+	status      runner.Result
+	statusErr   error
 	finalizeMsg string
 	err         error
 }
 
 func (f *appFakeRunner) Run(_ context.Context, invocation runner.Invocation) (runner.Result, error) {
 	f.invocations = append(f.invocations, invocation)
+	if invocation.Executable == "git" {
+		return f.status, f.statusErr
+	}
 	for i, arg := range invocation.Args {
 		if arg == "--output-last-message" && i+1 < len(invocation.Args) && f.err == nil {
 			if err := os.WriteFile(invocation.Args[i+1], []byte(f.finalizeMsg), 0o600); err != nil {
@@ -207,6 +212,7 @@ func TestAppWorkflowSuccessWithFakeRunner(t *testing.T) {
 	fake := &appFakeRunner{
 		t:           t,
 		review:      runner.Result{Stdout: "No findings.\n"},
+		status:      runner.Result{Stdout: " M changed.go\n"},
 		finalizeMsg: `{"verdict":"SUCCESS","commit":"success","push":"success","change_request":"skipped","ci":"skipped"}`,
 	}
 	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home, Runner: fake}).Run(context.Background(), nil)
@@ -218,6 +224,22 @@ func TestAppWorkflowSuccessWithFakeRunner(t *testing.T) {
 	}
 	if len(fake.invocations) < 2 {
 		t.Fatalf("expected review and finalize invocations, got %d", len(fake.invocations))
+	}
+}
+
+func TestAppNoChangeSkipsFinalize(t *testing.T) {
+	root, home := testRepo(t)
+	var stdout, stderr bytes.Buffer
+	fake := &appFakeRunner{t: t, review: runner.Result{Stdout: `{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"no changes","overall_confidence_score":0.99}`}}
+	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home, Runner: fake}).Run(context.Background(), nil)
+	if code != workflow.ExitSuccess || stderr.Len() != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "event=review_completed") || !strings.Contains(stdout.String(), "status=clean") || !strings.Contains(stdout.String(), "findings_total=0") || !strings.Contains(stdout.String(), "event=run_completed status=success exit_code=0") || strings.Contains(stdout.String(), "stage=finalize") {
+		t.Fatalf("stdout:\n%s", stdout.String())
+	}
+	if len(fake.invocations) != 2 || fake.invocations[1].Executable != "git" {
+		t.Fatalf("invocations = %#v", fake.invocations)
 	}
 }
 
