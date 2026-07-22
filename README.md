@@ -238,9 +238,9 @@ The required event catalog is:
 | Event | Required event-specific fields |
 | --- | --- |
 | `run_started` | No fields beyond `ts` and `event`. |
-| `stage_started` | `stage`, `model`, `reasoning_effort`; also `review_phase` and `cycle` for `review` and `fix-findings`. |
+| `stage_started` | `stage`, `model`, `reasoning_effort`; also `review_phase` and `cycle` for `review` and `fix-findings`, and `review_phase` for `fix-ci`. |
 | `review_completed` | `stage=review`, `model`, `reasoning_effort`, `review_phase`, `cycle`, `status=clean\|findings\|failed`, and `duration_ms`. A classified result (`clean` or `findings`) also requires all findings counters plus `review_scope=branch_and_worktree`, `review_base` (resolved commit SHA), `review_merge_base` and `review_base_source=explicit\|open_pr\|branch_merge_base\|remote_default`; on command or classification failure these fields and counters are omitted. This is the review stage's sole completion record. |
-| `stage_completed` | `stage=fix-findings\|finalize\|fix-ci`, `model`, `reasoning_effort`, `status=success\|failed`, and `duration_ms`. A successfully parsed finalization response also requires `verdict=SUCCESS\|CI_FAILED\|FAILED`; an invocation or parsing failure uses `status=failed` and omits `verdict`. |
+| `stage_completed` | `stage=fix-findings\|finalize\|fix-ci`, `model`, `reasoning_effort`, `status=success\|failed`, and `duration_ms`; `fix-findings` also has `review_phase` and `cycle`, while `fix-ci` has `review_phase`. A successfully parsed finalization response also requires `verdict=SUCCESS\|CI_FAILED\|FAILED`; an invocation or parsing failure uses `status=failed` and omits `verdict`. |
 | `step_completed` | `stage=finalize`, `model`, `reasoning_effort`, `step=commit\|push\|change_request\|ci`, and `status=success\|skipped\|failed\|unknown`. Each finalization attempt emits one record for every listed step; a step that is inapplicable or not reached is `skipped`, while an outcome that cannot be established is `unknown`. |
 | `run_completed` | `status=success\|findings_remaining\|operational_failure\|ci_failure`, `exit_code`, and `total_duration_ms`. |
 
@@ -268,40 +268,40 @@ This makes the trend across cycles directly measurable without requiring it to b
 
 ### Human format
 
-Human is the built-in format for concise operator output. Human lines omit timestamps, model settings, raw event keys, zero-valued severity buckets, and the redundant `run_started` record. Durations below one minute use seconds rounded to a tenth with a trailing `.0` removed; longer durations use rounded whole seconds in compact `h m s` form. Select `--log-format=kv` when an integration requires the machine-readable event stream.
+Human is the built-in format for concise operator output. Every permanent line starts with local `HH:MM:SS`; stage-specific lines then include `[model/reasoning-effort]` with no separator before the message. The overall terminal line has no model because it does not belong to a single stage. Human lines omit raw event keys, zero-valued severity buckets, and the redundant `run_started` record. Durations below one minute use seconds rounded to a tenth with a trailing `.0` removed; longer durations use rounded whole seconds in compact `h m s` form. Select `--log-format=kv` when an integration requires the machine-readable event stream.
 
 | Workflow result | Human output |
 | --- | --- |
-| Review starts in the initial phase | `Review attempt 1 started` |
-| Review starts after the first CI fix | `Review attempt 1 started after CI fix 1` |
-| Review is clean | `Review attempt 1: clean (1m 27s)` |
-| Review has findings | `Review attempt 2: 3 findings — 1 high, 2 medium (2m 13s)` |
-| Review fails | `Review attempt 2 failed (2m 13s)` |
-| Fix findings starts / succeeds / fails | `Fixing findings from review attempt 2...` / `Findings fixed (4m 23s)` / `Fixing findings failed (4m 23s)` |
-| Finalization starts | `Finalizing...` |
-| Finalization step | `  Commit: done`, `  Push: failed`, `  Change request: not needed`, or `  CI: unknown` |
-| Finalization succeeds | `Finalized successfully (42s)` |
-| Finalization reports red CI | `Finalized, but CI is failing (42s)` |
-| Finalization fails | `Finalization failed (42s)` |
-| CI fix starts / succeeds / fails | `Fixing CI...` / `CI fixed (1m 8s)` / `Fixing CI failed (1m 8s)` |
-| Run succeeds | `Done (8m 45s)` |
-| Findings remain | `Stopped: review findings remain (8m 45s, exit 1)` |
-| Operational failure | `Failed due to an operational error (8m 45s, exit 2)` |
-| CI remains red | `Stopped: CI is still failing (8m 45s, exit 3)` |
+| Review starts in the initial phase | `22:14:05 [gpt-5.6-sol/high] Review 1 (fixes 0/10) started` |
+| Review starts after the first CI recovery | `22:14:05 [gpt-5.6-sol/high] Review 1 (fixes 0/10, phase 2 after CI recovery 1) started` |
+| Review is clean | `22:14:05 [gpt-5.6-sol/high] Review 2 (fixes 1/10): clean (1m 27s)` |
+| Review has findings | `22:14:05 [gpt-5.6-sol/high] Review 2 (fixes 1/10): 3 findings — 1 high, 2 medium (2m 13s)` |
+| Review fails | `22:14:05 [gpt-5.6-sol/high] Review 2 (fixes 1/10) failed (2m 13s)` |
+| Fix findings starts / succeeds / fails | `22:14:05 [gpt-5.6-luna/medium] Fixing findings (fix 2/10)` / `22:14:05 [gpt-5.6-luna/medium] Findings fixed (fix 2/10, 4m 23s)` / `22:14:05 [gpt-5.6-luna/medium] Fixing findings failed (fix 2/10, 4m 23s)` |
+| Finalization starts | `22:14:05 [gpt-5.3-codex-spark/agent-default] Finalizing` |
+| Finalization step | `22:14:05 [gpt-5.3-codex-spark/agent-default]   Commit: done` (and equivalent step status) |
+| Finalization succeeds | `22:14:05 [gpt-5.3-codex-spark/agent-default] Finalized successfully (42s)` |
+| Finalization reports red CI | `22:14:05 [gpt-5.3-codex-spark/agent-default] Finalized, but CI is failing (42s)` |
+| Finalization fails | `22:14:05 [gpt-5.3-codex-spark/agent-default] Finalization failed (42s)` |
+| CI recovery starts / succeeds / fails | `22:14:05 [agent-default/agent-default] CI recovery 1/3` / `22:14:05 [agent-default/agent-default] CI recovery 1/3 fixed (1m 8s)` / `22:14:05 [agent-default/agent-default] CI recovery 1/3 failed (1m 8s)` |
+| Run succeeds | `22:14:05 Done (8m 45s)` |
+| Findings remain | `22:14:05 Stopped: review findings remain (8m 45s, exit 1)` |
+| Operational failure | `22:14:05 Failed due to an operational error (8m 45s, exit 2)` |
+| CI remains red | `22:14:05 Stopped: CI is still failing (8m 45s, exit 3)` |
 
 A findings summary always includes the total and only its non-zero severity counts, ordered critical, high, medium, low, unknown. Successful terminal lines omit exit `0`; failure terminal lines retain exit codes `1`, `2`, and `3`.
 
 ### Liveness
 
-In human mode on an interactive stdout terminal, each Codex-backed stage displays one in-place elapsed-time line such as `Reviewing... 1m 24s`. The timer changes once per second while a soft color highlight travels across the fully colored line and returns at a 10-frame-per-second refresh rate. The line is cleared before permanent stdout or diagnostic stderr output.
+In human mode on an interactive stdout terminal, each Codex-backed stage displays one in-place elapsed-time line such as `22:14:05 [gpt-5.6-sol/high] Reviewing (fixes 0/10)... 1m 24s`. The timer changes once per second while a soft color highlight travels across the fully colored line and returns at a 10-frame-per-second refresh rate. The line is cleared before permanent stdout or diagnostic stderr output.
 
 `--color=never` or the presence of `NO_COLOR` disables shimmer while retaining the elapsed line. `auto` uses true color when advertised by `COLORTERM`, ANSI-256 when advertised by `TERM`, basic magenta/cyan otherwise, and no color for unknown or dumb terminals.
 
 Non-TTY output has no implicit liveness and never contains ANSI controls. In human mode, an explicit positive heartbeat replaces transient animation and emits newline-safe records at the requested interval:
 
 ```text
-Review still running (30s)
-Review still running (1m)
+22:14:05 [gpt-5.6-sol/high] Review (fixes 0/10) still running (30s)
+22:15:05 [gpt-5.6-sol/high] Review (fixes 0/10) still running (1m)
 ```
 
 Heartbeat is disabled by default, accepts `0` or a Go duration of at least `1s`, and is rejected with `log-format=kv`. Liveness stops and joins before stage completion, failure, cancellation, or later output; a liveness write error becomes operational failure.

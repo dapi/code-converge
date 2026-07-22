@@ -132,9 +132,9 @@ func TestHumanHappyPath(t *testing.T) {
 		t.Fatalf("code=%d stderr=%q", code, stderr)
 	}
 	for _, want := range []string{
-		"Review attempt 1 started\n", "Review attempt 1: 3 findings — 1 high, 2 medium (0s)\n",
-		"Fixing findings from review attempt 1...\n", "Findings fixed (0s)\n", "Review attempt 2: clean (0s)\n",
-		"Finalizing...\n", "  Commit: done\n", "  Change request: not needed\n", "Finalized successfully (0s)\n", "Done (0s)\n",
+		"10:00:00 [gpt-5.6-sol/medium] Review 1 (fixes 0/1) started\n", "10:00:00 [gpt-5.6-sol/medium] Review 1 (fixes 0/1): 3 findings — 1 high, 2 medium (0s)\n",
+		"10:00:00 [gpt-5.6-luna/medium] Fixing findings (fix 1/1)\n", "10:00:00 [gpt-5.6-luna/medium] Findings fixed (fix 1/1, 0s)\n", "10:00:00 [gpt-5.6-sol/medium] Review 2 (fixes 1/1): clean (0s)\n",
+		"10:00:00 [gpt-5.3-codex-spark/agent-default] Finalizing\n", "10:00:00 [gpt-5.3-codex-spark/agent-default]   Commit: done\n", "10:00:00 [gpt-5.3-codex-spark/agent-default]   Change request: not needed\n", "10:00:00 [gpt-5.3-codex-spark/agent-default] Finalized successfully (0s)\n", "10:00:00 Done (0s)\n",
 	} {
 		if !strings.Contains(output, want) {
 			t.Errorf("missing %q in:\n%s", want, output)
@@ -474,7 +474,7 @@ func TestCancellationStopsActiveLivenessWithoutLateWrites(t *testing.T) {
 	if after := output.String(); after != before {
 		t.Fatalf("late output after cancellation: before=%q after=%q", before, after)
 	}
-	if !strings.Contains(before, "Review attempt 1 failed") || !strings.Contains(before, "Failed due to an operational error") {
+	if !strings.Contains(before, "Review 1 (fixes 0/0) failed") || !strings.Contains(before, "Failed due to an operational error") {
 		t.Fatalf("missing cancellation terminal output: %q", before)
 	}
 }

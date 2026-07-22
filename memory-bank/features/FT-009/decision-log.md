@@ -133,6 +133,14 @@ Each material question uses the canonical reasoning cycle: frame the bounded cla
 - **Result:** `human` is the built-in default; `kv` remains an explicit deterministic compatibility mode. Invalid/unresolvable startup format falls back to the built-in human renderer.
 - **Confidence:** high; direct product decision.
 
+### `DL-12` — Human-line context and ordering
+
+- **Status:** resolved by the user; promoted to `brief.md`, `design.md` and the root README.
+- **Question:** What minimum context must an operator see on each human progress line?
+- **Facts:** The user found the initial human output too sparse and explicitly requested a timestamp on every line, the model immediately after the timestamp, the exact bracket form `[gpt-5.6-sol/high]`, no visual separator between context and message, and visible real attempt budgets.
+- **Result:** Every human permanent and liveness line begins with local `HH:MM:SS`; stage-specific lines continue with `[model/reasoning-effort]` and a single space before the message. Review/fix/CI-recovery messages show the configured budget with the current counter. The run terminal line retains the timestamp but no model.
+- **Confidence:** high; direct product decision.
+
 ## Review-Improve Cycles
 
 Cycle records are appended after each complete review. A cycle lists only `critical` and `important` findings for remediation; `minor` findings are recorded but not changed unless they block a higher-severity correction.

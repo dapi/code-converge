@@ -40,6 +40,8 @@ type Workflow struct {
 
 func (w *Workflow) Run(ctx context.Context) int {
 	w.Log.Err = w.Err
+	w.Log.HumanMaxCycles = w.Config.MaxCycles
+	w.Log.HumanMaxCIRecoveries = w.Config.MaxCIRecoveries
 	now := time.Now
 	if w.Now != nil {
 		now = w.Now
@@ -57,7 +59,7 @@ func (w *Workflow) Run(ctx context.Context) int {
 			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 		}
 		stageCtx, cancelStage := context.WithCancel(ctx)
-		liveness := w.Log.StartLiveness(stageCtx, "review", stageStarted, cancelStage)
+		liveness := w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "review", Model: w.stageModel("review"), ReasoningEffort: w.stageReasoningEffort("review"), ReviewPhase: phase, Cycle: cycle}, stageStarted, cancelStage)
 		review, err := w.Agent.Review(stageCtx)
 		livenessErr := liveness.Stop()
 		cancelStage()
@@ -101,7 +103,7 @@ func (w *Workflow) Run(ctx context.Context) int {
 				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 			}
 			stageCtx, cancelStage = context.WithCancel(ctx)
-			liveness = w.Log.StartLiveness(stageCtx, "fix-findings", stageStarted, cancelStage)
+			liveness = w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "fix-findings", Model: w.stageModel("fix-findings"), ReasoningEffort: w.stageReasoningEffort("fix-findings"), ReviewPhase: phase, Cycle: cycle}, stageStarted, cancelStage)
 			err = w.Agent.FixFindings(stageCtx, review.Report)
 			livenessErr = liveness.Stop()
 			cancelStage()
@@ -141,7 +143,7 @@ func (w *Workflow) Run(ctx context.Context) int {
 			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 		}
 		stageCtx, cancelStage = context.WithCancel(ctx)
-		liveness = w.Log.StartLiveness(stageCtx, "finalize", stageStarted, cancelStage)
+		liveness = w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "finalize", Model: w.stageModel("finalize"), ReasoningEffort: w.stageReasoningEffort("finalize")}, stageStarted, cancelStage)
 		finalization, err := w.Agent.Finalize(stageCtx)
 		livenessErr = liveness.Stop()
 		cancelStage()
@@ -170,11 +172,11 @@ func (w *Workflow) Run(ctx context.Context) int {
 				return w.complete("ci_failure", ExitCI, now().Sub(runStarted))
 			}
 			stageStarted = now()
-			if !w.emit("stage_started", event.F("stage", "fix-ci"), event.F("model", w.stageModel("fix-ci")), event.F("reasoning_effort", w.stageReasoningEffort("fix-ci"))) {
+			if !w.emit("stage_started", event.F("stage", "fix-ci"), event.F("model", w.stageModel("fix-ci")), event.F("reasoning_effort", w.stageReasoningEffort("fix-ci")), intField("review_phase", phase)) {
 				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 			}
 			stageCtx, cancelStage = context.WithCancel(ctx)
-			liveness = w.Log.StartLiveness(stageCtx, "fix-ci", stageStarted, cancelStage)
+			liveness = w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "fix-ci", Model: w.stageModel("fix-ci"), ReasoningEffort: w.stageReasoningEffort("fix-ci"), ReviewPhase: phase}, stageStarted, cancelStage)
 			err = w.Agent.FixCI(stageCtx)
 			livenessErr = liveness.Stop()
 			cancelStage()
@@ -186,7 +188,7 @@ func (w *Workflow) Run(ctx context.Context) int {
 			if err != nil {
 				stageStatus = "failed"
 			}
-			if !w.emit("stage_completed", event.F("stage", "fix-ci"), event.F("model", w.stageModel("fix-ci")), event.F("reasoning_effort", w.stageReasoningEffort("fix-ci")), event.F("status", stageStatus), durationField(now().Sub(stageStarted))) {
+			if !w.emit("stage_completed", event.F("stage", "fix-ci"), event.F("model", w.stageModel("fix-ci")), event.F("reasoning_effort", w.stageReasoningEffort("fix-ci")), intField("review_phase", phase), event.F("status", stageStatus), durationField(now().Sub(stageStarted))) {
 				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 			}
 			if err != nil {

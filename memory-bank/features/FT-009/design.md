@@ -76,7 +76,7 @@ flowchart LR
 | `ALT-03` | Put all progress on stderr | Conflicts with the established contract that workflow progress is stdout and diagnostics are stderr. |
 | `ALT-04` | Enable heartbeat in `kv` | Extends the structured event catalog without acceptance need and risks consumer compatibility; separately design it if demanded later. |
 | `ALT-05` | Run transient shimmer and explicit heartbeat together | Duplicates liveness, increases noise and complicates ordering. Explicit heartbeat therefore replaces transient display. |
-| `ALT-06` | Add timestamps to human output | Issue #9 only asks to consider them and says they are omitted by default. Deferring them avoids a fourth setting and keeps the first human contract concise. |
+| `ALT-06` | Leave timestamps and model context out of human output | Superseded by the direct operator decision recorded in `DL-12`; the approved human contract needs immediate correlation of each line with its time and executing model. |
 
 ## Trade-offs
 
@@ -96,7 +96,7 @@ flowchart LR
 - `SD-05` A soft highlight travels across and then back over the complete transient text; the line refreshes at 10 frames/second, while the highlight advances one character every two frames. Its elapsed timer uses whole seconds and refreshes once per second. Use the fixed true-color palette `#9370c4` base with `#b18fe6`, `#cfb5fa`, `#eadaff` and white highlight steps, approximate it in ANSI-256 terminals, fall back to basic magenta/cyan on lower-color terminals, and emit no color when disabled or terminal capability is unknown/dumb.
 - `SD-06` Durations below one minute round to the nearest tenth of a second and trim `.0`; durations of at least one minute round to the nearest second and render compact non-zero `h`, `m`, `s` units. Negative internal durations clamp to zero; human output never uses milliseconds.
 - `SD-07` A findings summary always includes total findings and only non-zero severity buckets in the fixed order critical, high, medium, low, unknown.
-- `SD-08` `run_started` is omitted in human mode. Model and reasoning-effort fields remain available in `kv` but are omitted from human permanent lines because they do not improve the operator stage summary requested by issue #9.
+- `SD-08` `run_started` is omitted in human mode. Every permanent human line begins with local `HH:MM:SS`; each stage-scoped line immediately follows it with `[model/reasoning-effort]`, with no separator before the message. The overall terminal line has no model because it is not stage-scoped. Review displays completed fixes against `max-cycles`; fix-findings displays its current attempt against that budget; CI recovery displays its current recovery against `max-ci-recoveries`.
 - `SD-09` The selected renderer applies only after `log-format` resolves successfully. Failures before that point use the legacy `kv` startup-failure records where the current contract emits them; a failure in another setting after successful format resolution uses the selected renderer. This avoids guessing an unresolved semantic format and preserves pre-feature failure behavior.
 
 ## Contracts
@@ -112,19 +112,20 @@ flowchart LR
 | Existing event/result | Human rendering |
 | --- | --- |
 | `run_started` | omitted |
-| review `stage_started`, phase 1 | `Review attempt <cycle> started` |
-| review `stage_started`, phase >1 | `Review attempt <cycle> started after CI fix <phase-1>` |
-| `review_completed status=clean` | `Review attempt <cycle>: clean (<duration>)` |
-| `review_completed status=findings` | `Review attempt <cycle>: <total> findings — <non-zero severity list> (<duration>)` |
-| `review_completed status=failed` | `Review attempt <cycle> failed (<duration>)` |
-| fix-findings `stage_started` | `Fixing findings from review attempt <cycle>...` |
-| fix-findings `stage_completed success|failed` | `Findings fixed (<duration>)` or `Fixing findings failed (<duration>)` |
-| finalize `stage_started` | `Finalizing...` |
+| review `stage_started`, phase 1 | `Review <cycle> (fixes <cycle-1>/<max-cycles>) started` |
+| review `stage_started`, phase >1 | `Review <cycle> (fixes <cycle-1>/<max-cycles>, phase <phase> after CI recovery <phase-1>) started` |
+| `review_completed status=clean` | `Review <cycle> (fixes <cycle-1>/<max-cycles>): clean (<duration>)` |
+| `review_completed status=findings` | `Review <cycle> (fixes <cycle-1>/<max-cycles>): <total> findings — <non-zero severity list> (<duration>)` |
+| `review_completed status=failed` | `Review <cycle> (fixes <cycle-1>/<max-cycles>) failed (<duration>)` |
+| fix-findings `stage_started` | `Fixing findings (fix <cycle>/<max-cycles>)` |
+| fix-findings `stage_completed success|failed` | `Findings fixed (fix <cycle>/<max-cycles>, <duration>)` or `Fixing findings failed (fix <cycle>/<max-cycles>, <duration>)` |
+| finalize `stage_started` | `Finalizing` |
 | finalization `step_completed` | `  Commit|Push|Change request|CI: done|not needed|failed|unknown`; `success→done`, `skipped→not needed`, other statuses retain their public words |
 | finalize `SUCCESS|CI_FAILED|FAILED` | `Finalized successfully (<duration>)`, `Finalized, but CI is failing (<duration>)`, or `Finalization failed (<duration>)` |
 | finalize invocation/parsing failure | `Finalization failed (<duration>)`; four step lines still render their emitted `unknown` statuses first |
 | fix-ci `stage_started` | `Fixing CI...` |
-| fix-ci `stage_completed success|failed` | `CI fixed (<duration>)` or `Fixing CI failed (<duration>)` |
+| fix-ci `stage_started` | `CI recovery <phase>/<max-ci-recoveries>` |
+| fix-ci `stage_completed success|failed` | `CI recovery <phase>/<max-ci-recoveries> fixed (<duration>)` or `CI recovery <phase>/<max-ci-recoveries> failed (<duration>)` |
 | `run_completed success` | `Done (<duration>)` |
 | `run_completed findings_remaining` | `Stopped: review findings remain (<duration>, exit 1)` |
 | `run_completed operational_failure` | `Failed due to an operational error (<duration>, exit 2)` |
@@ -136,8 +137,8 @@ flowchart LR
 
 | Contract ID | Connector / direction | Roles and sync boundary | Guarantees / failure / evolution semantics |
 | --- | --- | --- | --- |
-| `CTR-03` | Workflow facts → human formatter | Synchronous in-process transform | Applies `SD-06`/`SD-07`; singularizes `1 finding`; emits no timestamps, raw keys, model fields or zero severity buckets. Unexpected enum values are rendering errors, not improvised prose. |
-| `CTR-04` | Stage scope ↔ liveness worker ↔ stdout/stderr | One worker at most; mutex-protected output coordinator; stop-and-join barrier | In human mode with heartbeat `>0`, emit `Review still running`, `Fixing findings still running`, `Finalization still running`, or `CI fix still running`, followed by `(<elapsed>)`, at interval multiples regardless of TTY and without ANSI. Otherwise, if stdout is a TTY, update `Reviewing...`, `Fixing findings...`, `Finalizing...`, or `Fixing CI...` in place; the elapsed timer changes once per second while a soft color highlight moves across and then back over the fully colored line at a 10 fps refresh rate. Clear transient output before permanent stdout or diagnostic stderr. Stop/join before stage completion, failure or cancellation output. The first worker write error cancels the stage scope and is returned once; no later write is allowed. |
+| `CTR-03` | Workflow facts → human formatter | Synchronous in-process transform | Applies `SD-06`/`SD-07`; prefixes every permanent line with local `HH:MM:SS`, then stage lines with `[model/reasoning-effort]`; singularizes `1 finding`; emits no raw keys or zero severity buckets. Unexpected enum values are rendering errors, not improvised prose. |
+| `CTR-04` | Stage scope ↔ liveness worker ↔ stdout/stderr | One worker at most; mutex-protected output coordinator; stop-and-join barrier | In human mode with heartbeat `>0`, emit timestamped, model-scoped `Review (fixes <n>/<max>) still running`, `Fixing findings (fix <n>/<max>) still running`, `Finalization still running`, or `CI recovery <n>/<max> still running`, followed by `(<elapsed>)`, at interval multiples regardless of TTY and without ANSI. Otherwise, if stdout is a TTY, update the equivalent timestamped/model-scoped line in place; the elapsed timer changes once per second while a soft color highlight moves across and then back over the fully colored line at a 10 fps refresh rate. Clear transient output before permanent stdout or diagnostic stderr. Stop/join before stage completion, failure or cancellation output. The first worker write error cancels the stage scope and is returned once; no later write is allowed. |
 | `CTR-05` | Structured facts → kv encoder | Existing synchronous writer | With `log-format=kv` and heartbeat `0`, record names, fields, ordering, timestamps and integer millisecond durations remain unchanged. No ANSI is ever emitted. |
 
 ## Invariants
