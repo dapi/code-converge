@@ -84,6 +84,7 @@ The reasoning bounds this feature to review-input selection, separates issue fac
 - **FPF closures:** none required; `IMP-02` is a direct contract realization gap against `CTR-02` and `FM-02`.
 - **Changes:** added the normalization, config output for discovery default, temporary-index review preparation, metadata events, full documentation and deterministic test coverage.
 - **Verification:** `go test ./...`, `go vet ./...`, `make docs-lint`, `git diff --check` pass locally.
+- **Publication evidence:** PR [#19](https://github.com/dapi/code-converge/pull/19) targets `master`; required [Verify run](https://github.com/dapi/code-converge/actions/runs/29947500863) passed.
 - **Human gate:** no.
 
 ## Human Gate
