@@ -17,6 +17,7 @@ var codeConvergeEnv = []string{
 	"CODE_CONVERGE_FIX_MODEL", "CODE_CONVERGE_FIX_REASONING_EFFORT", "CODE_CONVERGE_FIX_PROMPT_FILE", "CODE_CONVERGE_FINALIZE_MODEL",
 	"CODE_CONVERGE_FINALIZE_REASONING_EFFORT", "CODE_CONVERGE_FINALIZE_PROMPT_FILE", "CODE_CONVERGE_CI_FIX_MODEL",
 	"CODE_CONVERGE_CI_FIX_REASONING_EFFORT", "CODE_CONVERGE_CI_FIX_PROMPT_FILE",
+	"CODE_CONVERGE_REVIEW_BASE",
 }
 
 func TestLoggingConfiguration(t *testing.T) {
@@ -146,6 +147,34 @@ func TestLoadPrecedence(t *testing.T) {
 	}
 	if !strings.Contains(Format(cfg), "max-cycles: 4 (project; built-in: 10)") {
 		t.Fatalf("formatted config:\n%s", Format(cfg))
+	}
+}
+
+func TestReviewBasePrecedence(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	t.Setenv("CODE_CONVERGE_REVIEW_BASE", "env-base")
+	write(t, filepath.Join(home, ".code-converge", "review-base"), "user-base")
+	write(t, filepath.Join(root, ".code-converge", "review-base"), "project-base")
+	cfg, err := Load(root, home, Overrides{ReviewBase: OptionalString{Value: "cli-base", Set: true}})
+	if err != nil || cfg.ReviewBase != "cli-base" || source(cfg, "review-base") != SourceCLI {
+		t.Fatalf("review base = %q (%s), %v", cfg.ReviewBase, source(cfg, "review-base"), err)
+	}
+	cfg, err = Load(root, home, Overrides{})
+	if err != nil || cfg.ReviewBase != "project-base" || source(cfg, "review-base") != SourceProject {
+		t.Fatalf("review base = %q (%s), %v", cfg.ReviewBase, source(cfg, "review-base"), err)
+	}
+	if err := os.Remove(filepath.Join(root, ".code-converge", "review-base")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(home, ".code-converge", "review-base")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODE_CONVERGE_REVIEW_BASE", "")
+	_ = os.Unsetenv("CODE_CONVERGE_REVIEW_BASE")
+	cfg, err = Load(root, home, Overrides{})
+	if err != nil || !strings.Contains(Format(cfg), "review-base: discover (built-in default)") {
+		t.Fatalf("default review base config:\n%s\nerr=%v", Format(cfg), err)
 	}
 }
 

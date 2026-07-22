@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -12,6 +13,7 @@ type Invocation struct {
 	Executable string
 	Args       []string
 	Stdin      string
+	Env        []string
 }
 
 type Result struct {
@@ -39,6 +41,7 @@ func (r Exec) Run(ctx context.Context, invocation Invocation) (Result, error) {
 	cmd := exec.Command(name, invocation.Args...)
 	configureProcessGroup(cmd)
 	cmd.Dir = r.Dir
+	cmd.Env = append(os.Environ(), invocation.Env...)
 	cmd.Stdin = bytes.NewBufferString(invocation.Stdin)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -159,8 +160,33 @@ type appFakeRunner struct {
 
 func (f *appFakeRunner) Run(_ context.Context, invocation runner.Invocation) (runner.Result, error) {
 	f.invocations = append(f.invocations, invocation)
+	if invocation.Executable == "gh" {
+		return runner.Result{Stdout: "[]"}, nil
+	}
 	if invocation.Executable == "git" {
+		args := strings.Join(invocation.Args, " ")
+		switch {
+		case strings.HasPrefix(args, "status "):
+			return f.status, f.statusErr
+		case args == "symbolic-ref --quiet --short HEAD":
+			return runner.Result{Stdout: "feature"}, nil
+		case args == "config --get branch.feature.gh-merge-base":
+			return runner.Result{}, errors.New("not configured")
+		case args == "remote":
+			return runner.Result{Stdout: "origin"}, nil
+		case args == "symbolic-ref --quiet refs/remotes/origin/HEAD":
+			return runner.Result{Stdout: "refs/remotes/origin/main"}, nil
+		case strings.HasPrefix(args, "rev-parse --verify "):
+			return runner.Result{Stdout: "0123456789012345678901234567890123456789"}, nil
+		case strings.HasPrefix(args, "merge-base "):
+			return runner.Result{Stdout: "0123456789012345678901234567890123456789"}, nil
+		case strings.HasPrefix(args, "read-tree ") || args == "add -A":
+			return runner.Result{}, nil
+		}
 		return f.status, f.statusErr
+	}
+	if len(invocation.Args) > 0 && strings.Contains(strings.Join(invocation.Args, " "), " review ") {
+		return f.review, f.err
 	}
 	for i, arg := range invocation.Args {
 		if arg == "--output-last-message" && i+1 < len(invocation.Args) && f.err == nil {
@@ -168,9 +194,6 @@ func (f *appFakeRunner) Run(_ context.Context, invocation runner.Invocation) (ru
 				f.t.Fatalf("write finalize message: %v", err)
 			}
 		}
-	}
-	if len(f.invocations) == 1 {
-		return f.review, f.err
 	}
 	return runner.Result{}, f.err
 }
@@ -238,7 +261,8 @@ func TestAppNoChangeSkipsFinalize(t *testing.T) {
 	if !strings.Contains(stdout.String(), "event=review_completed") || !strings.Contains(stdout.String(), "status=clean") || !strings.Contains(stdout.String(), "findings_total=0") || !strings.Contains(stdout.String(), "event=run_completed status=success exit_code=0") || strings.Contains(stdout.String(), "stage=finalize") {
 		t.Fatalf("stdout:\n%s", stdout.String())
 	}
-	if len(fake.invocations) != 2 || fake.invocations[1].Executable != "git" {
+	last := fake.invocations[len(fake.invocations)-1]
+	if last.Executable != "git" || !reflect.DeepEqual(last.Args, []string{"status", "--porcelain"}) {
 		t.Fatalf("invocations = %#v", fake.invocations)
 	}
 }

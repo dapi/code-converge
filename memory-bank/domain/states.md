@@ -17,7 +17,7 @@ canonical_for:
 
 ```mermaid
 stateDiagram-v2
-  [*] --> Review
+  [*] --> Review: resolve base and private snapshot
   Review --> FixFindings: findings and fix budget remaining
   FixFindings --> Review: success
   Review --> Finalize: clean report and changes exist

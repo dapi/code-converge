@@ -50,7 +50,7 @@ flowchart TD
         ║   REVIEW STAGE    ║                                   │
         ║                   ║                                   │
         ║ codex review      ║                                   │
-        ║   --uncommitted   ║                                   │
+        ║ --base + snapshot ║                                   │
         ╚════════╤══════════╝                                   │
                  │                                              │
                  ▼                                              │
@@ -151,7 +151,7 @@ flowchart TD
 
 Key points:
 
-- **Review** — `codex review --uncommitted`, accepts existing plain-text reports and the strictly validated structured report format emitted by supported Codex CLI versions.
+- **Review** — resolves the intended pull-request base and runs one `codex review --base` against a private merge-base-to-worktree snapshot, including committed, staged, unstaged and untracked changes. It accepts existing plain-text reports and the strictly validated structured report format emitted by supported Codex CLI versions.
 - **Fix** — `codex exec -`, stdin = fix-prompt + full review report. The stateless remediation session receives the findings it must address.
 - **Finalize** — `codex exec --output-schema`, strict JSON verdict with hard validation.
 - **CI recovery** — on `CI_FAILED`, fixes CI, resets the fix cycle, and restarts from Review.
@@ -160,7 +160,9 @@ Key points:
 
 ### 1. Review
 
-`code-converge` runs the normal non-interactive `codex review` command in the current directory. It uses the model and reasoning effort resolved from the selected mode and any explicit stage overrides.
+`code-converge` runs the normal non-interactive `codex review` command in the current directory. By default it resolves one review base in this order: an explicit review-base setting, the base of one open pull request for the current branch, `branch.<current>.gh-merge-base`, then exactly one remote default-branch ref. It computes the merge-base and prepares a private Git index from that tree plus the current worktree; this includes committed, staged, unstaged and untracked changes without modifying the real index or worktree. Ambiguous, missing or stale candidates fail with a diagnostic before Codex starts. Provider discovery through `gh` is optional; unavailable `gh` or authentication falls through to local Git sources. No implicit fetch, PR mutation or other remote mutation occurs.
+
+`--review-base <ref>`, `CODE_CONVERGE_REVIEW_BASE` and `.code-converge/review-base` explicitly select the base using the normal configuration precedence. A branch already merged into the selected base has no committed delta but still reviews worktree changes; a fully clean run follows the existing clean/no-change path. It uses the model and reasoning effort resolved from the selected mode and any explicit stage overrides.
 
 The review adapter reads the ordinary Codex review report and distinguishes findings from an explicitly clean review. It accepts the existing plain-text forms and a strict structured JSON object with exactly `findings`, `overall_correctness`, `overall_explanation`, and `overall_confidence_score`. Structured findings require the observed `title`, `body`, `confidence_score`, numeric `priority`, and `code_location` shape. It does not require a caller-supplied output schema. A non-zero command exit, malformed/incomplete/unknown structured data, or a report that cannot otherwise be classified safely is an operational failure and exits with code `2`; ambiguous output is never treated as a clean review.
 
@@ -237,7 +239,7 @@ The required event catalog is:
 | --- | --- |
 | `run_started` | No fields beyond `ts` and `event`. |
 | `stage_started` | `stage`, `model`, `reasoning_effort`; also `review_phase` and `cycle` for `review` and `fix-findings`. |
-| `review_completed` | `stage=review`, `model`, `reasoning_effort`, `review_phase`, `cycle`, `status=clean\|findings\|failed`, and `duration_ms`. A classified result (`clean` or `findings`) also requires all findings counters; on command or classification failure the counters are omitted. This is the review stage's sole completion record. |
+| `review_completed` | `stage=review`, `model`, `reasoning_effort`, `review_phase`, `cycle`, `status=clean\|findings\|failed`, and `duration_ms`. A classified result (`clean` or `findings`) also requires all findings counters plus `review_scope=branch_and_worktree`, `review_base`, `review_merge_base` and `review_base_source=explicit\|open_pr\|branch_merge_base\|remote_default`; on command or classification failure these fields and counters are omitted. This is the review stage's sole completion record. |
 | `stage_completed` | `stage=fix-findings\|finalize\|fix-ci`, `model`, `reasoning_effort`, `status=success\|failed`, and `duration_ms`. A successfully parsed finalization response also requires `verdict=SUCCESS\|CI_FAILED\|FAILED`; an invocation or parsing failure uses `status=failed` and omits `verdict`. |
 | `step_completed` | `stage=finalize`, `model`, `reasoning_effort`, `step=commit\|push\|change_request\|ci`, and `status=success\|skipped\|failed\|unknown`. Each finalization attempt emits one record for every listed step; a step that is inapplicable or not reached is `skipped`, while an outcome that cannot be established is `unknown`. |
 | `run_completed` | `status=success\|findings_remaining\|operational_failure\|ci_failure`, `exit_code`, and `total_duration_ms`. |
@@ -356,6 +358,7 @@ The `fast` and `best` modes select these operative stage profiles. `fast` is the
 | CI-fix model | `--ci-fix-model` | `CODE_CONVERGE_CI_FIX_MODEL` | `ci-fix-model` | selected profile |
 | CI-fix reasoning effort | `--ci-fix-reasoning-effort` | `CODE_CONVERGE_CI_FIX_REASONING_EFFORT` | `ci-fix-reasoning-effort` | selected profile |
 | CI-fix prompt | `--ci-fix-prompt-file` | `CODE_CONVERGE_CI_FIX_PROMPT_FILE` | `fix-ci.md` | `Исправь CI` |
+| Review base override | `--review-base` | `CODE_CONVERGE_REVIEW_BASE` | `review-base` | discover intended base |
 
 For example, a team can commit these files:
 
@@ -367,6 +370,7 @@ For example, a team can commit these files:
 ├── mode
 ├── review-model
 ├── review-reasoning-effort
+├── review-base
 ├── fix-model
 ├── fix-reasoning-effort
 ├── finalize-model

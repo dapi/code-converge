@@ -78,6 +78,14 @@ func (w *Workflow) Run(ctx context.Context) int {
 			status = "clean"
 		}
 		fields := []event.Field{event.F("stage", "review"), event.F("model", w.stageModel("review")), event.F("reasoning_effort", w.stageReasoningEffort("review")), intField("review_phase", phase), intField("cycle", cycle), event.F("status", status)}
+		if review.Scope.Source != "" {
+			fields = append(fields,
+				event.F("review_scope", "branch_and_worktree"),
+				event.F("review_base", review.Scope.Base),
+				event.F("review_merge_base", review.Scope.MergeBase),
+				event.F("review_base_source", review.Scope.Source),
+			)
+		}
 		fields = append(fields, countFields(review.Counts)...)
 		fields = append(fields, duration)
 		if !w.emit("review_completed", fields...) {
