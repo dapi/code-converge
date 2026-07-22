@@ -48,6 +48,38 @@ func TestParseReview(t *testing.T) {
 	}
 }
 
+func TestParseStructuredReview(t *testing.T) {
+	const clean = `{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"No changes to review.","overall_confidence_score":0.99}`
+	const findings = `{"findings":[{"title":"[P0] critical","body":"body","confidence_score":0.9,"priority":0,"code_location":{"absolute_file_path":"/tmp/a.go","line_range":{"start":1,"end":1}}},{"title":"[P1] high","body":"body","confidence_score":0.8,"priority":1,"code_location":{"absolute_file_path":"/tmp/b.go","line_range":{"start":2,"end":2}}},{"title":"[P2] medium","body":"body","confidence_score":0.7,"priority":2,"code_location":{"absolute_file_path":"/tmp/c.go","line_range":{"start":3,"end":3}}},{"title":"[P3] low","body":"body","confidence_score":0.6,"priority":3,"code_location":{"absolute_file_path":"/tmp/d.go","line_range":{"start":4,"end":4}}}],"overall_correctness":"patch is incorrect","overall_explanation":"findings","overall_confidence_score":0.8}`
+	tests := []struct {
+		name    string
+		report  string
+		want    ReviewResult
+		wantErr bool
+	}{
+		{"clean", clean, ReviewResult{Clean: true}, false},
+		{"priorities", findings, ReviewResult{Counts: Counts{Critical: 1, High: 1, Medium: 1, Low: 1}}, false},
+		{"trailing", clean + " trailing", ReviewResult{}, true},
+		{"unknown top-level field", `{"findings":[],"overall_correctness":"ok","overall_explanation":"ok","overall_confidence_score":1,"extra":true}`, ReviewResult{}, true},
+		{"missing field", `{"findings":[],"overall_correctness":"ok","overall_explanation":"ok"}`, ReviewResult{}, true},
+		{"wrong field type", `{"findings":{},"overall_correctness":"ok","overall_explanation":"ok","overall_confidence_score":1}`, ReviewResult{}, true},
+		{"duplicate nested field", `{"findings":[{"title":"a","title":"b","body":"body","confidence_score":1,"priority":1,"code_location":{"absolute_file_path":"a","line_range":{"start":1,"end":1}}}],"overall_correctness":"ok","overall_explanation":"ok","overall_confidence_score":1}`, ReviewResult{}, true},
+		{"unknown finding field", `{"findings":[{"title":"a","body":"body","confidence_score":1,"priority":1,"code_location":{"absolute_file_path":"a","line_range":{"start":1,"end":1}},"extra":true}],"overall_correctness":"ok","overall_explanation":"ok","overall_confidence_score":1}`, ReviewResult{}, true},
+		{"invalid priority", `{"findings":[{"title":"a","body":"body","confidence_score":1,"priority":4,"code_location":{"absolute_file_path":"a","line_range":{"start":1,"end":1}}}],"overall_correctness":"ok","overall_explanation":"ok","overall_confidence_score":1}`, ReviewResult{}, true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := ParseReview(test.report)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("error = %v, wantErr %v", err, test.wantErr)
+			}
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("result = %#v, want %#v", got, test.want)
+			}
+		})
+	}
+}
+
 func TestParseFinalization(t *testing.T) {
 	valid := []Finalization{
 		{Verdict: "SUCCESS", Commit: "success", Push: "success", ChangeRequest: "success", CI: "success"},
@@ -169,6 +201,16 @@ func TestReviewWithUnclassifiableReport(t *testing.T) {
 	_, err := a.Review(context.Background())
 	if err == nil {
 		t.Fatal("expected parse error")
+	}
+}
+
+func TestReviewWithStructuredFindingsPreservesReport(t *testing.T) {
+	const report = "{\"findings\":[{\"title\":\"[P1] high\",\"body\":\"body\",\"confidence_score\":0.9,\"priority\":1,\"code_location\":{\"absolute_file_path\":\"/tmp/a.go\",\"line_range\":{\"start\":1,\"end\":1}}}],\"overall_correctness\":\"patch is incorrect\",\"overall_explanation\":\"finding\",\"overall_confidence_score\":0.9}\n"
+	r := &recordingRunner{result: runner.Result{Stdout: report}}
+	a := Adapter{Runner: r, Config: config.Config{ReviewModel: "m", ReviewEffort: "e"}}
+	result, err := a.Review(context.Background())
+	if err != nil || result.Clean || result.Counts != (Counts{High: 1}) || result.Report != strings.TrimSpace(report) {
+		t.Fatalf("review = %#v, %v", result, err)
 	}
 }
 

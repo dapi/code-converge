@@ -14,7 +14,9 @@ flowchart TD
     E -- yes --> D[Fix findings]
     E -- no --> X1[Exit 1]
     D --> B
-    C -- no --> F[Commit, push, create change request if needed, check applicable CI]
+    C -- no --> N{Repository changes?}
+    N -- no --> X0[Exit 0: no-op]
+    N -- yes --> F[Commit, push, create change request if needed, check applicable CI]
     F --> G{Result}
     G -- all done; CI green or N/A --> X0[Exit 0]
     G -- published; CI red --> J{CI-recovery budget remains?}
@@ -88,6 +90,13 @@ flowchart TD
        │            └───────────────────────────────────────────┘
        │
        ▼
+  ┌──────────────────────┐
+  │ Check Git status     │
+  │ staged / unstaged /  │
+  │ untracked changes?   │
+  └───────┬─────────┬────┘
+          │ yes     │ no
+          ▼         └────────► run_completed success, exit 0
   ╔══════════════════════╗
   ║   FINALIZE STAGE     ║
   ║                      ║
@@ -142,7 +151,7 @@ flowchart TD
 
 Key points:
 
-- **Review** — `codex review --uncommitted`, parses the report for `[P0]`..`[P3]` finding lines.
+- **Review** — `codex review --uncommitted`, accepts existing plain-text reports and the strictly validated structured report format emitted by supported Codex CLI versions.
 - **Fix** — `codex exec -`, stdin = fix-prompt + full review report. The stateless remediation session receives the findings it must address.
 - **Finalize** — `codex exec --output-schema`, strict JSON verdict with hard validation.
 - **CI recovery** — on `CI_FAILED`, fixes CI, resets the fix cycle, and restarts from Review.
@@ -153,7 +162,7 @@ Key points:
 
 `code-converge` runs the normal non-interactive `codex review` command in the current directory. It uses the model and reasoning effort resolved from the selected mode and any explicit stage overrides.
 
-The review adapter reads the ordinary Codex review report and distinguishes findings from an explicitly clean review. It does not require JSON or a caller-supplied output schema. A non-zero command exit or a report that cannot be classified safely is an operational failure and exits with code `2`; ambiguous output is never treated as a clean review.
+The review adapter reads the ordinary Codex review report and distinguishes findings from an explicitly clean review. It accepts the existing plain-text forms and a strict structured JSON object with exactly `findings`, `overall_correctness`, `overall_explanation`, and `overall_confidence_score`. Structured findings require the observed `title`, `body`, `confidence_score`, numeric `priority`, and `code_location` shape. It does not require a caller-supplied output schema. A non-zero command exit, malformed/incomplete/unknown structured data, or a report that cannot otherwise be classified safely is an operational failure and exits with code `2`; ambiguous output is never treated as a clean review.
 
 For metrics, Codex priorities are normalized as follows: `P0` → `critical`, `P1` → `high`, `P2` → `medium`, and `P3` → `low`. A bracketed numeric priority outside that range is counted as `unknown`; other bracket labels are not findings and make a findings report unclassifiable. `findings_total` must equal the sum of all five counters.
 
@@ -171,7 +180,7 @@ The default `fast` profile uses `gpt-5.6-luna` with reasoning effort `medium`. A
 
 ### 3. Commit, push, create a change request, and check CI
 
-Once a review returns no findings, `code-converge` asks Codex to finalize the changes. The default prompt is:
+Once a review returns no findings, `code-converge` checks Git status for staged, unstaged and untracked changes. If there are none, it completes successfully as a no-op without starting finalization or attempting an empty commit. If changes exist, it asks Codex to finalize them. The default prompt is:
 
 ```text
 commit, push, create PR, ensure CI is green
@@ -203,7 +212,7 @@ If the agent completes successfully, the entire workflow begins again with a new
 
 | Code | Meaning |
 | --- | --- |
-| `0` | The review is clean; changes are committed and pushed; a change request exists if needed; required CI is green or CI is not applicable. `update` also returns `0` when the installed version is current or the user declines the update. |
+| `0` | The review is clean and either no staged, unstaged or untracked changes exist, or changes are committed and pushed; a change request exists if needed; required CI is green or CI is not applicable. `update` also returns `0` when the installed version is current or the user declines the update. |
 | `1` | Review findings remain after the configured maximum number of fix-findings attempts. |
 | `2` | An operational/configuration failure occurred, review output was ambiguous, fix-findings failed, or finalization failed for a reason other than red CI. `update` uses it for unsupported hosts, invalid release metadata, download/checksum failures, or replacement/permission failures. |
 | `3` | The CI-fix stage failed or the maximum number of CI-recovery attempts was exhausted. |

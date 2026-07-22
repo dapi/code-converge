@@ -12,6 +12,7 @@ import (
 	"github.com/dapi/code-converge/internal/codex"
 	"github.com/dapi/code-converge/internal/config"
 	"github.com/dapi/code-converge/internal/event"
+	"github.com/dapi/code-converge/internal/repository"
 	"github.com/dapi/code-converge/internal/runner"
 	selfupdate "github.com/dapi/code-converge/internal/update"
 	"github.com/dapi/code-converge/internal/version"
@@ -149,7 +150,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 		Out: stdout, Err: stderr, Now: a.Now, Format: cfg.LogFormat, Heartbeat: cfg.Heartbeat,
 		Interactive: a.isTerminal(stdout), ColorDepth: a.colorDepth(cfg, stdout),
 	}
-	w := workflow.Workflow{Config: cfg, Agent: agent, Log: &logger, Err: stderr, Now: a.Now}
+	w := workflow.Workflow{Config: cfg, Agent: agent, Repository: repository.Status{Runner: processRunner}, Log: &logger, Err: stderr, Now: a.Now}
 	return w.Run(ctx)
 }
 
