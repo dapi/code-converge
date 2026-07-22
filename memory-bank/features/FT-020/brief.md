@@ -12,7 +12,7 @@ derived_from:
   - ../../../README.md
   - https://github.com/dapi/code-converge/issues/20
 status: active
-delivery_status: in_progress
+delivery_status: done
 audience: humans_and_agents
 must_not_define:
   - implementation_sequence
@@ -138,4 +138,4 @@ The root `code-converge` command does not accept conventional `-h` and `--help` 
 | --- | --- | --- |
 | `EVID-01` | pass | `TestRootHelpAliasesExitBeforeOperationalSetup` deterministically covers both aliases, exact stdout, empty stderr and no fake runner/updater calls. |
 | `EVID-02` | pass | `go test ./internal/app` plus the root README and FT-020 contract review. |
-| `EVID-03` | pending CI | Local `go test ./...`, `go vet ./...`, `go build`, binary alias smoke checks, `make docs-lint` and `git diff --check` pass; required CI and PR reference are pending publication. |
+| `EVID-03` | pass | Local `go test ./...`, `go vet ./...`, built-binary alias smoke checks, `make docs-lint` and `git diff --check` pass; PR [#21](https://github.com/dapi/code-converge/pull/21) is mergeable and required [Verify run](https://github.com/dapi/code-converge/actions/runs/29957460759) passed. |
