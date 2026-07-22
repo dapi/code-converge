@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -22,6 +23,12 @@ func testRepo(t *testing.T) (string, string) {
 	root := t.TempDir()
 	if output, err := exec.Command("git", "init", "-q", root).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v: %s", err, output)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".gitkeep"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := exec.Command("git", "-C", root, "add", ".gitkeep").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v: %s", err, output)
 	}
 	return root, t.TempDir()
 }
@@ -178,6 +185,8 @@ func (f *appFakeRunner) Run(_ context.Context, invocation runner.Invocation) (ru
 			return runner.Result{Stdout: "refs/remotes/origin/main"}, nil
 		case strings.HasPrefix(args, "rev-parse --verify "):
 			return runner.Result{Stdout: "0123456789012345678901234567890123456789"}, nil
+		case args == "rev-parse --git-path index":
+			return runner.Result{Stdout: ".git/index"}, nil
 		case strings.HasPrefix(args, "merge-base "):
 			return runner.Result{Stdout: "0123456789012345678901234567890123456789"}, nil
 		case strings.HasPrefix(args, "read-tree ") || args == "add -A":

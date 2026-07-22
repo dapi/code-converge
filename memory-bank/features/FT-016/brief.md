@@ -139,8 +139,8 @@ The current review adapter invokes `codex review --uncommitted`. As documented a
 
 | Evidence ID | Status | Concrete carrier |
 | --- | --- | --- |
-| `EVID-01` | pass | `TestReviewScopeExplicitBaseBuildsPrivateSnapshot`, `TestReviewScopeRejectsMultipleOpenPRs`, `TestReviewScopeUsesUniqueRemoteTrackingPRBase`; `go test ./internal/repository` |
+| `EVID-01` | pass | `TestReviewScopeExplicitBaseBuildsPrivateSnapshot`, `TestReviewScopeRejectsMultipleOpenPRs`, `TestReviewScopeUsesUniqueRemoteTrackingPRBase`, `TestReviewScopePreservesCommittedChangesOutsideSparseCheckout`; `go test ./internal/repository` |
 | `EVID-02` | pass | `TestAdapterInvocations`, app fake-runner integration and `TestExecPassesInvocationEnvironment`; `go test ./internal/codex ./internal/app ./internal/runner` |
-| `EVID-03` | pass | `TestReviewBasePrecedence`, `TestConfigCommand`, workflow/app event assertions; `go test ./internal/config ./internal/app ./internal/workflow` |
+| `EVID-03` | pass | `TestReviewBasePrecedence`, `TestConfigCommand`, `TestReviewMetadataUsesResolvedCommitForEventSafety` and workflow/app event assertions; `go test ./internal/config ./internal/app ./internal/workflow` |
 | `EVID-04` | pass | Root README, domain rules/states, engineering architecture and FT-016 converge; `make docs-lint` |
 | `EVID-05` | pass | `go test ./...`, `go vet ./...`, `make docs-lint`, `git diff --check`; PR [#19](https://github.com/dapi/code-converge/pull/19), required [Verify run](https://github.com/dapi/code-converge/actions/runs/29947500863) passed. |

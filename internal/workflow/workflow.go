@@ -81,7 +81,7 @@ func (w *Workflow) Run(ctx context.Context) int {
 		if review.Scope.Source != "" {
 			fields = append(fields,
 				event.F("review_scope", "branch_and_worktree"),
-				event.F("review_base", review.Scope.Base),
+				event.F("review_base", review.Scope.BaseCommit),
 				event.F("review_merge_base", review.Scope.MergeBase),
 				event.F("review_base_source", review.Scope.Source),
 			)

@@ -146,7 +146,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 	if processRunner == nil {
 		processRunner = runner.Exec{Executable: "codex", Dir: cwd}
 	}
-	reviewScope := &repository.ReviewScope{Runner: processRunner, Base: cfg.ReviewBase}
+	reviewScope := &repository.ReviewScope{Runner: processRunner, Base: cfg.ReviewBase, Root: cfg.Root}
 	defer reviewScope.Close()
 	agent := codex.Adapter{Runner: processRunner, Config: cfg, ReviewScope: reviewScope}
 	logger := event.Logger{

@@ -11,6 +11,7 @@ import (
 	"github.com/dapi/code-converge/internal/codex"
 	"github.com/dapi/code-converge/internal/config"
 	"github.com/dapi/code-converge/internal/event"
+	"github.com/dapi/code-converge/internal/repository"
 )
 
 type fakeAgent struct {
@@ -195,6 +196,18 @@ func TestCleanNoChangeCompletesWithoutFinalization(t *testing.T) {
 	assertRecord(t, output, "event=run_completed", "status=success", "exit_code=0")
 	if strings.Contains(output, "stage=finalize") {
 		t.Fatalf("no-change run started finalization:\n%s", output)
+	}
+}
+
+func TestReviewMetadataUsesResolvedCommitForEventSafety(t *testing.T) {
+	agent := &fakeAgent{reviews: []codex.ReviewResult{{Clean: true, Scope: repository.ReviewTarget{Base: "release=1", BaseCommit: "0123456789abcdef", MergeBase: "abcdef0123456789", Source: "explicit"}}}, finalizations: []codex.Finalization{success()}}
+	code, output, stderr := run(t, config.Config{}, agent)
+	if code != ExitSuccess || stderr != "" {
+		t.Fatalf("code=%d stderr=%q", code, stderr)
+	}
+	assertRecord(t, output, "event=review_completed", "review_base=0123456789abcdef", "review_merge_base=abcdef0123456789", "review_base_source=explicit")
+	if strings.Contains(output, "release=1") {
+		t.Fatalf("raw ref leaked into event stream:\n%s", output)
 	}
 }
 

@@ -87,6 +87,15 @@ The reasoning bounds this feature to review-input selection, separates issue fac
 - **Publication evidence:** PR [#19](https://github.com/dapi/code-converge/pull/19) targets `master`; required [Verify run](https://github.com/dapi/code-converge/actions/runs/29947500863) passed.
 - **Human gate:** no.
 
+### Cycle 4 — external review remediation
+
+- **Review scope:** PR #19 reviewer findings against `internal/repository/review.go` and `internal/workflow/workflow.go`.
+- **Critical:** none.
+- **Important:** reviewer `P1`: provider PR base could choose a stale local branch; reviewer `P2`: merge-base-initialized temporary index lost sparse-checkout committed paths; reviewer `P2`: a valid ref containing `=` broke event encoding.
+- **Changes:** provider branch names now prefer a unique remote-tracking ref and fail on multiple; the temporary index begins as a private copy of the real index before `git add -A`; review event reports the resolved base SHA rather than a raw ref. Added deterministic provider/event tests and an actual sparse-checkout regression test.
+- **Verification:** focused repository/workflow/app tests, then full local verification and CI are required before closure.
+- **Human gate:** no.
+
 ## Human Gate
 
 ### `HG-01` — Public review-base/scope contract
