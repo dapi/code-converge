@@ -108,7 +108,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 	if err := flags.Parse(args); err != nil {
 		fmt.Fprintf(stderr, "code-converge: %v\n", err)
 		if !configCommand {
-			logger := event.Logger{Out: stdout, Err: stderr, Now: a.Now, Format: "kv"}
+			logger := event.Logger{Out: stdout, Err: stderr, Now: a.Now, Format: "human"}
 			started := time.Now()
 			_ = logger.Emit("run_started")
 			_ = logger.Emit("run_completed", event.F("status", "operational_failure"), event.F("exit_code", "2"), event.F("total_duration_ms", fmt.Sprint(time.Since(started).Milliseconds())))
@@ -120,7 +120,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 		return workflow.ExitOperational
 	}
 
-	startupFormat := "kv"
+	startupFormat := "human"
 	if resolved, resolveErr := config.ResolveLogFormat(cwd, a.Home, overrides.LogFormat); resolveErr == nil {
 		startupFormat = resolved
 	}

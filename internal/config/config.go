@@ -131,7 +131,7 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 	projectDir := filepath.Join(root, ".code-converge")
 	userDir := filepath.Join(home, ".code-converge")
 	logFormat, logFormatSetting, err := resolve(spec{
-		name: "log-format", file: "log-format", env: "CODE_CONVERGE_LOG_FORMAT", def: "kv", builtIn: "kv", defSource: SourceDefault, override: overrides.LogFormat,
+		name: "log-format", file: "log-format", env: "CODE_CONVERGE_LOG_FORMAT", def: "human", builtIn: "human", defSource: SourceDefault, override: overrides.LogFormat,
 	}, cwd, userDir, projectDir)
 	if err != nil {
 		return Config{}, err
@@ -233,7 +233,7 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 
 // ResolveLogFormat resolves only the presentation format so startup failures in
 // unrelated settings can use the requested renderer. A format-resolution error
-// intentionally leaves callers on the legacy kv fallback.
+// intentionally leaves callers on the built-in human fallback.
 func ResolveLogFormat(cwd, home string, override OptionalString) (string, error) {
 	root, err := FindGitRoot(cwd)
 	if err != nil {
@@ -246,7 +246,7 @@ func ResolveLogFormat(cwd, home string, override OptionalString) (string, error)
 		}
 	}
 	value, _, err := resolve(spec{
-		name: "log-format", file: "log-format", env: "CODE_CONVERGE_LOG_FORMAT", def: "kv", builtIn: "kv", defSource: SourceDefault, override: override,
+		name: "log-format", file: "log-format", env: "CODE_CONVERGE_LOG_FORMAT", def: "human", builtIn: "human", defSource: SourceDefault, override: override,
 	}, cwd, filepath.Join(home, ".code-converge"), filepath.Join(root, ".code-converge"))
 	if err != nil {
 		return "", err

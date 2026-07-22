@@ -221,7 +221,7 @@ If the agent completes successfully, the entire workflow begins again with a new
 
 ## Logging and metrics
 
-During a workflow run, `code-converge` writes operational progress to standard output in one explicitly selected format: `kv` or `human`. The default is `kv` for compatibility. TTY detection never selects the semantic format. Raw Codex stdout is captured by the adapter and is not forwarded to workflow stdout; diagnostics and error details go to stderr.
+During a workflow run, `code-converge` writes operational progress to standard output in one deterministically selected format: `human` or `kv`. The built-in default is `human`; select `kv` explicitly for machine-readable automation. TTY detection never selects the semantic format. Raw Codex stdout is captured by the adapter and is not forwarded to workflow stdout; diagnostics and error details go to stderr.
 
 ### Structured `kv` format
 
@@ -268,7 +268,7 @@ This makes the trend across cycles directly measurable without requiring it to b
 
 ### Human format
 
-Select `--log-format=human` for concise operator output. Human lines omit timestamps, model settings, raw event keys, zero-valued severity buckets, and the redundant `run_started` record. Durations below one minute use seconds rounded to a tenth with a trailing `.0` removed; longer durations use rounded whole seconds in compact `h m s` form.
+Human is the built-in format for concise operator output. Human lines omit timestamps, model settings, raw event keys, zero-valued severity buckets, and the redundant `run_started` record. Durations below one minute use seconds rounded to a tenth with a trailing `.0` removed; longer durations use rounded whole seconds in compact `h m s` form. Select `--log-format=kv` when an integration requires the machine-readable event stream.
 
 | Workflow result | Human output |
 | --- | --- |
@@ -341,7 +341,7 @@ The `fast` and `best` modes select these operative stage profiles. `fast` is the
 
 | Option | Flag | Environment variable | Project / user file | Default |
 | --- | --- | --- | --- | --- |
-| Workflow log format | `--log-format` | `CODE_CONVERGE_LOG_FORMAT` | `log-format` | `kv` |
+| Workflow log format | `--log-format` | `CODE_CONVERGE_LOG_FORMAT` | `log-format` | `human` |
 | Human liveness heartbeat | `--heartbeat` | `CODE_CONVERGE_HEARTBEAT` | `heartbeat` | `0` (disabled) |
 | Interactive shimmer color | `--color` | `CODE_CONVERGE_COLOR` | `color` | `auto` |
 | Mode | `--mode` | `CODE_CONVERGE_MODE` | `mode` | `fast` |

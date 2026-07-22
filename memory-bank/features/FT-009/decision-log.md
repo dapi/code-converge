@@ -125,6 +125,14 @@ Each material question uses the canonical reasoning cycle: frame the bounded cla
 - **Result:** pre-resolution failures retain legacy kv records; post-resolution failures use the selected renderer.
 - **Confidence:** high.
 
+### `DL-11` — Human-readable default
+
+- **Status:** resolved by the user; promoted to `brief.md`, `design.md` and the root README.
+- **Question:** Should `human` remain opt-in or become the built-in log format?
+- **Facts:** The delivered `kv` stream remains available through the existing explicit setting. The user requested `human` as the default for normal operation.
+- **Result:** `human` is the built-in default; `kv` remains an explicit deterministic compatibility mode. Invalid/unresolvable startup format falls back to the built-in human renderer.
+- **Confidence:** high; direct product decision.
+
 ## Review-Improve Cycles
 
 Cycle records are appended after each complete review. A cycle lists only `critical` and `important` findings for remediation; `minor` findings are recorded but not changed unless they block a higher-severity correction.

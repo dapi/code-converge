@@ -60,7 +60,7 @@ flowchart LR
 
 ## Selected Solution
 
-- `SOL-01` Keep `kv` as the built-in default and add explicit `human` selection. Rendering consumes the same typed workflow facts; TTY detection never selects the semantic format.
+- `SOL-01` Make `human` the built-in default and retain explicit `kv` selection for automation. Rendering consumes the same typed workflow facts; TTY detection never selects the semantic format.
 - `SOL-02` Add three settings through the existing resolver: `log-format`, `heartbeat`, and `color`. Their exact public names and values are specified in `CTR-01`.
 - `SOL-03` Implement a presentation boundary that owns the unchanged `kv` encoder, the human catalog, duration/severity formatting, terminal capability detection and serialized permanent/transient/diagnostic writes.
 - `SOL-04` Scope liveness to human mode. Default TTY behavior is one transient elapsed line; explicit positive heartbeat selects permanent newline heartbeats instead of the transient line. Non-TTY output otherwise emits only permanent records. `kv` never emits heartbeat in this feature.
@@ -71,7 +71,7 @@ flowchart LR
 
 | Alternative ID | Option | Why not selected |
 | --- | --- | --- |
-| `ALT-01` | Make `human` the new default | Breaks scripts relying on the documented stable stream and conflicts with the compatibility outcome; explicit opt-in still delivers the operator value. |
+| `ALT-01` | Keep `kv` as the default | Rejected by the explicit product decision to optimize normal operator use. Existing integrations retain the stable stream through explicit `kv` selection. |
 | `ALT-02` | Choose human/kv automatically from TTY | Violates deterministic semantic selection required by issue #9. |
 | `ALT-03` | Put all progress on stderr | Conflicts with the established contract that workflow progress is stdout and diagnostics are stderr. |
 | `ALT-04` | Enable heartbeat in `kv` | Extends the structured event catalog without acceptance need and risks consumer compatibility; separately design it if demanded later. |
@@ -82,14 +82,14 @@ flowchart LR
 
 | Trade-off ID | Decision | Benefit | Cost / Risk |
 | --- | --- | --- | --- |
-| `TRD-01` | Compatibility-first `kv` default | No silent break for existing integrations | Operators must explicitly select `human`. |
+| `TRD-01` | Operator-first `human` default | Normal terminal use is readable without configuration | Existing integrations must explicitly select `kv`. |
 | `TRD-02` | Human-only heartbeat | Keeps `kv` byte/schema compatibility and bounds scope | Structured consumers cannot request liveness until a separate contract extension. |
 | `TRD-03` | Shared presentation coordinator for stdout/stderr ordering | Prevents transient corruption and late writes | Adds a small synchronization boundary that requires race/failure tests. |
 | `TRD-04` | Fixed built-in shimmer policy | Deterministic visuals and tests without theme/config expansion | Palette/frame rate are not user-customizable beyond disabling color. |
 
 ## Accepted Local Decisions
 
-- `SD-01` `kv` is the default; `human` is opt-in. This preserves the current stable automation contract.
+- `SD-01` `human` is the default; `kv` is explicit for automation. TTY state never selects the semantic format.
 - `SD-02` Human timestamps are unsupported in this delivery. `kv` retains mandatory RFC 3339 `ts` fields.
 - `SD-03` Explicit heartbeat is available only in human mode and replaces transient TTY animation; `0` disables heartbeat, positive values below `1s` and invalid/negative durations are configuration errors.
 - `SD-04` The color setting has values `auto` and `never`, default `auto`. `NO_COLOR` or `color=never` disables shimmer but not the updating elapsed line. Permanent and heartbeat lines never contain ANSI.
@@ -105,7 +105,7 @@ flowchart LR
 
 | Contract ID | Connector / direction | Roles and sync boundary | Guarantees / failure / evolution semantics |
 | --- | --- | --- | --- |
-| `CTR-01` | Operator/config → CLI | Existing synchronous resolver | `--log-format`, `CODE_CONVERGE_LOG_FORMAT`, file `log-format`, values `kv|human`, default `kv`; `--heartbeat`, `CODE_CONVERGE_HEARTBEAT`, file `heartbeat`, Go-duration value with default/disabled `0`; `--color`, `CODE_CONVERGE_COLOR`, file `color`, values `auto|never`, default `auto`. Existing source precedence applies. Invalid values exit `2` before Codex. Heartbeat with `kv` is rejected instead of silently ignored. |
+| `CTR-01` | Operator/config → CLI | Existing synchronous resolver | `--log-format`, `CODE_CONVERGE_LOG_FORMAT`, file `log-format`, values `kv|human`, default `human`; `--heartbeat`, `CODE_CONVERGE_HEARTBEAT`, file `heartbeat`, Go-duration value with default/disabled `0`; `--color`, `CODE_CONVERGE_COLOR`, file `color`, values `auto|never`, default `auto`. Existing source precedence applies. Invalid values exit `2` before Codex. Heartbeat with `kv` is rejected instead of silently ignored. |
 
 ### Human permanent rendering contract
 
@@ -152,7 +152,7 @@ flowchart LR
 
 ## Failure Modes
 
-- `FM-01` A new default breaks scripts; `SD-01` plus `kv` compatibility goldens prevent it.
+- `FM-01` The human default changes an existing script's output expectations; explicit `kv` selection and compatibility goldens provide the bounded migration path.
 - `FM-02` Timer tick races completion and writes after the result; the stop/join barrier and race tests enforce `INV-03`.
 - `FM-03` Transient ANSI corrupts a pipe/file; capability gating and byte-level non-TTY tests enforce `INV-05`.
 - `FM-04` Concurrent stderr diagnostic visually interleaves with the transient line; the shared coordinator clears and serializes both sinks.
@@ -165,20 +165,20 @@ flowchart LR
 
 | Stage ID | Stage | Entry condition | Backout |
 | --- | --- | --- | --- |
-| `RB-01` | Additive release with `kv` default | Contract, race, full repository and required CI checks green; high-risk execution approved | Revert the feature commit/release; automation remains on the unchanged default during rollout. |
-| `RB-02` | Operator adoption of `human` | Explicit `--log-format=human` or config selection | Select `kv` at a higher-precedence source without data migration. |
+| `RB-01` | Release with `human` default | Contract, race, full repository and required CI checks green; high-risk execution approved | Revert the feature commit/release; automation can select `kv` without data migration. |
+| `RB-02` | Automation compatibility | Explicit `--log-format=kv` or config selection | Remove the explicit setting to return to the human default. |
 
 ## Design Verification
 
 | Analysis | Required | Reason / risk | Method | Result / evidence |
 | --- | --- | --- | --- | --- |
-| Contract compatibility | yes | Public stdout/config has existing consumers | Baseline contract comparison and alternatives review | Pass at design: `kv` remains default and unchanged; human is additive; `CTR-01`, `CTR-02`, `CTR-05`. Execution evidence pending. |
+| Contract compatibility | yes | Public stdout/config has existing consumers | Baseline contract comparison and alternatives review | User-approved default change; `kv` remains byte-compatible when explicitly selected; `CTR-01`, `CTR-02`, `CTR-05`. Execution evidence pending. |
 | State / transition completeness | yes | Every event/result and terminal path needs human coverage | Cross-check current README catalog and workflow branches | Pass at design: all catalog/branch outcomes mapped in `CTR-02`; exhaustive tests planned. |
 | Failure propagation | yes | Background and permanent writer errors must remain terminal | Failure-mode analysis over start/tick/stop/diagnostic/completion | Pass at design: first-error cancellation and operational exit in `CTR-04`, `INV-07`, `FM-02`–`FM-06`. |
 | Concurrency / ordering | yes | Liveness races completion/cancellation/diagnostics | Happens-before review with single worker, coordinator lock and stop/join | Pass at design: `INV-03`/`INV-04`; deterministic and race evidence required during execution. |
 | Security boundaries | yes | Raw agent output and terminal control bytes are trust concerns | Data-flow/isolation review | Pass at design: `INV-05`/`INV-06`; byte-level tests pending. |
 | Capacity / latency | yes | Shimmer/heartbeat can consume CPU or flood logs | Fixed-rate and minimum-interval bound review | Pass at design: 10 fps transient, heartbeat disabled by default and minimum `1s`; no unbounded queue. |
-| Migration / evolution safety | yes | Existing automation must not migrate immediately | Default/rollback/extension review | Pass at design: `kv` default, explicit opt-in and `RB-01`/`RB-02`; no data migration. |
+| Migration / evolution safety | yes | Existing automation must make an explicit format choice | Default/rollback/extension review | Pass at design: explicit `kv`, documented rollback and `RB-01`/`RB-02`; no data migration. |
 
 ## Human Gates
 

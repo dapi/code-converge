@@ -32,7 +32,7 @@ func TestLoggingConfiguration(t *testing.T) {
 	if cfg.LogFormat != "human" || cfg.Heartbeat != 30*time.Second || cfg.Color != "never" {
 		t.Fatalf("logging config = %#v", cfg)
 	}
-	for _, want := range []string{"log-format: human (environment; built-in: kv)", "heartbeat: 30s (project; built-in: 0)", "color: never (cli; built-in: auto)"} {
+	for _, want := range []string{"log-format: human (environment)", "heartbeat: 30s (project; built-in: 0)", "color: never (cli; built-in: auto)"} {
 		if !strings.Contains(Format(cfg), want) {
 			t.Errorf("missing %q in:\n%s", want, Format(cfg))
 		}
@@ -89,7 +89,7 @@ func TestInvalidLoggingConfiguration(t *testing.T) {
 		{Color: OptionalString{"always", true}},
 		{LogFormat: OptionalString{"human", true}, Heartbeat: OptionalString{"500ms", true}},
 		{LogFormat: OptionalString{"human", true}, Heartbeat: OptionalString{"-1s", true}},
-		{Heartbeat: OptionalString{"1s", true}},
+		{LogFormat: OptionalString{"kv", true}, Heartbeat: OptionalString{"1s", true}},
 	}
 	for _, overrides := range tests {
 		cleanEnv(t)
@@ -97,6 +97,21 @@ func TestInvalidLoggingConfiguration(t *testing.T) {
 		if _, err := Load(root, home, overrides); err == nil {
 			t.Errorf("accepted invalid overrides: %#v", overrides)
 		}
+	}
+}
+
+func TestDefaultLogFormatIsHuman(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	cfg, err := Load(root, home, Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LogFormat != "human" || source(cfg, "log-format") != SourceDefault {
+		t.Fatalf("log format = %q from %q, want human from built-in default", cfg.LogFormat, source(cfg, "log-format"))
+	}
+	if !strings.Contains(Format(cfg), "log-format: human (built-in default)") {
+		t.Fatalf("config output:\n%s", Format(cfg))
 	}
 }
 

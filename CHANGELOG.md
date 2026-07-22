@@ -6,12 +6,18 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-22
+
 ### Added
 
 - Added an explicit human workflow log format with readable findings, durations, finalization steps, terminal outcomes, interactive elapsed-time shimmer, and optional newline heartbeat while preserving `kv` as the default.
 - Added `code-converge update` with checksum verification, interactive confirmation and an unattended `--yes`/`-y` path for safely replacing the installed binary from a compatible GitHub Release.
 - Added strict support for structured Codex review responses and successful no-change completion without attempting finalization or an empty commit.
 - Expanded review scope to the intended pull-request base through the current worktree, including committed, staged, unstaged and untracked changes.
+
+### Changed
+
+- Made the human-readable workflow log format the built-in default; use `--log-format=kv` for the stable machine-readable event stream.
 
 ### Fixed
 

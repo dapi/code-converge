@@ -41,7 +41,7 @@ func TestConfigCommand(t *testing.T) {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
 	for _, want := range []string{
-		"log-format: kv (built-in default)",
+		"log-format: human (built-in default)",
 		"heartbeat: 0 (built-in default)",
 		"color: auto (built-in default)",
 		"mode: best (cli; built-in: fast)",
@@ -68,11 +68,11 @@ func TestHumanInvalidConfigurationUsesResolvedRenderer(t *testing.T) {
 	}
 }
 
-func TestInvalidLogFormatUsesLegacyKVFallback(t *testing.T) {
+func TestInvalidLogFormatUsesHumanFallback(t *testing.T) {
 	root, home := testRepo(t)
 	var stdout, stderr bytes.Buffer
 	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home}).Run(context.Background(), []string{"--log-format=json"})
-	if code != workflow.ExitOperational || !strings.Contains(stdout.String(), "event=run_completed") || !strings.Contains(stderr.String(), "log-format must be one of") {
+	if code != workflow.ExitOperational || !strings.Contains(stdout.String(), "Failed due to an operational error") || strings.Contains(stdout.String(), "event=") || !strings.Contains(stderr.String(), "log-format must be one of") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 }
@@ -126,7 +126,7 @@ func TestInvalidConfigurationEmitsTerminalRun(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("code=%d", code)
 	}
-	if !strings.Contains(stdout.String(), "event=run_started") || !strings.Contains(stdout.String(), "event=run_completed status=operational_failure exit_code=2") {
+	if !strings.Contains(stdout.String(), "Failed due to an operational error") || strings.Contains(stdout.String(), "event=") {
 		t.Fatalf("stdout:\n%s", stdout.String())
 	}
 	if !strings.Contains(stderr.String(), "non-negative integer") {
@@ -141,7 +141,7 @@ func TestInvalidFlagEmitsTerminalRun(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("code=%d", code)
 	}
-	if !strings.Contains(stdout.String(), "event=run_started") || !strings.Contains(stdout.String(), "event=run_completed status=operational_failure exit_code=2") {
+	if !strings.Contains(stdout.String(), "Failed due to an operational error") || strings.Contains(stdout.String(), "event=") {
 		t.Fatalf("stdout:\n%s", stdout.String())
 	}
 }
@@ -229,7 +229,7 @@ func TestRunnerPassedFromAppIsUsed(t *testing.T) {
 	root, home := testRepo(t)
 	var stdout, stderr bytes.Buffer
 	fake := &appFakeRunner{t: t, err: errors.New("runner reached")}
-	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home, Runner: fake}).Run(context.Background(), nil)
+	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home, Runner: fake}).Run(context.Background(), []string{"--log-format=kv"})
 	if code != workflow.ExitOperational {
 		t.Fatalf("code=%d", code)
 	}
@@ -247,7 +247,7 @@ func TestAppWorkflowSuccessWithFakeRunner(t *testing.T) {
 		status:      runner.Result{Stdout: " M changed.go\n"},
 		finalizeMsg: `{"verdict":"SUCCESS","commit":"success","push":"success","change_request":"skipped","ci":"skipped"}`,
 	}
-	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home, Runner: fake}).Run(context.Background(), nil)
+	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home, Runner: fake}).Run(context.Background(), []string{"--log-format=kv"})
 	if code != workflow.ExitSuccess || stderr.Len() != 0 {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
@@ -273,7 +273,7 @@ func TestAppNoChangeSkipsFinalize(t *testing.T) {
 	root, home := testRepo(t)
 	var stdout, stderr bytes.Buffer
 	fake := &appFakeRunner{t: t, review: runner.Result{Stdout: `{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"no changes","overall_confidence_score":0.99}`}}
-	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home, Runner: fake}).Run(context.Background(), nil)
+	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home, Runner: fake}).Run(context.Background(), []string{"--log-format=kv"})
 	if code != workflow.ExitSuccess || stderr.Len() != 0 {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
@@ -294,7 +294,7 @@ func TestAppHumanNonTTYWorkflow(t *testing.T) {
 		review:      runner.Result{Stdout: "No findings.\n"},
 		finalizeMsg: `{"verdict":"SUCCESS","commit":"success","push":"success","change_request":"skipped","ci":"skipped"}`,
 	}
-	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home, Runner: fake}).Run(context.Background(), []string{"--log-format=human"})
+	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home, Runner: fake}).Run(context.Background(), nil)
 	if code != workflow.ExitSuccess || !strings.Contains(stdout.String(), "Done (") || strings.Contains(stdout.String(), "\x1b") || strings.Contains(stdout.String(), "event=") || strings.Contains(stdout.String(), "No findings") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
