@@ -6,6 +6,8 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-22
+
 ### Changed
 
 - Enriched human progress with local timestamps, retry-attempt context, resolved model/reasoning effort, and clearer review, fix, CI-recovery, and liveness status lines.
