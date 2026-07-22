@@ -137,8 +137,8 @@ Each material question uses the canonical reasoning cycle: frame the bounded cla
 
 - **Status:** resolved by the user; promoted to `brief.md`, `design.md` and the root README.
 - **Question:** What minimum context must an operator see on each human progress line?
-- **Facts:** The user found the initial human output too sparse and explicitly requested a timestamp on every line, the model immediately after the timestamp, the exact bracket form `[gpt-5.6-sol/high]`, no visual separator between context and message, and visible real attempt budgets.
-- **Result:** Every human permanent and liveness line begins with local `HH:MM:SS`; stage-specific lines continue with `[model/reasoning-effort]` and a single space before the message. Review/fix/CI-recovery messages show the configured budget with the current counter. The run terminal line retains the timestamp but no model.
+- **Facts:** The user found the initial human output too sparse and explicitly requested a timestamp on every line, the exact bracket form `[gpt-5.6-sol/high]`, no visual separator between context and message, and visible real attempt budgets. The user then rejected `fixes n/max` as semantically misleading during review, selected compact `[attempt/max]`, and placed it before the model. They also approved liveness as the sole interactive stage-start indicator.
+- **Result:** Every human permanent and liveness line begins with local `HH:MM:SS`; retryable stage lines continue with `[attempt/max] [model/reasoning-effort]` and a single space before the message. Review/fix use cycle/max-cycles; CI recovery uses phase/max-ci-recoveries. Interactive human output omits permanent stage-start lines in favour of liveness; non-TTY retains them. The run terminal line retains the timestamp but no stage context.
 - **Confidence:** high; direct product decision.
 
 ## Review-Improve Cycles

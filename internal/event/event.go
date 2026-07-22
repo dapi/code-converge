@@ -159,7 +159,7 @@ func (l *Logger) writeHeartbeat(stage StageContext, elapsed time.Duration) error
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	_, err := fmt.Fprintf(l.Out, "%s%s still running (%s)\n", l.humanPrefix(stage.Model, stage.ReasoningEffort), label, HumanDuration(elapsed))
+	_, err := fmt.Fprintf(l.Out, "%s%s still running (%s)\n", l.humanPrefix(l.stageAttempt(stage), stage.Model, stage.ReasoningEffort), label, HumanDuration(elapsed))
 	return err
 }
 
@@ -172,7 +172,7 @@ func (l *Logger) writeTransient(stage StageContext, elapsed time.Duration, frame
 	if seconds < 0 {
 		seconds = 0
 	}
-	line := fmt.Sprintf("%s%s... %s", l.humanPrefix(stage.Model, stage.ReasoningEffort), label, compoundSeconds(seconds))
+	line := fmt.Sprintf("%s%s... %s", l.humanPrefix(l.stageAttempt(stage), stage.Model, stage.ReasoningEffort), label, compoundSeconds(seconds))
 	if l.ColorDepth > 0 {
 		line = shimmer(line, frame, l.ColorDepth)
 	}
@@ -220,11 +220,14 @@ func (l *Logger) normalizedFormat() string {
 
 func (l *Logger) render(eventName string, fields []Field) (string, error) {
 	if l.normalizedFormat() == "human" {
+		if l.Interactive && eventName == "stage_started" {
+			return "", nil
+		}
 		line, err := renderHuman(eventName, fields, l.HumanMaxCycles, l.HumanMaxCIRecoveries)
 		if line == "" || err != nil {
 			return line, err
 		}
-		return l.humanPrefix(fieldValue(fields, "model"), fieldValue(fields, "reasoning_effort")) + line, nil
+		return l.humanPrefix(l.eventAttempt(fields), fieldValue(fields, "model"), fieldValue(fields, "reasoning_effort")) + line, nil
 	}
 	all := append([]Field{{Key: "ts", Value: l.now().UTC().Format(time.RFC3339)}, {Key: "event", Value: eventName}}, fields...)
 	parts := make([]string, 0, len(all))
@@ -252,28 +255,27 @@ func renderHuman(eventName string, fields []Field, maxCycles, maxCIRecoveries in
 	case "stage_started":
 		switch values["stage"] {
 		case "review":
-			context := reviewContext(values, maxCycles)
 			if values["review_phase"] != "" && values["review_phase"] != "1" {
 				phase, err := strconv.Atoi(values["review_phase"])
 				if err != nil || phase < 2 {
 					return "", fmt.Errorf("invalid review_phase %q", values["review_phase"])
 				}
-				return fmt.Sprintf("Review %s (%s, phase %d after CI recovery %d) started", values["cycle"], context, phase, phase-1), nil
+				return fmt.Sprintf("Review started (phase %d after CI recovery %d)", phase, phase-1), nil
 			}
-			return fmt.Sprintf("Review %s (%s) started", values["cycle"], context), nil
+			return "Review started", nil
 		case "fix-findings":
-			return fmt.Sprintf("Fixing findings (fix %s/%d)", values["cycle"], maxCycles), nil
+			return "Fixing findings", nil
 		case "finalize":
 			return "Finalizing", nil
 		case "fix-ci":
-			return fmt.Sprintf("CI recovery %s/%d", values["review_phase"], maxCIRecoveries), nil
+			return "CI recovery", nil
 		}
 	case "review_completed":
 		d, err := duration("duration_ms")
 		if err != nil {
 			return "", err
 		}
-		prefix := fmt.Sprintf("Review %s (%s)", values["cycle"], reviewContext(values, maxCycles))
+		prefix := "Review"
 		switch values["status"] {
 		case "clean":
 			return fmt.Sprintf("%s: clean (%s)", prefix, d), nil
@@ -305,16 +307,16 @@ func renderHuman(eventName string, fields []Field, maxCycles, maxCIRecoveries in
 		case "fix-findings":
 			switch values["status"] {
 			case "success":
-				return fmt.Sprintf("Findings fixed (fix %s/%d, %s)", values["cycle"], maxCycles, d), nil
+				return fmt.Sprintf("Findings fixed (%s)", d), nil
 			case "failed":
-				return fmt.Sprintf("Fixing findings failed (fix %s/%d, %s)", values["cycle"], maxCycles, d), nil
+				return fmt.Sprintf("Fixing findings failed (%s)", d), nil
 			}
 		case "fix-ci":
 			switch values["status"] {
 			case "success":
-				return fmt.Sprintf("CI recovery %s/%d fixed (%s)", values["review_phase"], maxCIRecoveries, d), nil
+				return fmt.Sprintf("CI recovery fixed (%s)", d), nil
 			case "failed":
-				return fmt.Sprintf("CI recovery %s/%d failed (%s)", values["review_phase"], maxCIRecoveries, d), nil
+				return fmt.Sprintf("CI recovery failed (%s)", d), nil
 			}
 		case "finalize":
 			switch values["verdict"] {
@@ -358,20 +360,38 @@ func renderHuman(eventName string, fields []Field, maxCycles, maxCIRecoveries in
 	return "", fmt.Errorf("unsupported human event %s with fields %#v", eventName, fields)
 }
 
-func (l *Logger) humanPrefix(model, effort string) string {
+func (l *Logger) humanPrefix(attempt, model, effort string) string {
 	prefix := l.now().Format("15:04:05") + " "
+	if attempt != "" {
+		prefix += "[" + attempt + "] "
+	}
 	if model != "" && effort != "" {
 		prefix += "[" + model + "/" + effort + "] "
 	}
 	return prefix
 }
 
+func (l *Logger) eventAttempt(fields []Field) string {
+	stage := fieldValue(fields, "stage")
+	switch stage {
+	case "review", "fix-findings":
+		if cycle := fieldValue(fields, "cycle"); cycle != "" {
+			return fmt.Sprintf("%s/%d", cycle, l.HumanMaxCycles)
+		}
+	case "fix-ci":
+		if phase := fieldValue(fields, "review_phase"); phase != "" {
+			return fmt.Sprintf("%s/%d", phase, l.HumanMaxCIRecoveries)
+		}
+	}
+	return ""
+}
+
 func (l *Logger) livenessLabel(stage StageContext, transient bool) string {
 	labels := map[string][2]string{
-		"review":       {fmt.Sprintf("Reviewing (%s)", reviewContextFromInts(stage.Cycle, l.HumanMaxCycles)), fmt.Sprintf("Review (%s)", reviewContextFromInts(stage.Cycle, l.HumanMaxCycles))},
-		"fix-findings": {fmt.Sprintf("Fixing findings (fix %d/%d)", stage.Cycle, l.HumanMaxCycles), fmt.Sprintf("Fixing findings (fix %d/%d)", stage.Cycle, l.HumanMaxCycles)},
+		"review":       {"Reviewing", "Review"},
+		"fix-findings": {"Fixing findings", "Fixing findings"},
 		"finalize":     {"Finalizing", "Finalization"},
-		"fix-ci":       {fmt.Sprintf("CI recovery %d/%d", stage.ReviewPhase, l.HumanMaxCIRecoveries), fmt.Sprintf("CI recovery %d/%d", stage.ReviewPhase, l.HumanMaxCIRecoveries)},
+		"fix-ci":       {"CI recovery", "CI recovery"},
 	}
 	label, ok := labels[stage.Stage]
 	if !ok {
@@ -383,17 +403,15 @@ func (l *Logger) livenessLabel(stage StageContext, transient bool) string {
 	return label[1]
 }
 
-func reviewContext(values map[string]string, maxCycles int) string {
-	cycle, _ := strconv.Atoi(values["cycle"])
-	return reviewContextFromInts(cycle, maxCycles)
-}
-
-func reviewContextFromInts(cycle, maxCycles int) string {
-	fixes := cycle - 1
-	if fixes < 0 {
-		fixes = 0
+func (l *Logger) stageAttempt(stage StageContext) string {
+	switch stage.Stage {
+	case "review", "fix-findings":
+		return fmt.Sprintf("%d/%d", stage.Cycle, l.HumanMaxCycles)
+	case "fix-ci":
+		return fmt.Sprintf("%d/%d", stage.ReviewPhase, l.HumanMaxCIRecoveries)
+	default:
+		return ""
 	}
-	return fmt.Sprintf("fixes %d/%d", fixes, maxCycles)
 }
 
 func fieldValue(fields []Field, key string) string {

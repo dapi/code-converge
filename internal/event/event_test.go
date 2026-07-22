@@ -53,21 +53,21 @@ func TestHumanEventCatalog(t *testing.T) {
 		want   string
 	}{
 		{"run started omitted", "run_started", nil, ""},
-		{"review start", "stage_started", []Field{F("stage", "review"), F("review_phase", "1"), F("cycle", "1")}, "10:04:05 [gpt-test/high] Review 1 (fixes 0/10) started\n"},
-		{"review after ci", "stage_started", []Field{F("stage", "review"), F("review_phase", "2"), F("cycle", "1")}, "10:04:05 [gpt-test/high] Review 1 (fixes 0/10, phase 2 after CI recovery 1) started\n"},
-		{"review findings", "review_completed", []Field{F("stage", "review"), F("review_phase", "1"), F("cycle", "2"), F("status", "findings"), F("findings_total", "3"), F("findings_critical", "0"), F("findings_high", "1"), F("findings_medium", "2"), F("findings_low", "0"), F("findings_unknown", "0"), F("duration_ms", "133000")}, "10:04:05 [gpt-test/high] Review 2 (fixes 1/10): 3 findings — 1 high, 2 medium (2m 13s)\n"},
-		{"review clean", "review_completed", []Field{F("stage", "review"), F("cycle", "3"), F("status", "clean"), F("duration_ms", "87000")}, "10:04:05 [gpt-test/high] Review 3 (fixes 2/10): clean (1m 27s)\n"},
-		{"review failed", "review_completed", []Field{F("stage", "review"), F("cycle", "1"), F("status", "failed"), F("duration_ms", "12500")}, "10:04:05 [gpt-test/high] Review 1 (fixes 0/10) failed (12.5s)\n"},
-		{"fix start", "stage_started", []Field{F("stage", "fix-findings"), F("cycle", "2")}, "10:04:05 [gpt-test/high] Fixing findings (fix 2/10)\n"},
-		{"fix done", "stage_completed", []Field{F("stage", "fix-findings"), F("cycle", "2"), F("status", "success"), F("duration_ms", "263000")}, "10:04:05 [gpt-test/high] Findings fixed (fix 2/10, 4m 23s)\n"},
-		{"fix failed", "stage_completed", []Field{F("stage", "fix-findings"), F("cycle", "2"), F("status", "failed"), F("duration_ms", "1000")}, "10:04:05 [gpt-test/high] Fixing findings failed (fix 2/10, 1s)\n"},
+		{"review start", "stage_started", []Field{F("stage", "review"), F("review_phase", "1"), F("cycle", "1")}, "10:04:05 [1/10] [gpt-test/high] Review started\n"},
+		{"review after ci", "stage_started", []Field{F("stage", "review"), F("review_phase", "2"), F("cycle", "1")}, "10:04:05 [1/10] [gpt-test/high] Review started (phase 2 after CI recovery 1)\n"},
+		{"review findings", "review_completed", []Field{F("stage", "review"), F("review_phase", "1"), F("cycle", "2"), F("status", "findings"), F("findings_total", "3"), F("findings_critical", "0"), F("findings_high", "1"), F("findings_medium", "2"), F("findings_low", "0"), F("findings_unknown", "0"), F("duration_ms", "133000")}, "10:04:05 [2/10] [gpt-test/high] Review: 3 findings — 1 high, 2 medium (2m 13s)\n"},
+		{"review clean", "review_completed", []Field{F("stage", "review"), F("cycle", "3"), F("status", "clean"), F("duration_ms", "87000")}, "10:04:05 [3/10] [gpt-test/high] Review: clean (1m 27s)\n"},
+		{"review failed", "review_completed", []Field{F("stage", "review"), F("cycle", "1"), F("status", "failed"), F("duration_ms", "12500")}, "10:04:05 [1/10] [gpt-test/high] Review failed (12.5s)\n"},
+		{"fix start", "stage_started", []Field{F("stage", "fix-findings"), F("cycle", "2")}, "10:04:05 [2/10] [gpt-test/high] Fixing findings\n"},
+		{"fix done", "stage_completed", []Field{F("stage", "fix-findings"), F("cycle", "2"), F("status", "success"), F("duration_ms", "263000")}, "10:04:05 [2/10] [gpt-test/high] Findings fixed (4m 23s)\n"},
+		{"fix failed", "stage_completed", []Field{F("stage", "fix-findings"), F("cycle", "2"), F("status", "failed"), F("duration_ms", "1000")}, "10:04:05 [2/10] [gpt-test/high] Fixing findings failed (1s)\n"},
 		{"finalize start", "stage_started", []Field{F("stage", "finalize")}, "10:04:05 [gpt-test/high] Finalizing\n"},
 		{"step", "step_completed", []Field{F("stage", "finalize"), F("step", "change_request"), F("status", "skipped")}, "10:04:05 [gpt-test/high]   Change request: not needed\n"},
 		{"finalize success", "stage_completed", []Field{F("stage", "finalize"), F("status", "success"), F("verdict", "SUCCESS"), F("duration_ms", "42000")}, "10:04:05 [gpt-test/high] Finalized successfully (42s)\n"},
 		{"finalize ci", "stage_completed", []Field{F("stage", "finalize"), F("status", "success"), F("verdict", "CI_FAILED"), F("duration_ms", "42000")}, "10:04:05 [gpt-test/high] Finalized, but CI is failing (42s)\n"},
 		{"finalize failed", "stage_completed", []Field{F("stage", "finalize"), F("status", "failed"), F("duration_ms", "42000")}, "10:04:05 [gpt-test/high] Finalization failed (42s)\n"},
-		{"ci start", "stage_started", []Field{F("stage", "fix-ci"), F("review_phase", "1")}, "10:04:05 [gpt-test/high] CI recovery 1/3\n"},
-		{"ci done", "stage_completed", []Field{F("stage", "fix-ci"), F("review_phase", "1"), F("status", "success"), F("duration_ms", "68000")}, "10:04:05 [gpt-test/high] CI recovery 1/3 fixed (1m 8s)\n"},
+		{"ci start", "stage_started", []Field{F("stage", "fix-ci"), F("review_phase", "1")}, "10:04:05 [1/3] [gpt-test/high] CI recovery\n"},
+		{"ci done", "stage_completed", []Field{F("stage", "fix-ci"), F("review_phase", "1"), F("status", "success"), F("duration_ms", "68000")}, "10:04:05 [1/3] [gpt-test/high] CI recovery fixed (1m 8s)\n"},
 		{"done", "run_completed", []Field{F("status", "success"), F("exit_code", "0"), F("total_duration_ms", "525000")}, "10:04:05 Done (8m 45s)\n"},
 		{"findings remain", "run_completed", []Field{F("status", "findings_remaining"), F("exit_code", "1"), F("total_duration_ms", "525000")}, "10:04:05 Stopped: review findings remain (8m 45s, exit 1)\n"},
 		{"operational", "run_completed", []Field{F("status", "operational_failure"), F("exit_code", "2"), F("total_duration_ms", "525000")}, "10:04:05 Failed due to an operational error (8m 45s, exit 2)\n"},
@@ -88,6 +88,17 @@ func TestHumanEventCatalog(t *testing.T) {
 				t.Fatalf("output = %q, want %q", got, test.want)
 			}
 		})
+	}
+}
+
+func TestInteractiveHumanStageStartIsOmitted(t *testing.T) {
+	var out bytes.Buffer
+	logger := Logger{Out: &out, Format: "human", Interactive: true}
+	if err := logger.Emit("stage_started", F("stage", "review"), F("model", "gpt-test"), F("reasoning_effort", "high"), F("review_phase", "1"), F("cycle", "1")); err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); got != "" {
+		t.Fatalf("interactive stage start = %q, want empty", got)
 	}
 }
 
@@ -139,7 +150,7 @@ func TestHeartbeatIsNewlineSafeAndStops(t *testing.T) {
 	live := logger.StartLiveness(ctx, StageContext{Stage: "review", Model: "gpt-test", ReasoningEffort: "high", Cycle: 1}, start, cancel)
 	ticks <- start.Add(30 * time.Second)
 	got := <-writer.writes
-	if got != "00:00:00 [gpt-test/high] Review (fixes 0/0) still running (30s)\n" || strings.Contains(got, "\x1b") {
+	if got != "00:00:00 [1/0] [gpt-test/high] Review still running (30s)\n" || strings.Contains(got, "\x1b") {
 		t.Fatalf("heartbeat = %q", got)
 	}
 	if err := live.Stop(); err != nil {
@@ -162,7 +173,7 @@ func TestTransientClearedBeforePermanentAndDiagnostic(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	live := logger.StartLiveness(ctx, StageContext{Stage: "review", Model: "gpt-test", ReasoningEffort: "high", Cycle: 1}, start, cancel)
 	initial := <-writer.writes
-	if initial != "\r\x1b[2K00:00:00 [gpt-test/high] Reviewing (fixes 0/0)... 0s" {
+	if initial != "\r\x1b[2K00:00:00 [1/0] [gpt-test/high] Reviewing... 0s" {
 		t.Fatalf("transient = %q", initial)
 	}
 	if err := live.Stop(); err != nil {
@@ -171,7 +182,7 @@ func TestTransientClearedBeforePermanentAndDiagnostic(t *testing.T) {
 	if err := logger.Emit("review_completed", F("stage", "review"), F("cycle", "1"), F("status", "clean"), F("duration_ms", "1000")); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(writer.String(), "\r\x1b[2K00:00:00 Review 1 (fixes 0/0): clean (1s)\n") {
+	if !strings.Contains(writer.String(), "\r\x1b[2K00:00:00 [1/0] Review: clean (1s)\n") {
 		t.Fatalf("output was not cleared: %q", writer.String())
 	}
 	logger.Diagnostic("review failed", errors.New("boom"))
