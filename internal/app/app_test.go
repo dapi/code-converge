@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
 	"testing"
 
+	"github.com/dapi/code-converge/internal/config"
 	"github.com/dapi/code-converge/internal/runner"
 	"github.com/dapi/code-converge/internal/workflow"
 )
@@ -30,6 +32,9 @@ func TestConfigCommand(t *testing.T) {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
 	for _, want := range []string{
+		"log-format: kv (built-in default)",
+		"heartbeat: 0 (built-in default)",
+		"color: auto (built-in default)",
 		"mode: best (cli; built-in: fast)",
 		"max-cycles: 4 (cli; built-in: 10)",
 		"review-model: gpt-5.6-sol (best profile; built-in: gpt-5.6-terra)",
@@ -42,6 +47,24 @@ func TestConfigCommand(t *testing.T) {
 	}
 	if t.Failed() {
 		t.Fatalf("config output:\n%s", stdout.String())
+	}
+}
+
+func TestHumanInvalidConfigurationUsesResolvedRenderer(t *testing.T) {
+	root, home := testRepo(t)
+	var stdout, stderr bytes.Buffer
+	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home}).Run(context.Background(), []string{"--log-format=human", "--max-cycles=-1"})
+	if code != workflow.ExitOperational || !strings.Contains(stdout.String(), "Failed due to an operational error") || strings.Contains(stdout.String(), "event=") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestInvalidLogFormatUsesLegacyKVFallback(t *testing.T) {
+	root, home := testRepo(t)
+	var stdout, stderr bytes.Buffer
+	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home}).Run(context.Background(), []string{"--log-format=json"})
+	if code != workflow.ExitOperational || !strings.Contains(stdout.String(), "event=run_completed") || !strings.Contains(stderr.String(), "log-format must be one of") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 }
 
@@ -170,5 +193,46 @@ func TestAppWorkflowSuccessWithFakeRunner(t *testing.T) {
 	}
 	if len(fake.invocations) < 2 {
 		t.Fatalf("expected review and finalize invocations, got %d", len(fake.invocations))
+	}
+}
+
+func TestAppHumanNonTTYWorkflow(t *testing.T) {
+	root, home := testRepo(t)
+	var stdout, stderr bytes.Buffer
+	fake := &appFakeRunner{
+		t:           t,
+		review:      runner.Result{Stdout: "No findings.\n"},
+		finalizeMsg: `{"verdict":"SUCCESS","commit":"success","push":"success","change_request":"skipped","ci":"skipped"}`,
+	}
+	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home, Runner: fake}).Run(context.Background(), []string{"--log-format=human"})
+	if code != workflow.ExitSuccess || !strings.Contains(stdout.String(), "Done (") || strings.Contains(stdout.String(), "\x1b") || strings.Contains(stdout.String(), "event=") || strings.Contains(stdout.String(), "No findings") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestColorDepth(t *testing.T) {
+	lookup := func(values map[string]string) func(string) (string, bool) {
+		return func(key string) (string, bool) { value, ok := values[key]; return value, ok }
+	}
+	terminal := func(io.Writer) bool { return true }
+	for _, test := range []struct {
+		name  string
+		cfg   config.Config
+		env   map[string]string
+		depth int
+	}{
+		{"truecolor", config.Config{Color: "auto"}, map[string]string{"TERM": "xterm-256color", "COLORTERM": "truecolor"}, 3},
+		{"ansi256", config.Config{Color: "auto"}, map[string]string{"TERM": "xterm-256color"}, 2},
+		{"basic", config.Config{Color: "auto"}, map[string]string{"TERM": "xterm"}, 1},
+		{"no color", config.Config{Color: "auto"}, map[string]string{"TERM": "xterm", "NO_COLOR": ""}, 0},
+		{"never", config.Config{Color: "never"}, map[string]string{"TERM": "xterm"}, 0},
+		{"dumb", config.Config{Color: "auto"}, map[string]string{"TERM": "dumb"}, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			app := App{IsTerminal: terminal, LookupEnv: lookup(test.env)}
+			if got := app.colorDepth(test.cfg, &bytes.Buffer{}); got != test.depth {
+				t.Fatalf("depth=%d, want %d", got, test.depth)
+			}
+		})
 	}
 }

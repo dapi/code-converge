@@ -22,14 +22,25 @@ type fakeAgent struct {
 	ciFixErr       error
 	fixReports     []string
 	reviewCalls    int
+	reviewWait     bool
+	reviewStarted  chan struct{}
 	fixCalls       int
 	finalizeCalls  int
 	ciFixCalls     int
+	ciFixWait      bool
+	ciFixStarted   chan struct{}
 }
 
-func (f *fakeAgent) Review(context.Context) (codex.ReviewResult, error) {
+func (f *fakeAgent) Review(ctx context.Context) (codex.ReviewResult, error) {
 	index := f.reviewCalls
 	f.reviewCalls++
+	if f.reviewStarted != nil {
+		close(f.reviewStarted)
+	}
+	if f.reviewWait {
+		<-ctx.Done()
+		return codex.ReviewResult{}, ctx.Err()
+	}
 	if err := f.reviewFailures[index]; err != nil {
 		return codex.ReviewResult{}, err
 	}
@@ -57,7 +68,17 @@ func (f *fakeAgent) Finalize(context.Context) (codex.Finalization, error) {
 	return f.finalizations[index], nil
 }
 
-func (f *fakeAgent) FixCI(context.Context) error { f.ciFixCalls++; return f.ciFixErr }
+func (f *fakeAgent) FixCI(ctx context.Context) error {
+	f.ciFixCalls++
+	if f.ciFixStarted != nil {
+		close(f.ciFixStarted)
+	}
+	if f.ciFixWait {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return f.ciFixErr
+}
 
 func success() codex.Finalization {
 	return codex.Finalization{Verdict: "SUCCESS", Commit: "success", Push: "success", ChangeRequest: "skipped", CI: "success"}
@@ -81,8 +102,53 @@ func run(t *testing.T, cfg config.Config, agent *fakeAgent) (int, string, string
 		tick++
 		return time.Date(2026, 7, 21, 10, 0, 0, tick*int(time.Millisecond), time.UTC)
 	}
-	w := Workflow{Config: cfg, Agent: agent, Log: event.Logger{Out: &out, Now: now}, Err: &stderr, Now: now}
+	w := Workflow{Config: cfg, Agent: agent, Log: &event.Logger{Out: &out, Now: now, Format: cfg.LogFormat, Heartbeat: cfg.Heartbeat}, Err: &stderr, Now: now}
 	return w.Run(context.Background()), out.String(), stderr.String()
+}
+
+func TestHumanHappyPath(t *testing.T) {
+	agent := &fakeAgent{
+		reviews:       []codex.ReviewResult{{Counts: codex.Counts{High: 1, Medium: 2}, Report: "findings"}, clean()},
+		finalizations: []codex.Finalization{success()},
+	}
+	code, output, stderr := run(t, config.Config{LogFormat: "human", MaxCycles: 1}, agent)
+	if code != ExitSuccess || stderr != "" {
+		t.Fatalf("code=%d stderr=%q", code, stderr)
+	}
+	for _, want := range []string{
+		"Review attempt 1 started\n", "Review attempt 1: 3 findings — 1 high, 2 medium (0s)\n",
+		"Fixing findings from review attempt 1...\n", "Findings fixed (0s)\n", "Review attempt 2: clean (0s)\n",
+		"Finalizing...\n", "  Commit: done\n", "  Change request: not needed\n", "Finalized successfully (0s)\n", "Done (0s)\n",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("missing %q in:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "event=") || strings.Contains(output, "findings_critical") || strings.Contains(output, "duration_ms") {
+		t.Fatalf("human output leaked kv fields:\n%s", output)
+	}
+}
+
+func TestHumanTerminalPaths(t *testing.T) {
+	tests := []struct {
+		name  string
+		cfg   config.Config
+		agent *fakeAgent
+		code  int
+		want  string
+	}{
+		{"findings", config.Config{LogFormat: "human", MaxCycles: 0}, &fakeAgent{reviews: []codex.ReviewResult{findings()}}, ExitFindingsRemaining, "Stopped: review findings remain"},
+		{"operational", config.Config{LogFormat: "human"}, &fakeAgent{reviewFailures: map[int]error{0: errors.New("bad")}}, ExitOperational, "Failed due to an operational error"},
+		{"ci", config.Config{LogFormat: "human", MaxCIRecoveries: 0}, &fakeAgent{reviews: []codex.ReviewResult{clean()}, finalizations: []codex.Finalization{ciFailed()}}, ExitCI, "Stopped: CI is still failing"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			code, output, _ := run(t, test.cfg, test.agent)
+			if code != test.code || !strings.Contains(output, test.want) {
+				t.Fatalf("code=%d output=\n%s", code, output)
+			}
+		})
+	}
 }
 
 func TestHappyPath(t *testing.T) {
@@ -225,7 +291,7 @@ func TestEventFailureStopsBeforeAgentSideEffects(t *testing.T) {
 	agent := &fakeAgent{reviews: []codex.ReviewResult{clean()}, finalizations: []codex.Finalization{success()}}
 	writer := &failingWriter{}
 	var stderr bytes.Buffer
-	w := Workflow{Config: config.Config{}, Agent: agent, Log: event.Logger{Out: writer}, Err: &stderr}
+	w := Workflow{Config: config.Config{}, Agent: agent, Log: &event.Logger{Out: writer}, Err: &stderr}
 	if code := w.Run(context.Background()); code != ExitOperational {
 		t.Fatalf("code=%d", code)
 	}
@@ -265,7 +331,7 @@ func TestEmitFailureMidWorkflow(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			writer := &configurableFailingWriter{failAfter: test.failAfter}
 			var stderr bytes.Buffer
-			w := Workflow{Config: config.Config{MaxCycles: 1}, Agent: test.agent, Log: event.Logger{Out: writer}, Err: &stderr}
+			w := Workflow{Config: config.Config{MaxCycles: 1}, Agent: test.agent, Log: &event.Logger{Out: writer}, Err: &stderr}
 			if code := w.Run(context.Background()); code != ExitOperational {
 				t.Fatalf("code=%d", code)
 			}
@@ -286,9 +352,74 @@ func TestEmitStepsFailure(t *testing.T) {
 	writer := &configurableFailingWriter{failAfter: 5}
 	var stderr bytes.Buffer
 	agent := &fakeAgent{reviews: []codex.ReviewResult{clean()}, finalizations: []codex.Finalization{success()}}
-	w := Workflow{Config: config.Config{}, Agent: agent, Log: event.Logger{Out: writer}, Err: &stderr}
+	w := Workflow{Config: config.Config{}, Agent: agent, Log: &event.Logger{Out: writer}, Err: &stderr}
 	if code := w.Run(context.Background()); code != ExitOperational {
 		t.Fatalf("code=%d", code)
+	}
+}
+
+type failOnLivenessWriter struct{ bytes.Buffer }
+
+func (w *failOnLivenessWriter) Write(p []byte) (int, error) {
+	if strings.Contains(string(p), "still running") {
+		return 0, errors.New("closed stdout")
+	}
+	return w.Buffer.Write(p)
+}
+
+func TestCIFixLivenessWriteFailureIsOperational(t *testing.T) {
+	ticks := make(chan time.Time, 1)
+	started := make(chan struct{})
+	agent := &fakeAgent{
+		reviews:       []codex.ReviewResult{clean()},
+		finalizations: []codex.Finalization{ciFailed()},
+		ciFixWait:     true,
+		ciFixStarted:  started,
+	}
+	writer := &failOnLivenessWriter{}
+	var stderr bytes.Buffer
+	logger := &event.Logger{
+		Out: writer, Format: "human", Heartbeat: time.Second,
+		Tick: func(time.Duration) (<-chan time.Time, func()) { return ticks, func() {} },
+	}
+	w := Workflow{Config: config.Config{LogFormat: "human", Heartbeat: time.Second, MaxCIRecoveries: 1}, Agent: agent, Log: logger, Err: &stderr}
+	result := make(chan int, 1)
+	go func() { result <- w.Run(context.Background()) }()
+	<-started
+	ticks <- time.Now().Add(time.Second)
+	if code := <-result; code != ExitOperational {
+		t.Fatalf("code=%d output=%q stderr=%q", code, writer.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "write liveness") {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+}
+
+func TestCancellationStopsActiveLivenessWithoutLateWrites(t *testing.T) {
+	ticks := make(chan time.Time, 2)
+	started := make(chan struct{})
+	agent := &fakeAgent{reviewWait: true, reviewStarted: started}
+	var output, stderr bytes.Buffer
+	logger := &event.Logger{
+		Out: &output, Format: "human", Heartbeat: time.Second,
+		Tick: func(time.Duration) (<-chan time.Time, func()) { return ticks, func() {} },
+	}
+	w := Workflow{Config: config.Config{LogFormat: "human", Heartbeat: time.Second}, Agent: agent, Log: logger, Err: &stderr}
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan int, 1)
+	go func() { result <- w.Run(ctx) }()
+	<-started
+	cancel()
+	if code := <-result; code != ExitOperational {
+		t.Fatalf("code=%d output=%q stderr=%q", code, output.String(), stderr.String())
+	}
+	before := output.String()
+	ticks <- time.Now().Add(time.Minute)
+	if after := output.String(); after != before {
+		t.Fatalf("late output after cancellation: before=%q after=%q", before, after)
+	}
+	if !strings.Contains(before, "Review attempt 1 failed") || !strings.Contains(before, "Failed due to an operational error") {
+		t.Fatalf("missing cancellation terminal output: %q", before)
 	}
 }
 

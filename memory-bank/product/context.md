@@ -30,7 +30,7 @@ The product boundary is orchestration of the local agent-development loop. It do
 ## Product constraints
 
 - `PCON-01` The supported agent integration is the locally installed and authenticated Codex CLI.
-- `PCON-02` Every important step must be observable in one stdout line; review trend data must include severity counts and duration.
+- `PCON-02` Every important step remains observable on stdout through an explicitly selected human or structured format; structured review trend data includes all severity counts and millisecond duration, while human output keeps the total, non-zero severities and readable duration.
 - `PCON-03` Publication actions are delegated to the finalization agent and require credentials for the configured Git remote or hosting provider. No particular provider is required by the product contract.
 
 ## Sources

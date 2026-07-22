@@ -32,12 +32,14 @@ func (f optionalFlag) Set(value string) error {
 }
 
 type App struct {
-	Stdout io.Writer
-	Stderr io.Writer
-	Cwd    string
-	Home   string
-	Runner runner.Runner
-	Now    func() time.Time
+	Stdout     io.Writer
+	Stderr     io.Writer
+	Cwd        string
+	Home       string
+	Runner     runner.Runner
+	Now        func() time.Time
+	IsTerminal func(io.Writer) bool
+	LookupEnv  func(string) (string, bool)
 }
 
 func (a App) Run(ctx context.Context, args []string) int {
@@ -66,6 +68,9 @@ func (a App) Run(ctx context.Context, args []string) int {
 	configCommand := len(args) > 0 && args[0] == "config"
 	flags := flag.NewFlagSet("code-converge", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
+	bind(flags, "log-format", &overrides.LogFormat)
+	bind(flags, "heartbeat", &overrides.Heartbeat)
+	bind(flags, "color", &overrides.Color)
 	bind(flags, "mode", &overrides.Mode)
 	bind(flags, "max-cycles", &overrides.MaxCycles)
 	bind(flags, "max-ci-recoveries", &overrides.MaxCIRecoveries)
@@ -87,7 +92,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 	if err := flags.Parse(args); err != nil {
 		fmt.Fprintf(stderr, "code-converge: %v\n", err)
 		if !configCommand {
-			logger := event.Logger{Out: stdout, Now: a.Now}
+			logger := event.Logger{Out: stdout, Err: stderr, Now: a.Now, Format: "kv"}
 			started := time.Now()
 			_ = logger.Emit("run_started")
 			_ = logger.Emit("run_completed", event.F("status", "operational_failure"), event.F("exit_code", "2"), event.F("total_duration_ms", fmt.Sprint(time.Since(started).Milliseconds())))
@@ -99,13 +104,17 @@ func (a App) Run(ctx context.Context, args []string) int {
 		return workflow.ExitOperational
 	}
 
+	startupFormat := "kv"
+	if resolved, resolveErr := config.ResolveLogFormat(cwd, a.Home, overrides.LogFormat); resolveErr == nil {
+		startupFormat = resolved
+	}
 	cfg, err := config.Load(cwd, a.Home, overrides)
 	if err != nil {
 		if flags.NArg() == 1 {
 			fmt.Fprintf(stderr, "code-converge: configuration: %v\n", err)
 			return workflow.ExitOperational
 		}
-		logger := event.Logger{Out: stdout, Now: a.Now}
+		logger := event.Logger{Out: stdout, Err: stderr, Now: a.Now, Format: startupFormat}
 		started := time.Now()
 		_ = logger.Emit("run_started")
 		fmt.Fprintf(stderr, "code-converge: configuration: %v\n", err)
@@ -122,7 +131,49 @@ func (a App) Run(ctx context.Context, args []string) int {
 		processRunner = runner.Exec{Executable: "codex", Dir: cwd}
 	}
 	agent := codex.Adapter{Runner: processRunner, Config: cfg}
-	return workflow.Workflow{Config: cfg, Agent: agent, Log: event.Logger{Out: stdout, Now: a.Now}, Err: stderr, Now: a.Now}.Run(ctx)
+	logger := event.Logger{
+		Out: stdout, Err: stderr, Now: a.Now, Format: cfg.LogFormat, Heartbeat: cfg.Heartbeat,
+		Interactive: a.isTerminal(stdout), ColorDepth: a.colorDepth(cfg, stdout),
+	}
+	w := workflow.Workflow{Config: cfg, Agent: agent, Log: &logger, Err: stderr, Now: a.Now}
+	return w.Run(ctx)
+}
+
+func (a App) isTerminal(out io.Writer) bool {
+	if a.IsTerminal != nil {
+		return a.IsTerminal(out)
+	}
+	file, ok := out.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := file.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+func (a App) colorDepth(cfg config.Config, out io.Writer) int {
+	if cfg.Color == "never" || !a.isTerminal(out) {
+		return 0
+	}
+	lookup := a.LookupEnv
+	if lookup == nil {
+		lookup = os.LookupEnv
+	}
+	if _, disabled := lookup("NO_COLOR"); disabled {
+		return 0
+	}
+	term, _ := lookup("TERM")
+	if term == "" || term == "dumb" {
+		return 0
+	}
+	colorTerm, _ := lookup("COLORTERM")
+	if strings.Contains(strings.ToLower(colorTerm), "truecolor") || strings.Contains(strings.ToLower(colorTerm), "24bit") {
+		return 3
+	}
+	if strings.Contains(strings.ToLower(term), "256color") {
+		return 2
+	}
+	return 1
 }
 
 func bind(flags *flag.FlagSet, name string, target *config.OptionalString) {

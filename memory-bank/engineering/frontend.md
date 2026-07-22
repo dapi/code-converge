@@ -13,7 +13,7 @@ audience: humans_and_agents
 
 # Frontend Engineering
 
-`code-converge` currently has no web, desktop, mobile, or other graphical frontend. Its user surface is a command-line interface, stdout records, process exit status, and local configuration files. The root [`README.md`](../../README.md) owns those public contracts; engineering and domain documents only interpret or implement them.
+`code-converge` currently has no web, desktop, mobile, or other graphical frontend. Its user surface is a command-line interface, structured or human stdout progress (including transient TTY liveness), process exit status, and local configuration files. The root [`README.md`](../../README.md) owns those public contracts; engineering and domain documents only interpret or implement them.
 
 ## UI Surfaces
 

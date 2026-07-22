@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -23,6 +24,9 @@ type OptionalString struct {
 }
 
 type Overrides struct {
+	LogFormat          OptionalString
+	Heartbeat          OptionalString
+	Color              OptionalString
 	Mode               OptionalString
 	MaxCycles          OptionalString
 	MaxCIRecoveries    OptionalString
@@ -51,6 +55,9 @@ type Setting struct {
 type Config struct {
 	Root string
 
+	LogFormat       string
+	Heartbeat       time.Duration
+	Color           string
 	Mode            string
 	MaxCycles       int
 	MaxCIRecoveries int
@@ -121,6 +128,37 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 	}
 	projectDir := filepath.Join(root, ".code-converge")
 	userDir := filepath.Join(home, ".code-converge")
+	logFormat, logFormatSetting, err := resolve(spec{
+		name: "log-format", file: "log-format", env: "CODE_CONVERGE_LOG_FORMAT", def: "kv", builtIn: "kv", defSource: SourceDefault, override: overrides.LogFormat,
+	}, cwd, userDir, projectDir)
+	if err != nil {
+		return Config{}, err
+	}
+	if logFormat != "kv" && logFormat != "human" {
+		return Config{}, fmt.Errorf("log-format must be one of: kv, human")
+	}
+	color, colorSetting, err := resolve(spec{
+		name: "color", file: "color", env: "CODE_CONVERGE_COLOR", def: "auto", builtIn: "auto", defSource: SourceDefault, override: overrides.Color,
+	}, cwd, userDir, projectDir)
+	if err != nil {
+		return Config{}, err
+	}
+	if color != "auto" && color != "never" {
+		return Config{}, fmt.Errorf("color must be one of: auto, never")
+	}
+	heartbeatValue, heartbeatSetting, err := resolve(spec{
+		name: "heartbeat", file: "heartbeat", env: "CODE_CONVERGE_HEARTBEAT", def: "0", builtIn: "0", defSource: SourceDefault, override: overrides.Heartbeat,
+	}, cwd, userDir, projectDir)
+	if err != nil {
+		return Config{}, err
+	}
+	heartbeat, err := parseHeartbeat(heartbeatValue)
+	if err != nil {
+		return Config{}, err
+	}
+	if logFormat == "kv" && heartbeat > 0 {
+		return Config{}, fmt.Errorf("heartbeat requires log-format=human")
+	}
 	mode, modeSetting, err := resolve(spec{
 		name: "mode", file: "mode", env: "CODE_CONVERGE_MODE", def: "fast", builtIn: "fast", defSource: SourceDefault, override: overrides.Mode,
 	}, cwd, userDir, projectDir)
@@ -150,8 +188,8 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 	}
 
 	values := make(map[string]string, len(specs))
-	settings := make([]Setting, 0, len(specs)+1)
-	settings = append(settings, modeSetting)
+	settings := make([]Setting, 0, len(specs)+4)
+	settings = append(settings, logFormatSetting, heartbeatSetting, colorSetting, modeSetting)
 	for _, item := range specs {
 		value, setting, resolveErr := resolve(item, cwd, userDir, projectDir)
 		if resolveErr != nil {
@@ -176,12 +214,50 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 	}
 
 	return Config{
-		Root: root, Mode: mode, MaxCycles: maxCycles, MaxCIRecoveries: maxCI,
+		Root: root, LogFormat: logFormat, Heartbeat: heartbeat, Color: color,
+		Mode: mode, MaxCycles: maxCycles, MaxCIRecoveries: maxCI,
 		ReviewModel: values["review-model"], ReviewEffort: values["review-reasoning-effort"],
 		FixModel: values["fix-model"], FixEffort: values["fix-reasoning-effort"], FixPrompt: values["fix-prompt"],
 		FinalizeModel: values["finalize-model"], FinalizeEffort: values["finalize-reasoning-effort"], FinalizePrompt: values["finalize-prompt"],
 		CIFixModel: values["ci-fix-model"], CIFixEffort: values["ci-fix-reasoning-effort"], CIFixPrompt: values["ci-fix-prompt"], Settings: settings,
 	}, nil
+}
+
+// ResolveLogFormat resolves only the presentation format so startup failures in
+// unrelated settings can use the requested renderer. A format-resolution error
+// intentionally leaves callers on the legacy kv fallback.
+func ResolveLogFormat(cwd, home string, override OptionalString) (string, error) {
+	root, err := FindGitRoot(cwd)
+	if err != nil {
+		return "", err
+	}
+	if home == "" {
+		home, err = os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve user home: %w", err)
+		}
+	}
+	value, _, err := resolve(spec{
+		name: "log-format", file: "log-format", env: "CODE_CONVERGE_LOG_FORMAT", def: "kv", builtIn: "kv", defSource: SourceDefault, override: override,
+	}, cwd, filepath.Join(home, ".code-converge"), filepath.Join(root, ".code-converge"))
+	if err != nil {
+		return "", err
+	}
+	if value != "kv" && value != "human" {
+		return "", fmt.Errorf("log-format must be one of: kv, human")
+	}
+	return value, nil
+}
+
+func parseHeartbeat(value string) (time.Duration, error) {
+	if strings.TrimSpace(value) == "0" {
+		return 0, nil
+	}
+	duration, err := time.ParseDuration(strings.TrimSpace(value))
+	if err != nil || duration < time.Second {
+		return 0, fmt.Errorf("heartbeat must be 0 or a duration of at least 1s")
+	}
+	return duration, nil
 }
 
 func resolve(item spec, cwd, userDir, projectDir string) (string, Setting, error) {

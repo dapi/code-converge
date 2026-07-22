@@ -7,14 +7,96 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 var codeConvergeEnv = []string{
+	"CODE_CONVERGE_LOG_FORMAT", "CODE_CONVERGE_HEARTBEAT", "CODE_CONVERGE_COLOR",
 	"CODE_CONVERGE_MODE",
 	"CODE_CONVERGE_MAX_CYCLES", "CODE_CONVERGE_MAX_CI_RECOVERIES", "CODE_CONVERGE_REVIEW_MODEL", "CODE_CONVERGE_REVIEW_REASONING_EFFORT",
 	"CODE_CONVERGE_FIX_MODEL", "CODE_CONVERGE_FIX_REASONING_EFFORT", "CODE_CONVERGE_FIX_PROMPT_FILE", "CODE_CONVERGE_FINALIZE_MODEL",
 	"CODE_CONVERGE_FINALIZE_REASONING_EFFORT", "CODE_CONVERGE_FINALIZE_PROMPT_FILE", "CODE_CONVERGE_CI_FIX_MODEL",
 	"CODE_CONVERGE_CI_FIX_REASONING_EFFORT", "CODE_CONVERGE_CI_FIX_PROMPT_FILE",
+}
+
+func TestLoggingConfiguration(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	t.Setenv("CODE_CONVERGE_LOG_FORMAT", "human")
+	write(t, filepath.Join(root, ".code-converge", "heartbeat"), "30s\n")
+	cfg, err := Load(root, home, Overrides{Color: OptionalString{Value: "never", Set: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LogFormat != "human" || cfg.Heartbeat != 30*time.Second || cfg.Color != "never" {
+		t.Fatalf("logging config = %#v", cfg)
+	}
+	for _, want := range []string{"log-format: human (environment; built-in: kv)", "heartbeat: 30s (project; built-in: 0)", "color: never (cli; built-in: auto)"} {
+		if !strings.Contains(Format(cfg), want) {
+			t.Errorf("missing %q in:\n%s", want, Format(cfg))
+		}
+	}
+}
+
+func TestLoggingConfigurationPrecedence(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	t.Setenv("CODE_CONVERGE_LOG_FORMAT", "human")
+	t.Setenv("CODE_CONVERGE_HEARTBEAT", "1s")
+	t.Setenv("CODE_CONVERGE_COLOR", "never")
+	for _, item := range []struct{ dir, name, value string }{
+		{filepath.Join(home, ".code-converge"), "log-format", "human"},
+		{filepath.Join(home, ".code-converge"), "heartbeat", "2s"},
+		{filepath.Join(home, ".code-converge"), "color", "auto"},
+		{filepath.Join(root, ".code-converge"), "log-format", "human"},
+		{filepath.Join(root, ".code-converge"), "heartbeat", "3s"},
+		{filepath.Join(root, ".code-converge"), "color", "never"},
+	} {
+		write(t, filepath.Join(item.dir, item.name), item.value)
+	}
+	assert := func(wantSource, wantHeartbeat, wantColor string, overrides Overrides) {
+		t.Helper()
+		cfg, err := Load(root, home, overrides)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if source(cfg, "log-format") != wantSource || source(cfg, "heartbeat") != wantSource || source(cfg, "color") != wantSource || cfg.Heartbeat.String() != wantHeartbeat || cfg.Color != wantColor {
+			t.Fatalf("source/value = %s/%s/%s %s %s", source(cfg, "log-format"), source(cfg, "heartbeat"), source(cfg, "color"), cfg.Heartbeat, cfg.Color)
+		}
+	}
+	assert(SourceCLI, "4s", "auto", Overrides{
+		LogFormat: OptionalString{"human", true}, Heartbeat: OptionalString{"4s", true}, Color: OptionalString{"auto", true},
+	})
+	assert(SourceProject, "3s", "never", Overrides{})
+	for _, name := range []string{"log-format", "heartbeat", "color"} {
+		if err := os.Remove(filepath.Join(root, ".code-converge", name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assert(SourceUser, "2s", "auto", Overrides{})
+	for _, name := range []string{"log-format", "heartbeat", "color"} {
+		if err := os.Remove(filepath.Join(home, ".code-converge", name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assert(SourceEnv, "1s", "never", Overrides{})
+}
+
+func TestInvalidLoggingConfiguration(t *testing.T) {
+	tests := []Overrides{
+		{LogFormat: OptionalString{"json", true}},
+		{Color: OptionalString{"always", true}},
+		{LogFormat: OptionalString{"human", true}, Heartbeat: OptionalString{"500ms", true}},
+		{LogFormat: OptionalString{"human", true}, Heartbeat: OptionalString{"-1s", true}},
+		{Heartbeat: OptionalString{"1s", true}},
+	}
+	for _, overrides := range tests {
+		cleanEnv(t)
+		root, home := repo(t)
+		if _, err := Load(root, home, overrides); err == nil {
+			t.Errorf("accepted invalid overrides: %#v", overrides)
+		}
+	}
 }
 
 func cleanEnv(t *testing.T) {

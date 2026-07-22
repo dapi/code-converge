@@ -43,7 +43,7 @@ The product specification identifies teams using coding agents as the intended a
 
 - `ASM-01` The intended segment experiences enough repeated manual coordination to adopt a dedicated CLI — `unvalidated`.
 - `ASM-02` A locally installed Codex integration is an acceptable default for the intended segment — `unvalidated`.
-- `ASM-03` One-line stdout events and exit codes are sufficient for initial operator observability — specified, but not user-validated.
+- `ASM-03` Explicitly selected human or structured stdout progress plus exit codes is sufficient for initial operator observability — specified, but not user-validated.
 
 ## Must Not Assume
 
