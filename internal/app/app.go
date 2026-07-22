@@ -13,6 +13,7 @@ import (
 	"github.com/dapi/code-converge/internal/config"
 	"github.com/dapi/code-converge/internal/event"
 	"github.com/dapi/code-converge/internal/runner"
+	selfupdate "github.com/dapi/code-converge/internal/update"
 	"github.com/dapi/code-converge/internal/version"
 	"github.com/dapi/code-converge/internal/workflow"
 )
@@ -40,6 +41,7 @@ type App struct {
 	Now        func() time.Time
 	IsTerminal func(io.Writer) bool
 	LookupEnv  func(string) (string, bool)
+	Updater    selfupdate.Runner
 }
 
 func (a App) Run(ctx context.Context, args []string) int {
@@ -53,6 +55,18 @@ func (a App) Run(ctx context.Context, args []string) int {
 	if len(args) == 1 && args[0] == "--version" {
 		fmt.Fprintf(stdout, "code-converge v%s\n", version.Version)
 		return workflow.ExitSuccess
+	}
+	if len(args) > 0 && args[0] == "update" {
+		assumeYes, err := updateArgs(args[1:])
+		if err != nil {
+			fmt.Fprintf(stderr, "code-converge update: %v\n", err)
+			return workflow.ExitOperational
+		}
+		updater := a.Updater
+		if updater == nil {
+			updater = selfupdate.Service{Version: version.Version, Stdout: stdout, Stderr: stderr}
+		}
+		return updater.Run(ctx, assumeYes)
 	}
 	cwd := a.Cwd
 	if cwd == "" {
@@ -137,6 +151,16 @@ func (a App) Run(ctx context.Context, args []string) int {
 	}
 	w := workflow.Workflow{Config: cfg, Agent: agent, Log: &logger, Err: stderr, Now: a.Now}
 	return w.Run(ctx)
+}
+
+func updateArgs(args []string) (bool, error) {
+	if len(args) == 0 {
+		return false, nil
+	}
+	if len(args) == 1 && (args[0] == "--yes" || args[0] == "-y") {
+		return true, nil
+	}
+	return false, fmt.Errorf("usage: code-converge update [--yes|-y]")
 }
 
 func (a App) isTerminal(out io.Writer) bool {
