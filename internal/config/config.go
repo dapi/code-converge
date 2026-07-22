@@ -41,6 +41,7 @@ type Overrides struct {
 	CIFixModel         OptionalString
 	CIFixEffort        OptionalString
 	CIFixPromptPath    OptionalString
+	ReviewBase         OptionalString
 }
 
 type Setting struct {
@@ -72,6 +73,7 @@ type Config struct {
 	CIFixModel      string
 	CIFixEffort     string
 	CIFixPrompt     string
+	ReviewBase      string
 
 	Settings []Setting
 }
@@ -185,6 +187,7 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 		{name: "ci-fix-model", file: "ci-fix-model", env: "CODE_CONVERGE_CI_FIX_MODEL", def: profile.ciFixModel, builtIn: fast.ciFixModel, defSource: profileSource, override: overrides.CIFixModel},
 		{name: "ci-fix-reasoning-effort", file: "ci-fix-reasoning-effort", env: "CODE_CONVERGE_CI_FIX_REASONING_EFFORT", def: profile.ciFixEffort, builtIn: fast.ciFixEffort, defSource: profileSource, override: overrides.CIFixEffort},
 		{name: "ci-fix-prompt", file: "fix-ci.md", env: "CODE_CONVERGE_CI_FIX_PROMPT_FILE", def: "Исправь CI", builtIn: "Исправь CI", defSource: SourceDefault, override: overrides.CIFixPromptPath, promptFile: true},
+		{name: "review-base", file: "review-base", env: "CODE_CONVERGE_REVIEW_BASE", def: "", builtIn: "", defSource: SourceDefault, override: overrides.ReviewBase},
 	}
 
 	values := make(map[string]string, len(specs))
@@ -196,6 +199,10 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 			return Config{}, resolveErr
 		}
 		values[item.name] = value
+		if item.name == "review-base" && value == "" {
+			setting.DisplayValue = "discover"
+			setting.DisplayDefault = "discover"
+		}
 		settings = append(settings, setting)
 	}
 
@@ -220,6 +227,7 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 		FixModel: values["fix-model"], FixEffort: values["fix-reasoning-effort"], FixPrompt: values["fix-prompt"],
 		FinalizeModel: values["finalize-model"], FinalizeEffort: values["finalize-reasoning-effort"], FinalizePrompt: values["finalize-prompt"],
 		CIFixModel: values["ci-fix-model"], CIFixEffort: values["ci-fix-reasoning-effort"], CIFixPrompt: values["ci-fix-prompt"], Settings: settings,
+		ReviewBase: values["review-base"],
 	}, nil
 }
 

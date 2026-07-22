@@ -100,6 +100,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 	bind(flags, "ci-fix-model", &overrides.CIFixModel)
 	bind(flags, "ci-fix-reasoning-effort", &overrides.CIFixEffort)
 	bind(flags, "ci-fix-prompt-file", &overrides.CIFixPromptPath)
+	bind(flags, "review-base", &overrides.ReviewBase)
 
 	if len(args) > 0 && args[0] == "config" {
 		args = append(append([]string{}, args[1:]...), "config")
@@ -145,7 +146,9 @@ func (a App) Run(ctx context.Context, args []string) int {
 	if processRunner == nil {
 		processRunner = runner.Exec{Executable: "codex", Dir: cwd}
 	}
-	agent := codex.Adapter{Runner: processRunner, Config: cfg}
+	reviewScope := &repository.ReviewScope{Runner: processRunner, Base: cfg.ReviewBase, Root: cfg.Root}
+	defer reviewScope.Close()
+	agent := codex.Adapter{Runner: processRunner, Config: cfg, ReviewScope: reviewScope}
 	logger := event.Logger{
 		Out: stdout, Err: stderr, Now: a.Now, Format: cfg.LogFormat, Heartbeat: cfg.Heartbeat,
 		Interactive: a.isTerminal(stdout), ColorDepth: a.colorDepth(cfg, stdout),

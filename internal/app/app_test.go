@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -21,6 +23,12 @@ func testRepo(t *testing.T) (string, string) {
 	root := t.TempDir()
 	if output, err := exec.Command("git", "init", "-q", root).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v: %s", err, output)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".gitkeep"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := exec.Command("git", "-C", root, "add", ".gitkeep").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v: %s", err, output)
 	}
 	return root, t.TempDir()
 }
@@ -159,8 +167,35 @@ type appFakeRunner struct {
 
 func (f *appFakeRunner) Run(_ context.Context, invocation runner.Invocation) (runner.Result, error) {
 	f.invocations = append(f.invocations, invocation)
+	if invocation.Executable == "gh" {
+		return runner.Result{Stdout: "[]"}, nil
+	}
 	if invocation.Executable == "git" {
+		args := strings.Join(invocation.Args, " ")
+		switch {
+		case strings.HasPrefix(args, "status "):
+			return f.status, f.statusErr
+		case args == "symbolic-ref --quiet --short HEAD":
+			return runner.Result{Stdout: "feature"}, nil
+		case args == "config --get branch.feature.gh-merge-base":
+			return runner.Result{}, errors.New("not configured")
+		case args == "remote":
+			return runner.Result{Stdout: "origin"}, nil
+		case args == "symbolic-ref --quiet refs/remotes/origin/HEAD":
+			return runner.Result{Stdout: "refs/remotes/origin/main"}, nil
+		case strings.HasPrefix(args, "rev-parse --verify "):
+			return runner.Result{Stdout: "0123456789012345678901234567890123456789"}, nil
+		case args == "rev-parse --git-path index":
+			return runner.Result{Stdout: ".git/index"}, nil
+		case strings.HasPrefix(args, "merge-base "):
+			return runner.Result{Stdout: "0123456789012345678901234567890123456789"}, nil
+		case strings.HasPrefix(args, "read-tree ") || args == "add -A":
+			return runner.Result{}, nil
+		}
 		return f.status, f.statusErr
+	}
+	if len(invocation.Args) > 0 && strings.Contains(strings.Join(invocation.Args, " "), " review ") {
+		return f.review, f.err
 	}
 	for i, arg := range invocation.Args {
 		if arg == "--output-last-message" && i+1 < len(invocation.Args) && f.err == nil {
@@ -168,9 +203,6 @@ func (f *appFakeRunner) Run(_ context.Context, invocation runner.Invocation) (ru
 				f.t.Fatalf("write finalize message: %v", err)
 			}
 		}
-	}
-	if len(f.invocations) == 1 {
-		return f.review, f.err
 	}
 	return runner.Result{}, f.err
 }
@@ -225,6 +257,16 @@ func TestAppWorkflowSuccessWithFakeRunner(t *testing.T) {
 	if len(fake.invocations) < 2 {
 		t.Fatalf("expected review and finalize invocations, got %d", len(fake.invocations))
 	}
+	var review runner.Invocation
+	for _, invocation := range fake.invocations {
+		if strings.Contains(strings.Join(invocation.Args, " "), " review ") {
+			review = invocation
+			break
+		}
+	}
+	if len(review.Args) == 0 || review.Args[len(review.Args)-1] != "0123456789012345678901234567890123456789" {
+		t.Fatalf("review was not pinned to resolved base commit: %#v", review)
+	}
 }
 
 func TestAppNoChangeSkipsFinalize(t *testing.T) {
@@ -238,7 +280,8 @@ func TestAppNoChangeSkipsFinalize(t *testing.T) {
 	if !strings.Contains(stdout.String(), "event=review_completed") || !strings.Contains(stdout.String(), "status=clean") || !strings.Contains(stdout.String(), "findings_total=0") || !strings.Contains(stdout.String(), "event=run_completed status=success exit_code=0") || strings.Contains(stdout.String(), "stage=finalize") {
 		t.Fatalf("stdout:\n%s", stdout.String())
 	}
-	if len(fake.invocations) != 2 || fake.invocations[1].Executable != "git" {
+	last := fake.invocations[len(fake.invocations)-1]
+	if last.Executable != "git" || !reflect.DeepEqual(last.Args, []string{"status", "--porcelain"}) {
 		t.Fatalf("invocations = %#v", fake.invocations)
 	}
 }

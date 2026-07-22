@@ -30,6 +30,16 @@ func TestExecCapturesStreamsAndCwd(t *testing.T) {
 	}
 }
 
+func TestExecPassesInvocationEnvironment(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is POSIX-only")
+	}
+	result, err := (Exec{Executable: "sh"}).Run(context.Background(), Invocation{Args: []string{"-c", "printf %s \"$CODE_CONVERGE_TEST_ENV\""}, Env: []string{"CODE_CONVERGE_TEST_ENV=present"}})
+	if err != nil || result.Stdout != "present" {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+}
+
 func TestExecCancellation(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture is POSIX-only")

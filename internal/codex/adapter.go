@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/dapi/code-converge/internal/config"
+	"github.com/dapi/code-converge/internal/repository"
 	"github.com/dapi/code-converge/internal/runner"
 )
 
@@ -31,6 +32,7 @@ type ReviewResult struct {
 	Clean  bool
 	Counts Counts
 	Report string
+	Scope  repository.ReviewTarget
 }
 
 type structuredReview struct {
@@ -67,12 +69,30 @@ type Finalization struct {
 }
 
 type Adapter struct {
-	Runner runner.Runner
-	Config config.Config
+	Runner      runner.Runner
+	Config      config.Config
+	ReviewScope *repository.ReviewScope
 }
 
 func (a Adapter) Review(ctx context.Context) (ReviewResult, error) {
-	result, err := a.Runner.Run(ctx, runner.Invocation{Args: append(modelArgs(a.Config.ReviewModel, a.Config.ReviewEffort), "review", "--uncommitted")})
+	if a.ReviewScope == nil {
+		result, err := a.Runner.Run(ctx, runner.Invocation{Args: append(modelArgs(a.Config.ReviewModel, a.Config.ReviewEffort), "review", "--uncommitted")})
+		if err != nil {
+			return ReviewResult{}, err
+		}
+		review, err := ParseReview(result.Stdout)
+		if err != nil {
+			return ReviewResult{}, err
+		}
+		review.Report = strings.TrimSpace(ansiPattern.ReplaceAllString(result.Stdout, ""))
+		return review, nil
+	}
+	target, err := a.ReviewScope.Prepare(ctx)
+	if err != nil {
+		return ReviewResult{}, err
+	}
+	args := append(modelArgs(a.Config.ReviewModel, a.Config.ReviewEffort), "review", "--base", target.BaseCommit)
+	result, err := a.Runner.Run(ctx, runner.Invocation{Args: args, Env: target.Env})
 	if err != nil {
 		return ReviewResult{}, err
 	}
@@ -81,6 +101,7 @@ func (a Adapter) Review(ctx context.Context) (ReviewResult, error) {
 		return ReviewResult{}, err
 	}
 	review.Report = strings.TrimSpace(ansiPattern.ReplaceAllString(result.Stdout, ""))
+	review.Scope = target
 	return review, nil
 }
 
