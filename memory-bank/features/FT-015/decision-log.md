@@ -118,4 +118,13 @@ No human gate is open. The exact supported structured contract is bounded to evi
 
 - **Approval:** execution authorized.
 - **Evidence:** the user's current instruction explicitly requests end-to-end implementation, validation, commit, push, PR creation and review/CI convergence for the current feature context.
-- **Consequence:** `brief.md` is `delivery_status: in_progress`; execution proceeds under the selected `standard` profile.
+- **Consequence:** execution proceeded under the selected `standard` profile; after evidence completion `brief.md` moved to `delivery_status: done`.
+
+## Implementation Review-Fix Loop
+
+### Iteration 1 — implementation and convergence
+
+- **Critical:** none.
+- **High:** none.
+- **Review signals:** table-driven structured parser fixtures; fake repository-status workflow/app tests; full local Go, vet, documentation and diff checks; independent GitHub Verify run.
+- **Result:** strict structured clean/finding classification, preserved plain-text behavior, no-change finalization skip and public-contract updates converge. No critical/high finding remains.

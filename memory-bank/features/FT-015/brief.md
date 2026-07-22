@@ -12,7 +12,7 @@ derived_from:
   - ../../../README.md
   - https://github.com/dapi/code-converge/issues/15
 status: active
-delivery_status: in_progress
+delivery_status: done
 audience: humans_and_agents
 must_not_define:
   - implementation_sequence
@@ -149,3 +149,13 @@ must_not_define:
 | `EVID-03` | Fake-executable integration log | test runner | `artifacts/ft-015/verify/chk-03/` | `CHK-03` |
 | `EVID-04` | Docs lint and semantic review record | test runner/reviewer | `artifacts/ft-015/verify/chk-04/` | `CHK-04` |
 | `EVID-05` | Full verification and CI references | test runner/CI | `artifacts/ft-015/verify/chk-05/` | `CHK-05` |
+
+### Execution Evidence Status
+
+| Evidence ID | Status | Concrete carrier |
+| --- | --- | --- |
+| `EVID-01` | pass | `TestParseReview`, `TestParseStructuredReview`, `TestReviewWithStructuredFindingsPreservesReport`; `go test ./internal/codex` and `go test ./...` |
+| `EVID-02` | pass | `TestCleanNoChangeCompletesWithoutFinalization`, `TestRepositoryStatusFailureIsOperational`, `TestStatusHasChanges`; `go test ./internal/workflow ./internal/repository ./internal/app` and `go test ./...` |
+| `EVID-03` | pass | `TestAppNoChangeSkipsFinalize` injects structured Codex stdout and fake Git status; `go test ./internal/app` |
+| `EVID-04` | pass | Root README, domain rules/states and engineering architecture converge; `make docs-lint` |
+| `EVID-05` | pass | `go test ./...`, `go vet ./...`, `make docs-lint`, `git diff --check`; PR [#17](https://github.com/dapi/code-converge/pull/17), required [Verify run](https://github.com/dapi/code-converge/actions/runs/29917936201) |
