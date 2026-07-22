@@ -124,7 +124,7 @@ func TestReviewScopeUsesUniqueRemoteTrackingPRBase(t *testing.T) {
 		args := strings.Join(inv.Args, " ")
 		switch {
 		case inv.Executable == "gh":
-			return runner.Result{Stdout: `[{"baseRefName":"develop"}]`}, nil
+			return runner.Result{Stdout: `[{"baseRefName":"develop","baseRefOid":"base-sha"}]`}, nil
 		case args == "symbolic-ref --quiet --short HEAD":
 			return runner.Result{Stdout: "feature"}, nil
 		case args == "rev-parse --verify develop^{commit}":
@@ -147,6 +147,58 @@ func TestReviewScopeUsesUniqueRemoteTrackingPRBase(t *testing.T) {
 	}}).Prepare(context.Background())
 	if err != nil || target.Source != "open_pr" || target.Base != "refs/remotes/origin/develop" {
 		t.Fatalf("target=%#v err=%v", target, err)
+	}
+}
+
+func TestReviewScopeUsesSlashContainingPRBase(t *testing.T) {
+	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
+		args := strings.Join(inv.Args, " ")
+		switch {
+		case inv.Executable == "gh":
+			return runner.Result{Stdout: `[{"baseRefName":"release/1.x","baseRefOid":"base-sha"}]`}, nil
+		case args == "symbolic-ref --quiet --short HEAD":
+			return runner.Result{Stdout: "feature"}, nil
+		case args == "remote":
+			return runner.Result{Stdout: "origin"}, nil
+		case args == "rev-parse --verify refs/remotes/origin/release/1.x^{commit}":
+			return runner.Result{Stdout: "base-sha"}, nil
+		case args == "merge-base HEAD refs/remotes/origin/release/1.x":
+			return runner.Result{Stdout: "merge-sha"}, nil
+		case args == "add -A":
+			return runner.Result{}, nil
+		default:
+			t.Fatalf("unexpected invocation: %#v", inv)
+			return runner.Result{}, nil
+		}
+	}}
+	target, err := (&ReviewScope{Runner: fake, copyIndex: func(_ context.Context, target string) error {
+		return os.WriteFile(target, []byte("index"), 0o600)
+	}}).Prepare(context.Background())
+	if err != nil || target.Base != "refs/remotes/origin/release/1.x" || target.BaseCommit != "base-sha" {
+		t.Fatalf("target=%#v err=%v", target, err)
+	}
+}
+
+func TestReviewScopeRejectsStaleProviderBase(t *testing.T) {
+	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
+		args := strings.Join(inv.Args, " ")
+		switch {
+		case inv.Executable == "gh":
+			return runner.Result{Stdout: `[{"baseRefName":"main","baseRefOid":"provider-sha"}]`}, nil
+		case args == "symbolic-ref --quiet --short HEAD":
+			return runner.Result{Stdout: "feature"}, nil
+		case args == "remote":
+			return runner.Result{Stdout: "origin"}, nil
+		case args == "rev-parse --verify refs/remotes/origin/main^{commit}":
+			return runner.Result{Stdout: "stale-sha"}, nil
+		default:
+			t.Fatalf("unexpected invocation: %#v", inv)
+			return runner.Result{}, nil
+		}
+	}}
+	_, err := (&ReviewScope{Runner: fake}).Prepare(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "is stale") || !strings.Contains(err.Error(), "fetch") {
+		t.Fatalf("error=%v", err)
 	}
 }
 

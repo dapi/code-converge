@@ -96,6 +96,15 @@ The reasoning bounds this feature to review-input selection, separates issue fac
 - **Verification:** focused repository/workflow/app tests, then full local verification and CI are required before closure.
 - **Human gate:** no.
 
+### Cycle 5 — base identity review remediation
+
+- **Review scope:** PR #19 reviewer findings about slash-containing PR target names, stale provider refs and mutable symbolic refs across review cycles.
+- **Critical:** none.
+- **Important:** reviewer `P1`: slash-containing PR base name was excluded from remote tracking lookup; reviewer `P1`: provider name alone could accept a stale local ref; reviewer `P2`: later review could use a moved symbolic ref while metadata remained pinned to the old commit.
+- **Changes:** request and validate `baseRefOid` with `baseRefName`; all provider branch names search remote tracking refs first; mismatch fails with an actionable fetch diagnostic; Codex receives the resolved immutable base SHA. Added slash, stale-ref and pinned-invocation regression coverage.
+- **Verification:** full local suites, documentation lint and required CI are required before closure.
+- **Human gate:** no.
+
 ## Human Gate
 
 ### `HG-01` — Public review-base/scope contract

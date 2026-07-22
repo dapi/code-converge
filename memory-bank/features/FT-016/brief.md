@@ -139,7 +139,7 @@ The current review adapter invokes `codex review --uncommitted`. As documented a
 
 | Evidence ID | Status | Concrete carrier |
 | --- | --- | --- |
-| `EVID-01` | pass | `TestReviewScopeExplicitBaseBuildsPrivateSnapshot`, `TestReviewScopeRejectsMultipleOpenPRs`, `TestReviewScopeUsesUniqueRemoteTrackingPRBase`, `TestReviewScopePreservesCommittedChangesOutsideSparseCheckout`; `go test ./internal/repository` |
+| `EVID-01` | pass | `TestReviewScopeExplicitBaseBuildsPrivateSnapshot`, `TestReviewScopeRejectsMultipleOpenPRs`, `TestReviewScopeUsesUniqueRemoteTrackingPRBase`, `TestReviewScopeUsesSlashContainingPRBase`, `TestReviewScopeRejectsStaleProviderBase`, `TestReviewScopePreservesCommittedChangesOutsideSparseCheckout`; `go test ./internal/repository` |
 | `EVID-02` | pass | `TestAdapterInvocations`, app fake-runner integration and `TestExecPassesInvocationEnvironment`; `go test ./internal/codex ./internal/app ./internal/runner` |
 | `EVID-03` | pass | `TestReviewBasePrecedence`, `TestConfigCommand`, `TestReviewMetadataUsesResolvedCommitForEventSafety` and workflow/app event assertions; `go test ./internal/config ./internal/app ./internal/workflow` |
 | `EVID-04` | pass | Root README, domain rules/states, engineering architecture and FT-016 converge; `make docs-lint` |

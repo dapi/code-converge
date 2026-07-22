@@ -257,6 +257,16 @@ func TestAppWorkflowSuccessWithFakeRunner(t *testing.T) {
 	if len(fake.invocations) < 2 {
 		t.Fatalf("expected review and finalize invocations, got %d", len(fake.invocations))
 	}
+	var review runner.Invocation
+	for _, invocation := range fake.invocations {
+		if strings.Contains(strings.Join(invocation.Args, " "), " review ") {
+			review = invocation
+			break
+		}
+	}
+	if len(review.Args) == 0 || review.Args[len(review.Args)-1] != "0123456789012345678901234567890123456789" {
+		t.Fatalf("review was not pinned to resolved base commit: %#v", review)
+	}
 }
 
 func TestAppNoChangeSkipsFinalize(t *testing.T) {

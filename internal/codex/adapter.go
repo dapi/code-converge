@@ -91,7 +91,7 @@ func (a Adapter) Review(ctx context.Context) (ReviewResult, error) {
 	if err != nil {
 		return ReviewResult{}, err
 	}
-	args := append(modelArgs(a.Config.ReviewModel, a.Config.ReviewEffort), "review", "--base", target.Base)
+	args := append(modelArgs(a.Config.ReviewModel, a.Config.ReviewEffort), "review", "--base", target.BaseCommit)
 	result, err := a.Runner.Run(ctx, runner.Invocation{Args: args, Env: target.Env})
 	if err != nil {
 		return ReviewResult{}, err

@@ -89,9 +89,9 @@ func (s *ReviewScope) discover(ctx context.Context) (string, string, error) {
 	if candidate, found, err := s.openPRBase(ctx, branch); err != nil {
 		return "", "", err
 	} else if found {
-		base, err := s.resolveOpenPRBase(ctx, candidate)
+		base, err := s.resolveOpenPRBase(ctx, candidate.Name, candidate.Commit)
 		if err != nil {
-			return "", "", fmt.Errorf("resolve open PR base %q: %w", candidate, err)
+			return "", "", fmt.Errorf("resolve open PR base %q: %w", candidate.Name, err)
 		}
 		return base, "open_pr", nil
 	}
@@ -123,25 +123,30 @@ func (s *ReviewScope) discover(ctx context.Context) (string, string, error) {
 	return base, "remote_default", nil
 }
 
-func (s *ReviewScope) openPRBase(ctx context.Context, branch string) (string, bool, error) {
-	output, err := s.Runner.Run(ctx, runner.Invocation{Executable: "gh", Args: []string{"pr", "list", "--head", branch, "--state", "open", "--json", "baseRefName"}})
+type providerBase struct {
+	Name   string `json:"baseRefName"`
+	Commit string `json:"baseRefOid"`
+}
+
+func (s *ReviewScope) openPRBase(ctx context.Context, branch string) (providerBase, bool, error) {
+	output, err := s.Runner.Run(ctx, runner.Invocation{Executable: "gh", Args: []string{"pr", "list", "--head", branch, "--state", "open", "--json", "baseRefName,baseRefOid"}})
 	if err != nil {
-		return "", false, nil // Provider discovery is optional.
+		return providerBase{}, false, nil // Provider discovery is optional.
 	}
-	var prs []struct{ BaseRefName string }
+	var prs []providerBase
 	if err := json.Unmarshal([]byte(output.Stdout), &prs); err != nil {
-		return "", false, fmt.Errorf("parse open PR candidates: %w", err)
+		return providerBase{}, false, fmt.Errorf("parse open PR candidates: %w", err)
 	}
 	switch len(prs) {
 	case 0:
-		return "", false, nil
+		return providerBase{}, false, nil
 	case 1:
-		if strings.TrimSpace(prs[0].BaseRefName) == "" {
-			return "", false, fmt.Errorf("open PR has an empty base")
+		if strings.TrimSpace(prs[0].Name) == "" || strings.TrimSpace(prs[0].Commit) == "" {
+			return providerBase{}, false, fmt.Errorf("open PR has incomplete base metadata")
 		}
-		return prs[0].BaseRefName, true, nil
+		return prs[0], true, nil
 	default:
-		return "", false, fmt.Errorf("discover review base: found %d open pull requests; set --review-base", len(prs))
+		return providerBase{}, false, fmt.Errorf("discover review base: found %d open pull requests; set --review-base", len(prs))
 	}
 }
 
@@ -171,22 +176,34 @@ func (s *ReviewScope) resolve(ctx context.Context, candidate string) (string, er
 
 // resolveOpenPRBase prefers a unique remote-tracking ref over a same-named local
 // branch, because provider metadata names the remote pull-request target.
-func (s *ReviewScope) resolveOpenPRBase(ctx context.Context, candidate string) (string, error) {
-	if !strings.Contains(candidate, "/") {
-		matches, err := s.remoteTrackingRefs(ctx, candidate)
+
+func (s *ReviewScope) resolveOpenPRBase(ctx context.Context, candidate, providerCommit string) (string, error) {
+	matches, err := s.remoteTrackingRefs(ctx, candidate)
+	if err != nil {
+		return "", err
+	}
+	var base string
+	switch len(matches) {
+	case 1:
+		base = matches[0]
+	case 0:
+		// A local-only target remains usable only when it is verified against
+		// the provider's advertised base commit.
+		base, err = s.resolve(ctx, candidate)
 		if err != nil {
 			return "", err
 		}
-		switch len(matches) {
-		case 1:
-			return matches[0], nil
-		case 0:
-			// A local-only target remains usable when no tracking ref exists.
-		default:
-			return "", fmt.Errorf("reference is ambiguous across %d remote refs", len(matches))
-		}
+	default:
+		return "", fmt.Errorf("reference is ambiguous across %d remote refs", len(matches))
 	}
-	return s.resolve(ctx, candidate)
+	actual, err := s.git(ctx, nil, "rev-parse", "--verify", base+"^{commit}")
+	if err != nil {
+		return "", err
+	}
+	if actual != providerCommit {
+		return "", fmt.Errorf("local base %q is stale (have %s, provider has %s); fetch the target remote or set --review-base", base, actual, providerCommit)
+	}
+	return base, nil
 }
 
 func (s *ReviewScope) remoteTrackingRefs(ctx context.Context, candidate string) ([]string, error) {
