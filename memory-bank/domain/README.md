@@ -49,5 +49,5 @@ Domain-документы не определяют market positioning, product 
 - [Domain Model](model.md) — ключевые domain concepts, relationships, ownership и model notes.
 - [Domain Rules](rules.md) — бизнес-правила, инварианты, policies и rule ownership.
 - [States](states.md) — lifecycle states, allowed transitions и terminal states.
-- [Events](events.md) — отсутствие отдельного domain-event integration contract и граница с operational stdout records.
+- [Events](events.md) — отсутствие отдельного domain-event integration contract и граница с operational stdout presentation.
 - [Context Map](context-map.md) — единый domain context code-converge и его границы с внешними системами.

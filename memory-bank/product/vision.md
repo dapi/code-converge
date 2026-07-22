@@ -22,7 +22,7 @@ The documented CLI is the complete intended product, not a minimum version of a 
 
 ## Product Promise
 
-An operator should receive an explicit terminal result rather than having to interpret agent prose or manually coordinate every transition. During a run, one-line progress records expose review finding counts, severity, and stage durations.
+An operator should receive an explicit terminal result rather than having to interpret agent prose or manually coordinate every transition. During a run, explicitly selected human or structured progress output exposes review finding counts, severity, stage durations and bounded liveness for long-running stages.
 
 ## Strategic Bets
 
@@ -34,7 +34,7 @@ An operator should receive an explicit terminal result rather than having to int
 ## Experience Principles
 
 - `XP-01` A run never reports success unless it reaches the documented successful terminal state.
-- `XP-02` Important stage progress and completion facts remain visible as one-line stdout records.
+- `XP-02` Important stage progress and completion facts remain visible on stdout; permanent human and structured records are newline-safe, while human TTY liveness is transient and cleared before permanent output.
 - `XP-03` Configuration is inspectable before execution, including the source of each effective value.
 
 ## Product Non-Goals

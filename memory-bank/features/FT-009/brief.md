@@ -167,3 +167,14 @@ The current workflow stdout contract is stable and machine-readable, but operato
 | `EVID-04` | Cancellation/write/output-isolation log | test runner | `artifacts/ft-009/verify/chk-04/` | `CHK-04` |
 | `EVID-05` | Docs lint and semantic review record | test runner/reviewer | `artifacts/ft-009/verify/chk-05/` | `CHK-05` |
 | `EVID-06` | Full local verification and CI references | test runner/CI | `artifacts/ft-009/verify/chk-06/` | `CHK-06` |
+
+### Execution Evidence Status
+
+| Evidence ID | Status | Concrete carrier |
+| --- | --- | --- |
+| `EVID-01` | pass | `TestLoggingConfiguration`, `TestLoggingConfigurationPrecedence`, `TestInvalidLoggingConfiguration`, app startup/config tests; `go test ./internal/config ./internal/app` |
+| `EVID-02` | pass | `TestHumanEventCatalog`, `TestHumanHappyPath`, `TestHumanTerminalPaths` and unchanged structured event tests; `go test ./internal/event ./internal/workflow` |
+| `EVID-03` | pass | heartbeat/transient/shimmer/stop tests plus `go test -race ./internal/event ./internal/workflow` |
+| `EVID-04` | pass | cancellation, liveness/permanent writer failure and human raw-output isolation tests across app/workflow/codex/runner suites |
+| `EVID-05` | pass | root README and dependent Memory Bank convergence; `make docs-lint` |
+| `EVID-06` | local pass; CI pending | `go test ./...`, `go test -race ./internal/event ./internal/workflow`, `go vet ./...`, `make docs-lint`, `git diff --check`; PR/CI carrier pending publication |

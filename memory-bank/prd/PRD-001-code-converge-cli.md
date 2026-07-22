@@ -41,7 +41,7 @@ The project needs one bounded local workflow that drives this loop to an explici
 - `G-01` Provide one local CLI workflow that performs review, bounded finding remediation, finalization, and bounded CI recovery in the order required by the domain state machine.
 - `G-02` Produce an explicit terminal outcome that distinguishes success, remaining findings, operational failure, and CI-recovery failure.
 - `G-03` Treat ambiguous or internally inconsistent agent output as failure rather than inferred success.
-- `G-04` Make stage progress, review severity counts, durations, finalization steps, and the terminal result observable through the public one-line stdout contract.
+- `G-04` Make stage progress, review severity counts, durations, finalization steps, terminal result and bounded long-stage liveness observable through the public stdout contract.
 - `G-05` Let operators inspect and override effective configuration without starting a workflow run.
 
 ## Non-Goals
@@ -78,7 +78,7 @@ The project needs one bounded local workflow that drives this loop to an explici
 - `BR-02` A clean review is necessary but not sufficient for run success; finalization must establish the documented successful terminal state.
 - `BR-03` Unclassified review output, an unrecognized finalization verdict, or inconsistent finalization details must never be interpreted as success.
 - `BR-04` Fix-findings and CI-recovery loops are independently bounded; exhausting either budget produces its specified non-zero terminal outcome.
-- `BR-05` Operational stdout remains machine-readable and one-record-per-line; raw agent output and human-readable diagnostics do not contaminate that stream.
+- `BR-05` Operational stdout uses an explicitly selected human or structured format. Structured `kv` remains machine-readable and one-record-per-line; non-TTY human output is newline-safe and ANSI-free. Raw agent output and diagnostics do not contaminate either stream.
 - `BR-06` An operator can inspect every effective setting and its source before execution.
 - `BR-07` Observability is a cross-cutting acceptance requirement: every internal implementation checkpoint that adds or changes a workflow transition must include the corresponding stdout records, stderr behavior, counters, and durations before that checkpoint is considered complete.
 
@@ -87,8 +87,8 @@ The project needs one bounded local workflow that drives this loop to an explici
 | Metric ID | Metric | Baseline | Target | Measurement method |
 | --- | --- | --- | --- | --- |
 | `MET-01` | Terminal outcome contract coverage | No implementation evidence supplied | Every acceptance path ends with the specified exit code and `run_completed` record; no ambiguous result reaches exit `0` | Automated state-machine and adapter acceptance tests against the public contract |
-| `MET-02` | Classified review observability | No implementation evidence supplied | Every clean/findings review reports total plus all severity buckets, with the total equal to their sum | Contract tests over clean, prioritized, unknown-priority, malformed, and failed review fixtures |
-| `MET-03` | Stage and run timing coverage | No implementation evidence supplied | Every completed stage reports `duration_ms`; every terminal run reports `total_duration_ms` | Event-stream tests for every terminal path |
+| `MET-02` | Classified review observability | No implementation evidence supplied | Structured output reports total plus all severity buckets; human output reports total plus non-zero buckets, with the same classified result | Contract tests over clean, prioritized, unknown-priority, malformed, and failed review fixtures |
+| `MET-03` | Stage and run timing coverage | No implementation evidence supplied | Every completed stage and terminal run reports duration in the selected format (`duration_ms`/`total_duration_ms` in `kv`, readable duration in human) | Event-stream tests for every terminal path |
 | `MET-04` | Configuration explainability | No implementation evidence supplied | Every effective option is shown with its winning source, and non-default values also show the built-in default | Precedence-matrix tests and `code-converge config` golden output |
 | `MET-05` | Complete workflow delivery | Not measured; implementation proof is unavailable | The documented happy path, findings path, exhausted-findings path, operational-failure paths, CI-recovery path, and exhausted-CI path all have reproducible acceptance evidence | Delivery evidence plus a final end-to-end utility acceptance run |
 

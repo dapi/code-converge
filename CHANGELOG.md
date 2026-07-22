@@ -6,6 +6,10 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Added an explicit human workflow log format with readable findings, durations, finalization steps, terminal outcomes, interactive elapsed-time shimmer, and optional newline heartbeat while preserving `kv` as the default.
+
 ### Fixed
 
 - Updated pinned GitHub Actions to Node 24-based releases and keyed Go caches from `go.mod`, eliminating release and verification workflow warnings.

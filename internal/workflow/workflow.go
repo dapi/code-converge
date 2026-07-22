@@ -2,7 +2,6 @@ package workflow
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"strconv"
 	"time"
@@ -29,12 +28,13 @@ type Agent interface {
 type Workflow struct {
 	Config config.Config
 	Agent  Agent
-	Log    event.Logger
+	Log    *event.Logger
 	Err    io.Writer
 	Now    func() time.Time
 }
 
-func (w Workflow) Run(ctx context.Context) int {
+func (w *Workflow) Run(ctx context.Context) int {
+	w.Log.Err = w.Err
 	now := time.Now
 	if w.Now != nil {
 		now = w.Now
@@ -51,8 +51,16 @@ func (w Workflow) Run(ctx context.Context) int {
 		if !w.emit("stage_started", event.F("stage", "review"), event.F("model", w.stageModel("review")), event.F("reasoning_effort", w.stageReasoningEffort("review")), intField("review_phase", phase), intField("cycle", cycle)) {
 			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 		}
-		review, err := w.Agent.Review(ctx)
+		stageCtx, cancelStage := context.WithCancel(ctx)
+		liveness := w.Log.StartLiveness(stageCtx, "review", stageStarted, cancelStage)
+		review, err := w.Agent.Review(stageCtx)
+		livenessErr := liveness.Stop()
+		cancelStage()
 		duration := durationField(now().Sub(stageStarted))
+		if livenessErr != nil {
+			w.diagnostic("write liveness", livenessErr)
+			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+		}
 		if err != nil {
 			if !w.emit("review_completed", event.F("stage", "review"), event.F("model", w.stageModel("review")), event.F("reasoning_effort", w.stageReasoningEffort("review")), intField("review_phase", phase), intField("cycle", cycle), event.F("status", "failed"), duration) {
 				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
@@ -79,7 +87,15 @@ func (w Workflow) Run(ctx context.Context) int {
 			if !w.emit("stage_started", event.F("stage", "fix-findings"), event.F("model", w.stageModel("fix-findings")), event.F("reasoning_effort", w.stageReasoningEffort("fix-findings")), intField("review_phase", phase), intField("cycle", cycle)) {
 				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 			}
-			err = w.Agent.FixFindings(ctx, review.Report)
+			stageCtx, cancelStage = context.WithCancel(ctx)
+			liveness = w.Log.StartLiveness(stageCtx, "fix-findings", stageStarted, cancelStage)
+			err = w.Agent.FixFindings(stageCtx, review.Report)
+			livenessErr = liveness.Stop()
+			cancelStage()
+			if livenessErr != nil {
+				w.diagnostic("write liveness", livenessErr)
+				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+			}
 			stageStatus := "success"
 			if err != nil {
 				stageStatus = "failed"
@@ -100,7 +116,15 @@ func (w Workflow) Run(ctx context.Context) int {
 		if !w.emit("stage_started", event.F("stage", "finalize"), event.F("model", w.stageModel("finalize")), event.F("reasoning_effort", w.stageReasoningEffort("finalize"))) {
 			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 		}
-		finalization, err := w.Agent.Finalize(ctx)
+		stageCtx, cancelStage = context.WithCancel(ctx)
+		liveness = w.Log.StartLiveness(stageCtx, "finalize", stageStarted, cancelStage)
+		finalization, err := w.Agent.Finalize(stageCtx)
+		livenessErr = liveness.Stop()
+		cancelStage()
+		if livenessErr != nil {
+			w.diagnostic("write liveness", livenessErr)
+			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+		}
 		if err != nil {
 			if !w.emitUnknownSteps() || !w.emit("stage_completed", event.F("stage", "finalize"), event.F("model", w.stageModel("finalize")), event.F("reasoning_effort", w.stageReasoningEffort("finalize")), event.F("status", "failed"), durationField(now().Sub(stageStarted))) {
 				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
@@ -125,7 +149,15 @@ func (w Workflow) Run(ctx context.Context) int {
 			if !w.emit("stage_started", event.F("stage", "fix-ci"), event.F("model", w.stageModel("fix-ci")), event.F("reasoning_effort", w.stageReasoningEffort("fix-ci"))) {
 				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 			}
-			err = w.Agent.FixCI(ctx)
+			stageCtx, cancelStage = context.WithCancel(ctx)
+			liveness = w.Log.StartLiveness(stageCtx, "fix-ci", stageStarted, cancelStage)
+			err = w.Agent.FixCI(stageCtx)
+			livenessErr = liveness.Stop()
+			cancelStage()
+			if livenessErr != nil {
+				w.diagnostic("write liveness", livenessErr)
+				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+			}
 			stageStatus := "success"
 			if err != nil {
 				stageStatus = "failed"
@@ -144,7 +176,7 @@ func (w Workflow) Run(ctx context.Context) int {
 	}
 }
 
-func (w Workflow) emitSteps(result codex.Finalization) bool {
+func (w *Workflow) emitSteps(result codex.Finalization) bool {
 	for _, step := range []struct{ name, status string }{
 		{"commit", result.Commit}, {"push", result.Push}, {"change_request", result.ChangeRequest}, {"ci", result.CI},
 	} {
@@ -155,7 +187,7 @@ func (w Workflow) emitSteps(result codex.Finalization) bool {
 	return true
 }
 
-func (w Workflow) stageModel(stage string) string {
+func (w *Workflow) stageModel(stage string) string {
 	switch stage {
 	case "review":
 		if w.Config.ReviewModel == "" {
@@ -182,7 +214,7 @@ func (w Workflow) stageModel(stage string) string {
 	}
 }
 
-func (w Workflow) stageReasoningEffort(stage string) string {
+func (w *Workflow) stageReasoningEffort(stage string) string {
 	switch stage {
 	case "review":
 		if w.Config.ReviewEffort != "" {
@@ -201,11 +233,11 @@ func (w Workflow) stageReasoningEffort(stage string) string {
 	}
 }
 
-func (w Workflow) emitUnknownSteps() bool {
+func (w *Workflow) emitUnknownSteps() bool {
 	return w.emitSteps(codex.Finalization{Commit: "unknown", Push: "unknown", ChangeRequest: "unknown", CI: "unknown"})
 }
 
-func (w Workflow) emit(name string, fields ...event.Field) bool {
+func (w *Workflow) emit(name string, fields ...event.Field) bool {
 	if err := w.Log.Emit(name, fields...); err != nil {
 		w.diagnostic("write event stream", err)
 		return false
@@ -213,13 +245,11 @@ func (w Workflow) emit(name string, fields ...event.Field) bool {
 	return true
 }
 
-func (w Workflow) diagnostic(message string, err error) {
-	if w.Err != nil {
-		fmt.Fprintf(w.Err, "code-converge: %s: %v\n", message, err)
-	}
+func (w *Workflow) diagnostic(message string, err error) {
+	w.Log.Diagnostic(message, err)
 }
 
-func (w Workflow) complete(status string, exitCode int, elapsed time.Duration) int {
+func (w *Workflow) complete(status string, exitCode int, elapsed time.Duration) int {
 	if !w.emit("run_completed", event.F("status", status), intField("exit_code", exitCode), event.F("total_duration_ms", milliseconds(elapsed))) {
 		return ExitOperational
 	}

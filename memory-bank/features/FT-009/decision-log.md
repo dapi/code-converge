@@ -169,3 +169,35 @@ No unresolved feature-document question meets the human-gate threshold. `AG-01` 
 - **Approval:** `AG-01` resolved.
 - **Evidence:** user instruction dated 2026-07-22 explicitly requests end-to-end implementation, local validation, commit, push, PR creation and review/CI convergence.
 - **Consequence:** `brief.md` moved to `delivery_status: in_progress`; execution may begin under the selected high-risk validation profile.
+
+## Implementation Review-Fix Loop
+
+### Iteration 1 — concurrency and failure semantics
+
+- **Critical:** none.
+- **High:** stop/cancel could race the first transient write; unexpected stage statuses could be rendered as ordinary failures; CI-fix liveness write failure incorrectly selected exit `3` instead of operational exit `2`.
+- **Fix:** added pre-write cancellation/stop gate, strict human status rendering and uniform operational handling for presentation failures; added regression tests.
+
+### Iteration 2 — cancellation assurance
+
+- **Critical:** none.
+- **High:** cancellation coverage did not exercise an active workflow Agent stage end-to-end.
+- **Fix:** added an active review cancellation test proving operational termination and no writes after the stop/join barrier.
+
+### Iteration 3 — configuration precedence assurance
+
+- **Critical:** none.
+- **High:** new settings lacked one test that composed all four explicit source levels in conflict.
+- **Fix:** added CLI → project → user → environment cascade coverage for `log-format`, `heartbeat` and `color`.
+
+### Iteration 4 — raw-output isolation assurance
+
+- **Critical:** none.
+- **High:** the human app acceptance test did not directly assert absence of raw Codex review text.
+- **Fix:** added an explicit negative assertion to the human end-to-end fake-runner test.
+
+### Iteration 5 — final convergence
+
+- **Critical:** none.
+- **High:** none.
+- **Result:** local implementation, contract, race, vet, documentation and diff gates pass; hosted CI pending PR publication.

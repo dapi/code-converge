@@ -25,10 +25,10 @@ The product is a dependency-free Go CLI that coordinates a sequential state mach
 | Codex boundary (`internal/codex`) | Command invocation, ordinary review-report classification, strict finalization response parsing | Exit-code policy and workflow stdout formatting |
 | Workflow orchestration (`internal/workflow`) | State transitions, budgets, stage timing and exit outcomes | Subprocess mechanics |
 | Process runner (`internal/runner`) | Working directory, context cancellation, captured stdin/stdout/stderr and exit status | Agent-report interpretation |
-| Event rendering (`internal/event`) | The one-line stdout encoding defined by the root README | Workflow decisions and raw agent output |
+| Progress presentation (`internal/event`) | Structured/human stdout rendering, duration/count formatting, terminal liveness and serialized clearing/diagnostic coordination defined by the root README | Workflow decisions and raw agent output |
 
 Review uses normal `codex review` output without requiring JSON or a caller-supplied schema. The Codex boundary must recognize an explicitly clean report or concrete finding entries; ambiguous or non-zero output becomes an operational failure. Finalization keeps the exact verdict contract from the root README because that verdict controls workflow transitions.
 
 External process execution is a trust boundary. The runner preserves the operator's invocation directory, captures stdin/stdout/stderr, propagates context cancellation, and never forwards raw Codex output to workflow stdout. Code-Converge does not add a timeout or override Codex sandbox, approval, or network configuration. Publication behavior remains hosting-provider-neutral.
 
-Configuration has one resolver. The public option names, sources, and defaults are owned by [`../../README.md`](../../README.md); operational prerequisites are in [`../ops/config.md`](../ops/config.md). Feature-local rationale and contract details are traceable through [`../features/FT-002/design.md`](../features/FT-002/design.md).
+Configuration has one resolver. The public option names, sources, and defaults are owned by [`../../README.md`](../../README.md); operational prerequisites are in [`../ops/config.md`](../ops/config.md). Initial delivery rationale is traceable through [`../features/FT-002/design.md`](../features/FT-002/design.md); human/structured presentation and liveness concurrency are traceable through [`../features/FT-009/design.md`](../features/FT-009/design.md).

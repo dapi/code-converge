@@ -36,7 +36,7 @@ N/A for runtime health: there is no deployed service, health endpoint, smoke URL
 
 ## Logs And Observability
 
-Runtime progress is emitted to the invoking process's stdout according to the CLI contract. No central log store, metrics backend, trace system, error tracker, or dashboard is defined.
+Runtime progress is emitted to the invoking process's stdout in the explicitly selected human or structured format according to the CLI contract. Human TTY liveness is transient; redirected human output has no implicit heartbeat. No central log store, metrics backend, trace system, error tracker, or dashboard is defined.
 
 ## Test Data And Smoke Targets
 
