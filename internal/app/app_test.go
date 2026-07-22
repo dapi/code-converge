@@ -12,6 +12,7 @@ import (
 
 	"github.com/dapi/code-converge/internal/config"
 	"github.com/dapi/code-converge/internal/runner"
+	selfupdate "github.com/dapi/code-converge/internal/update"
 	"github.com/dapi/code-converge/internal/workflow"
 )
 
@@ -85,6 +86,30 @@ func TestVersionCommand(t *testing.T) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 }
+
+func TestUpdateCommandDispatchesWithoutStartingWorkflow(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	updater := &appFakeUpdater{code: 0}
+	code := (App{Stdout: &stdout, Stderr: &stderr, Updater: updater}).Run(context.Background(), []string{"update", "--yes"})
+	if code != 0 || !updater.called || !updater.yes || stderr.Len() != 0 {
+		t.Fatalf("code=%d called=%v yes=%v stderr=%q", code, updater.called, updater.yes, stderr.String())
+	}
+	if code := (App{Stdout: &stdout, Stderr: &stderr, Updater: updater}).Run(context.Background(), []string{"update", "--bad"}); code != workflow.ExitOperational {
+		t.Fatalf("code=%d", code)
+	}
+}
+
+type appFakeUpdater struct {
+	called, yes bool
+	code        int
+}
+
+func (u *appFakeUpdater) Run(_ context.Context, yes bool) int {
+	u.called, u.yes = true, yes
+	return u.code
+}
+
+var _ selfupdate.Runner = (*appFakeUpdater)(nil)
 
 func TestInvalidConfigurationEmitsTerminalRun(t *testing.T) {
 	root, home := testRepo(t)

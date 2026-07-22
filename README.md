@@ -203,9 +203,9 @@ If the agent completes successfully, the entire workflow begins again with a new
 
 | Code | Meaning |
 | --- | --- |
-| `0` | The review is clean; changes are committed and pushed; a change request exists if needed; required CI is green or CI is not applicable. |
+| `0` | The review is clean; changes are committed and pushed; a change request exists if needed; required CI is green or CI is not applicable. `update` also returns `0` when the installed version is current or the user declines the update. |
 | `1` | Review findings remain after the configured maximum number of fix-findings attempts. |
-| `2` | An operational/configuration failure occurred, review output was ambiguous, fix-findings failed, or finalization failed for a reason other than red CI. |
+| `2` | An operational/configuration failure occurred, review output was ambiguous, fix-findings failed, or finalization failed for a reason other than red CI. `update` uses it for unsupported hosts, invalid release metadata, download/checksum failures, or replacement/permission failures. |
 | `3` | The CI-fix stage failed or the maximum number of CI-recovery attempts was exhausted. |
 
 ## Logging and metrics
@@ -417,6 +417,28 @@ code-converge --version
 ```
 
 It prints `code-converge vX.Y.Z` for a release binary.
+
+### Update an installed binary
+
+On macOS or Linux AMD64/ARM64, an installed release binary can safely update itself from the latest stable [GitHub Release](https://github.com/dapi/code-converge/releases):
+
+```sh
+code-converge update
+```
+
+The command compares the running semantic version with the latest release. When a newer compatible release exists, it prints the target version and release notes (or the release URL), then prompts `Install update? [y/N]: `. Only the exact replies `y` and `yes` proceed; all other input leaves the current executable unchanged. An already-current binary and a declined update exit `0`.
+
+For unattended use, skip confirmation without reading standard input:
+
+```sh
+code-converge update --yes
+# short form
+code-converge update -y
+```
+
+Before replacing the binary, `update` downloads the matching archive and `SHA256SUMS` from the release, verifies the archive checksum, and stages the replacement beside the running executable. It atomically replaces only that executable after all checks pass. Status, release notes and the confirmation prompt go to stdout; diagnostics go to stderr. Unsupported platforms, malformed metadata, download/checksum failures and permission/replacement failures exit `2` and leave the original executable byte-for-byte unchanged.
+
+The process needs write permission to the directory containing the currently running binary. If an update fails, keep using the existing binary and check the stderr diagnostic; recover by correcting the permission/network problem and rerunning `update`, or reinstall a known release with the one-line installer below. The command does not use package managers, prereleases, downgrades, background checks or automatic updates at normal startup.
 
 Build the current platform binary with Go 1.21.13 or newer:
 
