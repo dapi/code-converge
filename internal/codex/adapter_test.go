@@ -61,6 +61,8 @@ func TestParseStructuredReview(t *testing.T) {
 		{"priorities", findings, ReviewResult{Counts: Counts{Critical: 1, High: 1, Medium: 1, Low: 1}}, false},
 		{"trailing", clean + " trailing", ReviewResult{}, true},
 		{"unknown top-level field", `{"findings":[],"overall_correctness":"ok","overall_explanation":"ok","overall_confidence_score":1,"extra":true}`, ReviewResult{}, true},
+		{"case-variant top-level field", `{"Findings":[],"overall_correctness":"ok","overall_explanation":"ok","overall_confidence_score":1}`, ReviewResult{}, true},
+		{"case-variant duplicate top-level field", `{"findings":[],"Findings":[],"overall_correctness":"ok","overall_explanation":"ok","overall_confidence_score":1}`, ReviewResult{}, true},
 		{"missing field", `{"findings":[],"overall_correctness":"ok","overall_explanation":"ok"}`, ReviewResult{}, true},
 		{"wrong field type", `{"findings":{},"overall_correctness":"ok","overall_explanation":"ok","overall_confidence_score":1}`, ReviewResult{}, true},
 		{"duplicate nested field", `{"findings":[{"title":"a","title":"b","body":"body","confidence_score":1,"priority":1,"code_location":{"absolute_file_path":"a","line_range":{"start":1,"end":1}}}],"overall_correctness":"ok","overall_explanation":"ok","overall_confidence_score":1}`, ReviewResult{}, true},

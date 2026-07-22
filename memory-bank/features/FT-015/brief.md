@@ -154,7 +154,7 @@ must_not_define:
 
 | Evidence ID | Status | Concrete carrier |
 | --- | --- | --- |
-| `EVID-01` | pass | `TestParseReview`, `TestParseStructuredReview`, `TestReviewWithStructuredFindingsPreservesReport`; `go test ./internal/codex` and `go test ./...` |
+| `EVID-01` | pass | `TestParseReview`, `TestParseStructuredReview` (including case-variant keys), `TestReviewWithStructuredFindingsPreservesReport`; `go test ./internal/codex` and `go test ./...` |
 | `EVID-02` | pass | `TestCleanNoChangeCompletesWithoutFinalization`, `TestRepositoryStatusFailureIsOperational`, `TestStatusHasChanges`; `go test ./internal/workflow ./internal/repository ./internal/app` and `go test ./...` |
 | `EVID-03` | pass | `TestAppNoChangeSkipsFinalize` injects structured Codex stdout and fake Git status; `go test ./internal/app` |
 | `EVID-04` | pass | Root README, domain rules/states and engineering architecture converge; `make docs-lint` |

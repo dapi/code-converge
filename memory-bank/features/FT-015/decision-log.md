@@ -128,3 +128,10 @@ No human gate is open. The exact supported structured contract is bounded to evi
 - **High:** none.
 - **Review signals:** table-driven structured parser fixtures; fake repository-status workflow/app tests; full local Go, vet, documentation and diff checks; independent GitHub Verify run.
 - **Result:** strict structured clean/finding classification, preserved plain-text behavior, no-change finalization skip and public-contract updates converge. No critical/high finding remains.
+
+### Iteration 2 — exact structured-key validation
+
+- **Review finding:** `P2` — `encoding/json` matches struct fields case-insensitively, so case-variant keys could bypass the documented exact-key contract.
+- **Fix:** added recursive exact-key validation before struct decoding for the response, finding, code-location and line-range objects; added case-variant and case-variant duplicate top-level fixtures.
+- **Verification:** `go test ./internal/codex`, `go test ./...`, `go vet ./...`, `make docs-lint`, `git diff --check`.
+- **Result:** case-variant keys are unclassifiable and cannot produce a clean review; no critical/high finding remains.

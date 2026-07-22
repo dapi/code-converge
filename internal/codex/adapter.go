@@ -181,6 +181,9 @@ func parseStructuredReview(data []byte) (ReviewResult, error) {
 	if err := rejectDuplicateJSONKeys(data); err != nil {
 		return ReviewResult{}, fmt.Errorf("parse structured review response: %w", err)
 	}
+	if err := validateStructuredReviewKeys(data); err != nil {
+		return ReviewResult{}, fmt.Errorf("parse structured review response: %w", err)
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	var response structuredReview
@@ -210,6 +213,56 @@ func parseStructuredReview(data []byte) (ReviewResult, error) {
 		}
 	}
 	return ReviewResult{Counts: counts}, nil
+}
+
+func validateStructuredReviewKeys(data []byte) error {
+	var response map[string]json.RawMessage
+	if err := json.Unmarshal(data, &response); err != nil {
+		return err
+	}
+	if err := requireExactJSONKeys(response, "findings", "overall_correctness", "overall_explanation", "overall_confidence_score"); err != nil {
+		return fmt.Errorf("structured review response: %w", err)
+	}
+	var findings []json.RawMessage
+	if err := json.Unmarshal(response["findings"], &findings); err != nil {
+		return fmt.Errorf("structured review response findings: %w", err)
+	}
+	for _, rawFinding := range findings {
+		var finding map[string]json.RawMessage
+		if err := json.Unmarshal(rawFinding, &finding); err != nil {
+			return fmt.Errorf("structured review response finding: %w", err)
+		}
+		if err := requireExactJSONKeys(finding, "title", "body", "confidence_score", "priority", "code_location"); err != nil {
+			return fmt.Errorf("structured review response finding: %w", err)
+		}
+		var location map[string]json.RawMessage
+		if err := json.Unmarshal(finding["code_location"], &location); err != nil {
+			return fmt.Errorf("structured review response code location: %w", err)
+		}
+		if err := requireExactJSONKeys(location, "absolute_file_path", "line_range"); err != nil {
+			return fmt.Errorf("structured review response code location: %w", err)
+		}
+		var lineRange map[string]json.RawMessage
+		if err := json.Unmarshal(location["line_range"], &lineRange); err != nil {
+			return fmt.Errorf("structured review response line range: %w", err)
+		}
+		if err := requireExactJSONKeys(lineRange, "start", "end"); err != nil {
+			return fmt.Errorf("structured review response line range: %w", err)
+		}
+	}
+	return nil
+}
+
+func requireExactJSONKeys(object map[string]json.RawMessage, names ...string) error {
+	if len(object) != len(names) {
+		return errors.New("contains unknown or missing fields")
+	}
+	for _, name := range names {
+		if _, ok := object[name]; !ok {
+			return errors.New("contains unknown or missing fields")
+		}
+	}
+	return nil
 }
 
 func validateStructuredReview(response structuredReview) error {
