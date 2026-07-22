@@ -6,6 +6,10 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Updated pinned GitHub Actions to Node 24-based releases and keyed Go caches from `go.mod`, eliminating release and verification workflow warnings.
+
 ## [0.2.0] - 2026-07-22
 
 ### Added
