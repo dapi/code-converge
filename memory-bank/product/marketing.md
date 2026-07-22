@@ -2,7 +2,7 @@
 title: Marketing And Positioning
 doc_kind: product
 doc_function: canonical
-purpose: Current reviewer positioning, available channel evidence, and claims that remain unsupported.
+purpose: Current code-converge positioning, available channel evidence, and claims that remain unsupported.
 derived_from:
   - ../dna/governance.md
   - context.md
@@ -17,7 +17,7 @@ canonical_for:
 
 # Marketing And Positioning
 
-`reviewer` is currently specified as a local CLI and has a source repository. There is no approved distribution model, go-to-market plan, launch date, pricing, or competitive research.
+`code-converge` is currently specified as a local CLI and has a source repository. There is no approved distribution model, go-to-market plan, launch date, pricing, or competitive research.
 
 ## Positioning
 

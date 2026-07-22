@@ -2,7 +2,7 @@
 title: "FT-002: Solution Design"
 doc_kind: feature
 doc_function: canonical
-purpose: "Canonical solution design for the complete Reviewer CLI: module boundaries, external-process protocols, state-machine semantics, release baseline, failures and backout."
+purpose: "Canonical solution design for the complete Code-Converge CLI: module boundaries, external-process protocols, state-machine semantics, release baseline, failures and backout."
 derived_from:
   - brief.md
   - decision-log.md
@@ -37,7 +37,7 @@ No separate solution artifact is required. C3, contracts, state semantics, relea
 
 - `SD-01` Finalization invokes `codex exec` with a strict JSON Schema and reads only `--output-last-message`. The JSON object has `verdict`, `commit`, `push`, `change_request`, and `ci`; additional, missing, or duplicate fields are rejected.
 - `SD-02` Ordinary review accepts findings only from lines beginning with optional Markdown list syntax followed by a bracketed numeric priority. `P0`–`P3` map to the published severities; other numeric priorities count as unknown. Other bracket labels within a findings section and all other unknown output fail closed. A clean result must match an anchored explicit-clean allowlist after Markdown/whitespace normalization and contain no finding line. For a classified findings result, the normalized complete report is passed with the configured remediation prompt to the fresh Codex session; it is never emitted in workflow stdout.
-- `SD-03` Child processes inherit operator Codex sandbox/network/approval configuration. Reviewer adds no timeout/config surface; process cancellation follows the parent context.
+- `SD-03` Child processes inherit operator Codex sandbox/network/approval configuration. Code-Converge adds no timeout/config surface; process cancellation follows the parent context.
 - `SD-04` Release baseline at FT-002 closure was Go `1.21.13`, targets `darwin/linux × amd64/arm64` (`GOAMD64=v1`), `tar.gz` archives, `SHA256SUMS`, and manual PATH installation. FT-003 later adds GitHub Release hosting without changing this artifact matrix; signing and package-manager publication remain unsupported.
 - `SD-05` Deterministic fake process/corpus tests plus repository CI and independent Codex review are the acceptance authority for this first delivery.
 

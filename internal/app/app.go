@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dapi/reviewer/internal/codex"
-	"github.com/dapi/reviewer/internal/config"
-	"github.com/dapi/reviewer/internal/event"
-	"github.com/dapi/reviewer/internal/runner"
-	"github.com/dapi/reviewer/internal/version"
-	"github.com/dapi/reviewer/internal/workflow"
+	"github.com/dapi/code-converge/internal/codex"
+	"github.com/dapi/code-converge/internal/config"
+	"github.com/dapi/code-converge/internal/event"
+	"github.com/dapi/code-converge/internal/runner"
+	"github.com/dapi/code-converge/internal/version"
+	"github.com/dapi/code-converge/internal/workflow"
 )
 
 type optionalFlag struct{ target *config.OptionalString }
@@ -49,7 +49,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 		stderr = os.Stderr
 	}
 	if len(args) == 1 && args[0] == "--version" {
-		fmt.Fprintf(stdout, "reviewer v%s\n", version.Version)
+		fmt.Fprintf(stdout, "code-converge v%s\n", version.Version)
 		return workflow.ExitSuccess
 	}
 	cwd := a.Cwd
@@ -57,14 +57,14 @@ func (a App) Run(ctx context.Context, args []string) int {
 		var err error
 		cwd, err = os.Getwd()
 		if err != nil {
-			fmt.Fprintf(stderr, "reviewer: current directory: %v\n", err)
+			fmt.Fprintf(stderr, "code-converge: current directory: %v\n", err)
 			return workflow.ExitOperational
 		}
 	}
 
 	overrides := config.Overrides{}
 	configCommand := len(args) > 0 && args[0] == "config"
-	flags := flag.NewFlagSet("reviewer", flag.ContinueOnError)
+	flags := flag.NewFlagSet("code-converge", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	bind(flags, "mode", &overrides.Mode)
 	bind(flags, "max-cycles", &overrides.MaxCycles)
@@ -85,7 +85,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 		args = append(append([]string{}, args[1:]...), "config")
 	}
 	if err := flags.Parse(args); err != nil {
-		fmt.Fprintf(stderr, "reviewer: %v\n", err)
+		fmt.Fprintf(stderr, "code-converge: %v\n", err)
 		if !configCommand {
 			logger := event.Logger{Out: stdout, Now: a.Now}
 			started := time.Now()
@@ -95,20 +95,20 @@ func (a App) Run(ctx context.Context, args []string) int {
 		return workflow.ExitOperational
 	}
 	if flags.NArg() > 1 || (flags.NArg() == 1 && flags.Arg(0) != "config") {
-		fmt.Fprintln(stderr, "reviewer: usage: reviewer [flags] [config]")
+		fmt.Fprintln(stderr, "code-converge: usage: code-converge [flags] [config]")
 		return workflow.ExitOperational
 	}
 
 	cfg, err := config.Load(cwd, a.Home, overrides)
 	if err != nil {
 		if flags.NArg() == 1 {
-			fmt.Fprintf(stderr, "reviewer: configuration: %v\n", err)
+			fmt.Fprintf(stderr, "code-converge: configuration: %v\n", err)
 			return workflow.ExitOperational
 		}
 		logger := event.Logger{Out: stdout, Now: a.Now}
 		started := time.Now()
 		_ = logger.Emit("run_started")
-		fmt.Fprintf(stderr, "reviewer: configuration: %v\n", err)
+		fmt.Fprintf(stderr, "code-converge: configuration: %v\n", err)
 		_ = logger.Emit("run_completed", event.F("status", "operational_failure"), event.F("exit_code", "2"), event.F("total_duration_ms", fmt.Sprint(time.Since(started).Milliseconds())))
 		return workflow.ExitOperational
 	}

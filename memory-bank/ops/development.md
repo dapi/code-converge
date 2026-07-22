@@ -2,7 +2,7 @@
 title: Development Environment
 doc_kind: ops
 doc_function: canonical
-purpose: Local development prerequisites and verification commands for reviewer.
+purpose: Local development prerequisites and verification commands for code-converge.
 derived_from:
   - ../engineering/testing-policy.md
 status: active

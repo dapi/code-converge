@@ -2,7 +2,7 @@
 title: Testing Policy
 doc_kind: engineering
 doc_function: canonical
-purpose: Required validation for reviewer behavior and documentation changes.
+purpose: Required validation for code-converge behavior and documentation changes.
 derived_from:
   - architecture.md
   - validation-profiles.md

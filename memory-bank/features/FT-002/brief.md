@@ -1,11 +1,11 @@
 ---
-title: "FT-002: Complete Reviewer CLI"
+title: "FT-002: Complete Code-Converge CLI"
 doc_kind: feature
 doc_function: canonical
-purpose: "Canonical brief полной delivery-единицы reviewer CLI: problem space, scope, blockers, validation profile и verify contract без выбора solution или execution sequence."
+purpose: "Canonical brief полной delivery-единицы code-converge CLI: problem space, scope, blockers, validation profile и verify contract без выбора solution или execution sequence."
 derived_from:
   - ../../flows/feature.md
-  - ../../prd/PRD-001-reviewer-cli.md
+  - ../../prd/PRD-001-code-converge-cli.md
   - ../../../README.md
   - ../../domain/rules.md
   - ../../domain/states.md
@@ -26,13 +26,13 @@ canonical_for:
   - ft_002_blocker_state
 ---
 
-# FT-002: Complete Reviewer CLI
+# FT-002: Complete Code-Converge CLI
 
 ## What
 
 ### Problem
 
-Issue [#2](https://github.com/dapi/reviewer/issues/2) delivers the product defined by [`PRD-001`](../../prd/PRD-001-reviewer-cli.md) and the public [`README`](../../../README.md). The repository currently has specifications but no Go module or implementation. The delivery must turn the documented workflow into one distributable local CLI without inferring success from ambiguous agent output or contaminating the machine-readable stdout stream.
+Issue [#2](https://github.com/dapi/code-converge/issues/2) delivers the product defined by [`PRD-001`](../../prd/PRD-001-code-converge-cli.md) and the public [`README`](../../../README.md). The repository currently has specifications but no Go module or implementation. The delivery must turn the documented workflow into one distributable local CLI without inferring success from ambiguous agent output or contaminating the machine-readable stdout stream.
 
 ### Outcome
 
@@ -40,12 +40,12 @@ Issue [#2](https://github.com/dapi/reviewer/issues/2) delivers the product defin
 | --- | --- | --- | --- | --- |
 | `MET-01` | Public workflow contract coverage | No implementation evidence | Every documented terminal path produces its exact exit code and `run_completed` record | Deterministic state-machine/adapter acceptance suite |
 | `MET-02` | Classified review consistency | No implementation evidence | Every classified review has all five severity counters and `findings_total` equals their sum | Plain-text fixture and event golden tests |
-| `MET-03` | Configuration explainability | No implementation evidence | Every public setting reports effective value and winning source; overridden defaults remain inspectable | Full precedence matrix and `reviewer config` golden tests |
+| `MET-03` | Configuration explainability | No implementation evidence | Every public setting reports effective value and winning source; overridden defaults remain inspectable | Full precedence matrix and `code-converge config` golden tests |
 | `MET-04` | Distribution readiness | No release process or artifact matrix | Reproducible binary plus approved platform, installation, identity, and smoke evidence | Release checks defined after `DEC-01` is resolved |
 
 ### Scope
 
-- `REQ-01` Provide the `reviewer` workflow and `reviewer config` command with the options, defaults, source precedence, prompt resolution, prerequisites, and error semantics owned by the root `README.md`.
+- `REQ-01` Provide the `code-converge` workflow and `code-converge config` command with the options, defaults, source precedence, prompt resolution, prerequisites, and error semantics owned by the root `README.md`.
 - `REQ-02` Invoke Codex through a controlled process boundary and safely classify ordinary review output into clean, findings, or operational failure, including priority normalization and internally consistent counters.
 - `REQ-03` Enforce bounded fix-findings phases, including the mandatory verification review after the final permitted fix.
 - `REQ-04` Finalize only after a clean review; interpret only consistent `SUCCESS`, `CI_FAILED`, or `FAILED` results and expose all four finalization step outcomes.
@@ -116,7 +116,7 @@ Issue [#2](https://github.com/dapi/reviewer/issues/2) delivers the product defin
 
 ### Acceptance Scenarios
 
-- `SC-01` `reviewer config` resolves every setting across default/environment/user/project/CLI conflicts and reports the winning source and overridden built-in default.
+- `SC-01` `code-converge config` resolves every setting across default/environment/user/project/CLI conflicts and reports the winning source and overridden built-in default.
 - `SC-02` A normal Codex report is classified as clean or findings; all priorities normalize and all counters are present and arithmetically consistent.
 - `SC-03` Findings consume only fix attempts; the last allowed fix is followed by a verification review, with remaining findings terminating at exit `1`.
 - `SC-04` A clean review reaches finalization; consistent `SUCCESS`, `CI_FAILED`, and `FAILED` responses route to the documented next state and expose four step outcomes.
@@ -173,7 +173,7 @@ Issue [#2](https://github.com/dapi/reviewer/issues/2) delivers the product defin
 | `EVID-01` | State/config test report | deterministic test runner | `artifacts/ft-002/verify/chk-01/` | `CHK-01` |
 | `EVID-02` | Fixture corpus and parser/process report | deterministic fake-executable suite | `artifacts/ft-002/verify/chk-02/` | `CHK-02` |
 | `EVID-03` | Event golden report | deterministic event suite | `artifacts/ft-002/verify/chk-03/` | `CHK-03` |
-| `EVID-04` | Test/vet/CI/review bundle | local/CI runners and independent reviewer | `artifacts/ft-002/verify/chk-04/` | `CHK-04` |
+| `EVID-04` | Test/vet/CI/review bundle | local/CI runners and independent code-converge | `artifacts/ft-002/verify/chk-04/` | `CHK-04` |
 | `EVID-05` | Docs/diff reports | local or CI runner | `artifacts/ft-002/verify/chk-05/` | `CHK-05` |
 | `EVID-06` | Release evidence bundle | approved release verifier | `artifacts/ft-002/verify/chk-06/` | `CHK-06` |
 
@@ -184,6 +184,6 @@ Issue [#2](https://github.com/dapi/reviewer/issues/2) delivers the product defin
 | `EVID-01` | `internal/config/config_test.go`, `internal/workflow/workflow_test.go` | Pass locally and in required CI. |
 | `EVID-02` | `internal/codex/adapter_test.go`, `internal/runner/runner_test.go` | Parser/process corpus, failure diagnostics and cancellation pass. |
 | `EVID-03` | `internal/event/event_test.go`, workflow terminal-path tests | Schema, counters, ordering and failed-writer behavior pass. |
-| `EVID-04` | [PR #4](https://github.com/dapi/reviewer/pull/4), [Verify CI](https://github.com/dapi/reviewer/actions/runs/29839977861/job/88666073511), Codex review session `019f8519-b65f-77b1-81c1-141503394e38` | CI green; fourth independent review found no correctness issue. |
+| `EVID-04` | [PR #4](https://github.com/dapi/code-converge/pull/4), [Verify CI](https://github.com/dapi/code-converge/actions/runs/29839977861/job/88666073511), Codex review session `019f8519-b65f-77b1-81c1-141503394e38` | CI green; fourth independent review found no correctness issue. |
 | `EVID-05` | `make docs-lint`, `git diff --check`, same CI job | Pass. |
 | `EVID-06` | `tools/build-dist`, `SHA256SUMS` generated twice, native macOS ARM64 smoke, CI Linux AMD64 smoke | Identical checksums; all four archives verify; native and CI smoke pass. |

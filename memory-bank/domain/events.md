@@ -2,7 +2,7 @@
 title: Domain Events
 doc_kind: domain
 doc_function: canonical
-purpose: Records that reviewer currently has no separate domain-event integration contract and distinguishes it from stdout operational records.
+purpose: Records that code-converge currently has no separate domain-event integration contract and distinguishes it from stdout operational records.
 derived_from:
   - ../dna/governance.md
   - model.md
@@ -17,7 +17,7 @@ canonical_for:
 
 # Domain Events
 
-`reviewer` is specified as a sequential local CLI. It currently publishes no asynchronous, persisted, or cross-process domain events. Workflow transitions are canonical in [`states.md`](states.md).
+`code-converge` is specified as a sequential local CLI. It currently publishes no asynchronous, persisted, or cross-process domain events. Workflow transitions are canonical in [`states.md`](states.md).
 
 The one-line stdout records required by the product are operational records, not a domain-event integration. Their externally visible fields, ordering, and encoding are owned solely by the root [`README.md`](../../README.md); domain and engineering documents may interpret or implement that contract but do not redefine it.
 

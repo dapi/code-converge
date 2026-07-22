@@ -2,7 +2,7 @@
 title: Coding Style
 doc_kind: engineering
 doc_function: convention
-purpose: Confirmed reviewer Go and documentation conventions, including tools that remain undecided.
+purpose: Confirmed code-converge Go and documentation conventions, including tools that remain undecided.
 derived_from:
   - ../dna/governance.md
   - architecture.md

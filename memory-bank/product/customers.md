@@ -2,7 +2,7 @@
 title: Customers And Users
 doc_kind: product
 doc_function: canonical
-purpose: Confirmed reviewer users, their jobs, current evidence, and assumptions that must remain unvalidated until researched.
+purpose: Confirmed code-converge users, their jobs, current evidence, and assumptions that must remain unvalidated until researched.
 derived_from:
   - ../dna/governance.md
   - context.md
@@ -29,7 +29,7 @@ The product specification identifies teams using coding agents as the intended a
 
 | Actor ID | Actor | Uses product how | Decision power | Notes |
 | --- | --- | --- | --- | --- |
-| `ACT-01` | CLI operator | Runs `reviewer` in the target Git repository, selects configuration, and reads stdout/exit status | Operator; purchasing authority is `unknown` | Supplies local agent authentication and Git/hosting access required by the selected actions |
+| `ACT-01` | CLI operator | Runs `code-converge` in the target Git repository, selects configuration, and reads stdout/exit status | Operator; purchasing authority is `unknown` | Supplies local agent authentication and Git/hosting access required by the selected actions |
 
 Если actor становится участником устойчивого сценария, use case фиксируй в [`../use-cases/README.md`](../use-cases/README.md).
 

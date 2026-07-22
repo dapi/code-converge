@@ -40,7 +40,7 @@ func main() {
 	if err := os.MkdirAll(*outDir, 0o755); err != nil {
 		fatalf("create output: %v", err)
 	}
-	temp, err := os.MkdirTemp("", "reviewer-dist-")
+	temp, err := os.MkdirTemp("", "code-converge-dist-")
 	if err != nil {
 		fatalf("create temp dir: %v", err)
 	}
@@ -48,18 +48,18 @@ func main() {
 
 	checksums := make(map[string]string)
 	for _, item := range targets {
-		binary := filepath.Join(temp, item.os+"-"+item.arch, "reviewer")
+		binary := filepath.Join(temp, item.os+"-"+item.arch, "code-converge")
 		if err := os.MkdirAll(filepath.Dir(binary), 0o755); err != nil {
 			fatalf("create build dir: %v", err)
 		}
-		ldflags := fmt.Sprintf("-s -w -buildid= -X github.com/dapi/reviewer/internal/version.Version=%s", *version)
-		cmd := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags="+ldflags, "-o", binary, "./cmd/reviewer")
+		ldflags := fmt.Sprintf("-s -w -buildid= -X github.com/dapi/code-converge/internal/version.Version=%s", *version)
+		cmd := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags="+ldflags, "-o", binary, "./cmd/code-converge")
 		cmd.Env = targetEnv(os.Environ(), item)
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 		if err := cmd.Run(); err != nil {
 			fatalf("build %s/%s: %v", item.os, item.arch, err)
 		}
-		name := fmt.Sprintf("reviewer_%s_%s_%s.tar.gz", *version, item.os, item.arch)
+		name := fmt.Sprintf("code-converge_%s_%s_%s.tar.gz", *version, item.os, item.arch)
 		archive := filepath.Join(*outDir, name)
 		if err := writeArchive(archive, binary); err != nil {
 			fatalf("archive %s/%s: %v", item.os, item.arch, err)
@@ -174,7 +174,7 @@ func writeArchive(path, binary string) error {
 	if err != nil {
 		return err
 	}
-	header := &tar.Header{Name: "reviewer", Mode: 0o755, Size: info.Size(), ModTime: time.Unix(0, 0).UTC(), Typeflag: tar.TypeReg, Format: tar.FormatUSTAR}
+	header := &tar.Header{Name: "code-converge", Mode: 0o755, Size: info.Size(), ModTime: time.Unix(0, 0).UTC(), Typeflag: tar.TypeReg, Format: tar.FormatUSTAR}
 	if err := tw.WriteHeader(header); err != nil {
 		return err
 	}
@@ -201,6 +201,6 @@ func hashFile(path string) (string, error) {
 }
 
 func fatalf(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "reviewer-dist: "+format+"\n", args...)
+	fmt.Fprintf(os.Stderr, "code-converge-dist: "+format+"\n", args...)
 	os.Exit(1)
 }

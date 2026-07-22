@@ -44,4 +44,4 @@ audience: humans_and_agents
 
 ## Instantiated Epics
 
-В `reviewer` пока нет instantiated epic packages. Адаптация Memory Bank сама по себе не требует создавать epic.
+В `code-converge` пока нет instantiated epic packages. Адаптация Memory Bank сама по себе не требует создавать epic.

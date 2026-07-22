@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/dapi/reviewer/internal/codex"
-	"github.com/dapi/reviewer/internal/config"
-	"github.com/dapi/reviewer/internal/event"
+	"github.com/dapi/code-converge/internal/codex"
+	"github.com/dapi/code-converge/internal/config"
+	"github.com/dapi/code-converge/internal/event"
 )
 
 const (
@@ -215,7 +215,7 @@ func (w Workflow) emit(name string, fields ...event.Field) bool {
 
 func (w Workflow) diagnostic(message string, err error) {
 	if w.Err != nil {
-		fmt.Fprintf(w.Err, "reviewer: %s: %v\n", message, err)
+		fmt.Fprintf(w.Err, "code-converge: %s: %v\n", message, err)
 	}
 }
 

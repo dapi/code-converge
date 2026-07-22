@@ -2,7 +2,7 @@
 title: "FT-002: Implementation Plan"
 doc_kind: feature
 doc_function: derived
-purpose: "Execution plan for implementing, validating and publishing the complete Reviewer CLI against the active brief and design."
+purpose: "Execution plan for implementing, validating and publishing the complete Code-Converge CLI against the active brief and design."
 derived_from:
   - brief.md
   - design.md
@@ -65,7 +65,7 @@ Go `1.21.13+`, Git, and authenticated GitHub are needed for delivery. Runtime ne
 
 | Step | Implements | Goal | Touchpoints | Verifies | Evidence | Blocked by |
 | --- | --- | --- | --- | --- | --- | --- |
-| `STEP-01` | `REQ-01` | Bootstrap module, CLI and config resolver | `go.mod`, `cmd/reviewer`, `internal/config` | `CHK-01` | `EVID-01` | `PRE-01` |
+| `STEP-01` | `REQ-01` | Bootstrap module, CLI and config resolver | `go.mod`, `cmd/code-converge`, `internal/config` | `CHK-01` | `EVID-01` | `PRE-01` |
 | `STEP-02` | `REQ-02`, `REQ-04` | Process runner and fail-closed Codex adapter | `internal/runner`, `internal/codex`, fixtures | `CHK-02` | `EVID-02` | `STEP-01` |
 | `STEP-03` | `REQ-06` | Stable event renderer | `internal/event` | `CHK-03` | `EVID-03` | `STEP-01` |
 | `STEP-04` | `REQ-03`–`REQ-05` | Complete orchestration and exits | `internal/workflow`, CLI wiring | `CHK-01`, `CHK-03` | `EVID-01`, `EVID-03` | `STEP-02`, `STEP-03` |

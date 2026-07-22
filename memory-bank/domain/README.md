@@ -2,7 +2,7 @@
 title: Domain Documentation Index
 doc_kind: domain
 doc_function: index
-purpose: Навигация по domain-level документации reviewer. Читать для определения языка workflow, правил, состояний и границ предметной области.
+purpose: Навигация по domain-level документации code-converge. Читать для определения языка workflow, правил, состояний и границ предметной области.
 derived_from:
   - ../dna/governance.md
 status: active
@@ -11,7 +11,7 @@ audience: humans_and_agents
 
 # Domain Documentation Index
 
-Каталог `memory-bank/domain/` хранит предметную модель `reviewer`: язык workflow, сущности запуска, правила, состояния и границы. Этот слой описывает то, что должно оставаться истинным независимо от технической реализации.
+Каталог `memory-bank/domain/` хранит предметную модель `code-converge`: язык workflow, сущности запуска, правила, состояния и границы. Этот слой описывает то, что должно оставаться истинным независимо от технической реализации.
 
 Domain-документы не определяют market positioning, product metrics, UI design system, concurrency pattern, deployment config или implementation sequence.
 
@@ -31,7 +31,7 @@ Domain-документы не определяют market positioning, product 
 | `product/` | Зачем существует продукт, для кого он, какие outcomes и metrics важны | Какие domain entities, states, invariants и events существуют |
 | `domain/` | Что истинно в предметной области и какие правила обязана соблюдать система | Почему именно эта аудитория приоритетна, как продукт позиционируется, какой roadmap выбран |
 
-Пример для `reviewer`:
+Пример для `code-converge`:
 
 - Product: уменьшить ручную координацию agent-development loop.
 - Domain: finalization начинается только после review без findings.
@@ -50,4 +50,4 @@ Domain-документы не определяют market positioning, product 
 - [Domain Rules](rules.md) — бизнес-правила, инварианты, policies и rule ownership.
 - [States](states.md) — lifecycle states, allowed transitions и terminal states.
 - [Events](events.md) — отсутствие отдельного domain-event integration contract и граница с operational stdout records.
-- [Context Map](context-map.md) — единый domain context reviewer и его границы с внешними системами.
+- [Context Map](context-map.md) — единый domain context code-converge и его границы с внешними системами.

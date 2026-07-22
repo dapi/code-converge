@@ -1,8 +1,8 @@
 ---
-title: "PRD-001: Reviewer CLI"
+title: "PRD-001: Code-Converge CLI"
 doc_kind: prd
 doc_function: canonical
-purpose: "Фиксирует продуктовую проблему, пользователей, goals, scope и success metrics законченной локальной reviewer CLI."
+purpose: "Фиксирует продуктовую проблему, пользователей, goals, scope и success metrics законченной локальной code-converge CLI."
 derived_from:
   - ../product/context.md
   - ../product/vision.md
@@ -18,10 +18,10 @@ must_not_define:
   - architecture_decision
   - feature_level_verify_contract
 canonical_for:
-  - reviewer_cli_product_initiative
+  - code-converge_cli_product_initiative
 ---
 
-# PRD-001: Reviewer CLI
+# PRD-001: Code-Converge CLI
 
 ## Problem
 
@@ -61,7 +61,7 @@ The project needs one bounded local workflow that drives this loop to an explici
 - Run bounded review/fix cycles, including the mandatory verification review after the final permitted fix.
 - Finalize only after a clean review and interpret a constrained finalization result, including commit, push, change-request, and CI step outcomes.
 - When publication succeeded but applicable required CI is red, run bounded CI recovery and restart review in a fresh review phase.
-- Resolve settings from the documented CLI, project, user, environment, and built-in sources; expose them through `reviewer config`.
+- Resolve settings from the documented CLI, project, user, environment, and built-in sources; expose them through `code-converge config`.
 - Emit the documented stdout records, diagnostics on stderr, and the specified exit codes.
 - Be buildable and distributable as a local Go CLI without requiring a Go runtime for a released binary.
 
@@ -89,7 +89,7 @@ The project needs one bounded local workflow that drives this loop to an explici
 | `MET-01` | Terminal outcome contract coverage | No implementation evidence supplied | Every acceptance path ends with the specified exit code and `run_completed` record; no ambiguous result reaches exit `0` | Automated state-machine and adapter acceptance tests against the public contract |
 | `MET-02` | Classified review observability | No implementation evidence supplied | Every clean/findings review reports total plus all severity buckets, with the total equal to their sum | Contract tests over clean, prioritized, unknown-priority, malformed, and failed review fixtures |
 | `MET-03` | Stage and run timing coverage | No implementation evidence supplied | Every completed stage reports `duration_ms`; every terminal run reports `total_duration_ms` | Event-stream tests for every terminal path |
-| `MET-04` | Configuration explainability | No implementation evidence supplied | Every effective option is shown with its winning source, and non-default values also show the built-in default | Precedence-matrix tests and `reviewer config` golden output |
+| `MET-04` | Configuration explainability | No implementation evidence supplied | Every effective option is shown with its winning source, and non-default values also show the built-in default | Precedence-matrix tests and `code-converge config` golden output |
 | `MET-05` | Complete workflow delivery | Not measured; implementation proof is unavailable | The documented happy path, findings path, exhausted-findings path, operational-failure paths, CI-recovery path, and exhausted-CI path all have reproducible acceptance evidence | Delivery evidence plus a final end-to-end utility acceptance run |
 
 These are contract-conformance targets for the complete utility. Adoption, time savings, satisfaction, and reliability in real repositories remain unmeasured product outcomes and must not be inferred from passing tests.
@@ -114,4 +114,4 @@ Observability remains a cross-cutting acceptance requirement: every internal che
 
 | Delivery unit | Included outcome | Status |
 | --- | --- | --- |
-| Reviewer CLI complete delivery | Review/fix convergence, finalization, CI recovery, configuration inspection, operational records, terminal outcomes, reproducible binary, and distribution evidence | planned |
+| Code-Converge CLI complete delivery | Review/fix convergence, finalization, CI recovery, configuration inspection, operational records, terminal outcomes, reproducible binary, and distribution evidence | planned |

@@ -9,17 +9,17 @@ import (
 	"testing"
 )
 
-var reviewerEnv = []string{
-	"REVIEWER_MODE",
-	"REVIEWER_MAX_CYCLES", "REVIEWER_MAX_CI_RECOVERIES", "REVIEWER_REVIEW_MODEL", "REVIEWER_REVIEW_REASONING_EFFORT",
-	"REVIEWER_FIX_MODEL", "REVIEWER_FIX_REASONING_EFFORT", "REVIEWER_FIX_PROMPT_FILE", "REVIEWER_FINALIZE_MODEL",
-	"REVIEWER_FINALIZE_REASONING_EFFORT", "REVIEWER_FINALIZE_PROMPT_FILE", "REVIEWER_CI_FIX_MODEL",
-	"REVIEWER_CI_FIX_REASONING_EFFORT", "REVIEWER_CI_FIX_PROMPT_FILE",
+var codeConvergeEnv = []string{
+	"CODE_CONVERGE_MODE",
+	"CODE_CONVERGE_MAX_CYCLES", "CODE_CONVERGE_MAX_CI_RECOVERIES", "CODE_CONVERGE_REVIEW_MODEL", "CODE_CONVERGE_REVIEW_REASONING_EFFORT",
+	"CODE_CONVERGE_FIX_MODEL", "CODE_CONVERGE_FIX_REASONING_EFFORT", "CODE_CONVERGE_FIX_PROMPT_FILE", "CODE_CONVERGE_FINALIZE_MODEL",
+	"CODE_CONVERGE_FINALIZE_REASONING_EFFORT", "CODE_CONVERGE_FINALIZE_PROMPT_FILE", "CODE_CONVERGE_CI_FIX_MODEL",
+	"CODE_CONVERGE_CI_FIX_REASONING_EFFORT", "CODE_CONVERGE_CI_FIX_PROMPT_FILE",
 }
 
 func cleanEnv(t *testing.T) {
 	t.Helper()
-	for _, name := range reviewerEnv {
+	for _, name := range codeConvergeEnv {
 		t.Setenv(name, "")
 		_ = os.Unsetenv(name)
 	}
@@ -48,9 +48,9 @@ func write(t *testing.T, path, value string) {
 func TestLoadPrecedence(t *testing.T) {
 	cleanEnv(t)
 	root, home := repo(t)
-	t.Setenv("REVIEWER_MAX_CYCLES", "2")
-	write(t, filepath.Join(home, ".reviewer", "max-cycles"), "3\n")
-	write(t, filepath.Join(root, ".reviewer", "max-cycles"), "4\n")
+	t.Setenv("CODE_CONVERGE_MAX_CYCLES", "2")
+	write(t, filepath.Join(home, ".code-converge", "max-cycles"), "3\n")
+	write(t, filepath.Join(root, ".code-converge", "max-cycles"), "4\n")
 	cfg, err := Load(root, home, Overrides{MaxCycles: OptionalString{Value: "5", Set: true}})
 	if err != nil {
 		t.Fatal(err)
@@ -111,20 +111,20 @@ func TestModePrecedence(t *testing.T) {
 		wantMode string
 		set      func(*testing.T, string, string, *Overrides)
 	}{
-		{"environment", SourceEnv, "best", func(t *testing.T, _, _ string, _ *Overrides) { t.Setenv("REVIEWER_MODE", "best") }},
+		{"environment", SourceEnv, "best", func(t *testing.T, _, _ string, _ *Overrides) { t.Setenv("CODE_CONVERGE_MODE", "best") }},
 		{"user", SourceUser, "fast", func(t *testing.T, _, home string, _ *Overrides) {
-			t.Setenv("REVIEWER_MODE", "best")
-			write(t, filepath.Join(home, ".reviewer", "mode"), "fast")
+			t.Setenv("CODE_CONVERGE_MODE", "best")
+			write(t, filepath.Join(home, ".code-converge", "mode"), "fast")
 		}},
 		{"project", SourceProject, "fast", func(t *testing.T, root, home string, _ *Overrides) {
-			t.Setenv("REVIEWER_MODE", "fast")
-			write(t, filepath.Join(home, ".reviewer", "mode"), "best")
-			write(t, filepath.Join(root, ".reviewer", "mode"), "fast")
+			t.Setenv("CODE_CONVERGE_MODE", "fast")
+			write(t, filepath.Join(home, ".code-converge", "mode"), "best")
+			write(t, filepath.Join(root, ".code-converge", "mode"), "fast")
 		}},
 		{"cli", SourceCLI, "fast", func(t *testing.T, root, home string, overrides *Overrides) {
-			t.Setenv("REVIEWER_MODE", "best")
-			write(t, filepath.Join(home, ".reviewer", "mode"), "fast")
-			write(t, filepath.Join(root, ".reviewer", "mode"), "best")
+			t.Setenv("CODE_CONVERGE_MODE", "best")
+			write(t, filepath.Join(home, ".code-converge", "mode"), "fast")
+			write(t, filepath.Join(root, ".code-converge", "mode"), "best")
 			overrides.Mode = OptionalString{Value: "fast", Set: true}
 		}},
 	}
@@ -150,14 +150,14 @@ func TestEveryStageOverrideSourceBeatsProfile(t *testing.T) {
 		get  func(Config) string
 	}
 	fields := []field{
-		{"review-model", "REVIEWER_REVIEW_MODEL", func(o *Overrides, v string) { o.ReviewModel = OptionalString{v, true} }, func(c Config) string { return c.ReviewModel }},
-		{"review-reasoning-effort", "REVIEWER_REVIEW_REASONING_EFFORT", func(o *Overrides, v string) { o.ReviewEffort = OptionalString{v, true} }, func(c Config) string { return c.ReviewEffort }},
-		{"fix-model", "REVIEWER_FIX_MODEL", func(o *Overrides, v string) { o.FixModel = OptionalString{v, true} }, func(c Config) string { return c.FixModel }},
-		{"fix-reasoning-effort", "REVIEWER_FIX_REASONING_EFFORT", func(o *Overrides, v string) { o.FixEffort = OptionalString{v, true} }, func(c Config) string { return c.FixEffort }},
-		{"finalize-model", "REVIEWER_FINALIZE_MODEL", func(o *Overrides, v string) { o.FinalizeModel = OptionalString{v, true} }, func(c Config) string { return c.FinalizeModel }},
-		{"finalize-reasoning-effort", "REVIEWER_FINALIZE_REASONING_EFFORT", func(o *Overrides, v string) { o.FinalizeEffort = OptionalString{v, true} }, func(c Config) string { return c.FinalizeEffort }},
-		{"ci-fix-model", "REVIEWER_CI_FIX_MODEL", func(o *Overrides, v string) { o.CIFixModel = OptionalString{v, true} }, func(c Config) string { return c.CIFixModel }},
-		{"ci-fix-reasoning-effort", "REVIEWER_CI_FIX_REASONING_EFFORT", func(o *Overrides, v string) { o.CIFixEffort = OptionalString{v, true} }, func(c Config) string { return c.CIFixEffort }},
+		{"review-model", "CODE_CONVERGE_REVIEW_MODEL", func(o *Overrides, v string) { o.ReviewModel = OptionalString{v, true} }, func(c Config) string { return c.ReviewModel }},
+		{"review-reasoning-effort", "CODE_CONVERGE_REVIEW_REASONING_EFFORT", func(o *Overrides, v string) { o.ReviewEffort = OptionalString{v, true} }, func(c Config) string { return c.ReviewEffort }},
+		{"fix-model", "CODE_CONVERGE_FIX_MODEL", func(o *Overrides, v string) { o.FixModel = OptionalString{v, true} }, func(c Config) string { return c.FixModel }},
+		{"fix-reasoning-effort", "CODE_CONVERGE_FIX_REASONING_EFFORT", func(o *Overrides, v string) { o.FixEffort = OptionalString{v, true} }, func(c Config) string { return c.FixEffort }},
+		{"finalize-model", "CODE_CONVERGE_FINALIZE_MODEL", func(o *Overrides, v string) { o.FinalizeModel = OptionalString{v, true} }, func(c Config) string { return c.FinalizeModel }},
+		{"finalize-reasoning-effort", "CODE_CONVERGE_FINALIZE_REASONING_EFFORT", func(o *Overrides, v string) { o.FinalizeEffort = OptionalString{v, true} }, func(c Config) string { return c.FinalizeEffort }},
+		{"ci-fix-model", "CODE_CONVERGE_CI_FIX_MODEL", func(o *Overrides, v string) { o.CIFixModel = OptionalString{v, true} }, func(c Config) string { return c.CIFixModel }},
+		{"ci-fix-reasoning-effort", "CODE_CONVERGE_CI_FIX_REASONING_EFFORT", func(o *Overrides, v string) { o.CIFixEffort = OptionalString{v, true} }, func(c Config) string { return c.CIFixEffort }},
 	}
 	sources := []struct {
 		name string
@@ -167,17 +167,17 @@ func TestEveryStageOverrideSourceBeatsProfile(t *testing.T) {
 		{"environment", SourceEnv, func(t *testing.T, _, _ string, f field, _ *Overrides) { t.Setenv(f.env, "environment-value") }},
 		{"user", SourceUser, func(t *testing.T, _, home string, f field, _ *Overrides) {
 			t.Setenv(f.env, "environment-value")
-			write(t, filepath.Join(home, ".reviewer", f.name), "user-value")
+			write(t, filepath.Join(home, ".code-converge", f.name), "user-value")
 		}},
 		{"project", SourceProject, func(t *testing.T, root, home string, f field, _ *Overrides) {
 			t.Setenv(f.env, "environment-value")
-			write(t, filepath.Join(home, ".reviewer", f.name), "user-value")
-			write(t, filepath.Join(root, ".reviewer", f.name), "project-value")
+			write(t, filepath.Join(home, ".code-converge", f.name), "user-value")
+			write(t, filepath.Join(root, ".code-converge", f.name), "project-value")
 		}},
 		{"cli", SourceCLI, func(t *testing.T, root, home string, f field, o *Overrides) {
 			t.Setenv(f.env, "environment-value")
-			write(t, filepath.Join(home, ".reviewer", f.name), "user-value")
-			write(t, filepath.Join(root, ".reviewer", f.name), "project-value")
+			write(t, filepath.Join(home, ".code-converge", f.name), "user-value")
+			write(t, filepath.Join(root, ".code-converge", f.name), "project-value")
 			f.set(o, "cli-value")
 		}},
 	}
@@ -216,7 +216,7 @@ func TestInvalidModes(t *testing.T) {
 func TestPromptResolutionAndMissingExplicitPath(t *testing.T) {
 	cleanEnv(t)
 	root, home := repo(t)
-	write(t, filepath.Join(home, ".reviewer", "fix-findings.md"), "user prompt\n")
+	write(t, filepath.Join(home, ".code-converge", "fix-findings.md"), "user prompt\n")
 	cfg, err := Load(root, home, Overrides{})
 	if err != nil || cfg.FixPrompt != "user prompt\n" || source(cfg, "fix-prompt") != SourceUser {
 		t.Fatalf("prompt = %q (%s), %v", cfg.FixPrompt, source(cfg, "fix-prompt"), err)
@@ -269,7 +269,7 @@ func TestLoadEmptyStageSettingValidation(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			cleanEnv(t)
 			root, home := repo(t)
-			write(t, filepath.Join(root, ".reviewer", name), "   ")
+			write(t, filepath.Join(root, ".code-converge", name), "   ")
 			_, err := Load(root, home, Overrides{})
 			if err == nil || !strings.Contains(err.Error(), name+" must not be empty") {
 				t.Fatalf("error = %v", err)
@@ -281,7 +281,7 @@ func TestLoadEmptyStageSettingValidation(t *testing.T) {
 func TestResolveFileReadError(t *testing.T) {
 	cleanEnv(t)
 	root, home := repo(t)
-	path := filepath.Join(home, ".reviewer", "max-cycles")
+	path := filepath.Join(home, ".code-converge", "max-cycles")
 	write(t, path, "5\n")
 	if err := os.Chmod(path, 0o000); err != nil {
 		t.Fatal(err)

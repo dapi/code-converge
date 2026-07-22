@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dapi/reviewer/internal/runner"
-	"github.com/dapi/reviewer/internal/workflow"
+	"github.com/dapi/code-converge/internal/runner"
+	"github.com/dapi/code-converge/internal/workflow"
 )
 
 func testRepo(t *testing.T) (string, string) {
@@ -58,7 +58,7 @@ func TestInvalidModeDoesNotInvokeCodex(t *testing.T) {
 func TestVersionCommand(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := (App{Stdout: &stdout, Stderr: &stderr}).Run(context.Background(), []string{"--version"})
-	if code != 0 || stdout.String() != "reviewer vdev\n" || stderr.Len() != 0 {
+	if code != 0 || stdout.String() != "code-converge vdev\n" || stderr.Len() != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 }

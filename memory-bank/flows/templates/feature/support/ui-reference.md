@@ -25,7 +25,7 @@ canonical_for:
 
 Project-wide catalog существующих components, helpers, screenshots и source paths живет в [`engineering/ui-design-guide/README.md`](../../../../engineering/ui-design-guide/README.md). Feature-local reference ссылается на нужный surface document и описывает только interface change этой feature.
 
-Для interface changes нужны mockups. Default format — Markdown mockups в `ui-reference/mockups/*.md`. Допустимы изображения, design-tool links или другие artifacts, если они versionable / linkable и доступны reviewers.
+Для interface changes нужны mockups. Default format — Markdown mockups в `ui-reference/mockups/*.md`. Допустимы изображения, design-tool links или другие artifacts, если они versionable / linkable и доступны code-converges.
 
 `ui-reference/README.md` не владеет requirements, selected architecture, acceptance inventory или implementation sequence.
 

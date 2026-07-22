@@ -1,8 +1,8 @@
 ---
-title: Reviewer Memory Bank Index
+title: Code-Converge Memory Bank Index
 doc_kind: project
 doc_function: index
-purpose: Корневая навигация по project-specific Memory Bank `reviewer`. Читать сначала, чтобы найти канонический контекст и lifecycle-документы.
+purpose: Корневая навигация по project-specific Memory Bank `code-converge`. Читать сначала, чтобы найти канонический контекст и lifecycle-документы.
 derived_from:
   - dna/principles.md
   - dna/governance.md
@@ -12,7 +12,7 @@ audience: humans_and_agents
 
 # Documentation Index
 
-Каталог `memory-bank/` — project-specific knowledge и governance-слой `reviewer`. Он был создан из generic template; источник и политика обновления записаны в [`UPSTREAM.md`](UPSTREAM.md). Канонические документы в `product/`, `domain/`, `engineering/` и `ops/` описывают реальный продукт, а не примерный шаблон.
+Каталог `memory-bank/` — project-specific knowledge и governance-слой `code-converge`. Он был создан из generic template; источник и политика обновления записаны в [`UPSTREAM.md`](UPSTREAM.md). Канонические документы в `product/`, `domain/`, `engineering/` и `ops/` описывают реальный продукт, а не примерный шаблон.
 
 Начни с этого индекса, затем перейди к нужному слою. Lifecycle-материалы в [`flows/`](flows/README.md) используются только когда команда действительно начинает отдельную задачу; само внедрение Memory Bank не требует создавать issue, feature package или delivery-артефакты.
 

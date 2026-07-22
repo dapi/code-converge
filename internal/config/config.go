@@ -119,10 +119,10 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 			return Config{}, fmt.Errorf("resolve user home: %w", err)
 		}
 	}
-	projectDir := filepath.Join(root, ".reviewer")
-	userDir := filepath.Join(home, ".reviewer")
+	projectDir := filepath.Join(root, ".code-converge")
+	userDir := filepath.Join(home, ".code-converge")
 	mode, modeSetting, err := resolve(spec{
-		name: "mode", file: "mode", env: "REVIEWER_MODE", def: "fast", builtIn: "fast", defSource: SourceDefault, override: overrides.Mode,
+		name: "mode", file: "mode", env: "CODE_CONVERGE_MODE", def: "fast", builtIn: "fast", defSource: SourceDefault, override: overrides.Mode,
 	}, cwd, userDir, projectDir)
 	if err != nil {
 		return Config{}, err
@@ -134,19 +134,19 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 	fast, _ := profileFor("fast")
 	profileSource := mode + " profile"
 	specs := []spec{
-		{name: "max-cycles", file: "max-cycles", env: "REVIEWER_MAX_CYCLES", def: "10", builtIn: "10", defSource: SourceDefault, override: overrides.MaxCycles},
-		{name: "max-ci-recoveries", file: "max-ci-recoveries", env: "REVIEWER_MAX_CI_RECOVERIES", def: "3", builtIn: "3", defSource: SourceDefault, override: overrides.MaxCIRecoveries},
-		{name: "review-model", file: "review-model", env: "REVIEWER_REVIEW_MODEL", def: profile.reviewModel, builtIn: fast.reviewModel, defSource: profileSource, override: overrides.ReviewModel},
-		{name: "review-reasoning-effort", file: "review-reasoning-effort", env: "REVIEWER_REVIEW_REASONING_EFFORT", def: profile.reviewEffort, builtIn: fast.reviewEffort, defSource: profileSource, override: overrides.ReviewEffort},
-		{name: "fix-model", file: "fix-model", env: "REVIEWER_FIX_MODEL", def: profile.fixModel, builtIn: fast.fixModel, defSource: profileSource, override: overrides.FixModel},
-		{name: "fix-reasoning-effort", file: "fix-reasoning-effort", env: "REVIEWER_FIX_REASONING_EFFORT", def: profile.fixEffort, builtIn: fast.fixEffort, defSource: profileSource, override: overrides.FixEffort},
-		{name: "fix-prompt", file: "fix-findings.md", env: "REVIEWER_FIX_PROMPT_FILE", def: "fix findings", builtIn: "fix findings", defSource: SourceDefault, override: overrides.FixPromptPath, promptFile: true},
-		{name: "finalize-model", file: "finalize-model", env: "REVIEWER_FINALIZE_MODEL", def: profile.finalizeModel, builtIn: fast.finalizeModel, defSource: profileSource, override: overrides.FinalizeModel},
-		{name: "finalize-reasoning-effort", file: "finalize-reasoning-effort", env: "REVIEWER_FINALIZE_REASONING_EFFORT", def: profile.finalizeEffort, builtIn: fast.finalizeEffort, defSource: profileSource, override: overrides.FinalizeEffort},
-		{name: "finalize-prompt", file: "finalize.md", env: "REVIEWER_FINALIZE_PROMPT_FILE", def: "commit, push, create PR, ensure CI is green", builtIn: "commit, push, create PR, ensure CI is green", defSource: SourceDefault, override: overrides.FinalizePromptPath, promptFile: true},
-		{name: "ci-fix-model", file: "ci-fix-model", env: "REVIEWER_CI_FIX_MODEL", def: profile.ciFixModel, builtIn: fast.ciFixModel, defSource: profileSource, override: overrides.CIFixModel},
-		{name: "ci-fix-reasoning-effort", file: "ci-fix-reasoning-effort", env: "REVIEWER_CI_FIX_REASONING_EFFORT", def: profile.ciFixEffort, builtIn: fast.ciFixEffort, defSource: profileSource, override: overrides.CIFixEffort},
-		{name: "ci-fix-prompt", file: "fix-ci.md", env: "REVIEWER_CI_FIX_PROMPT_FILE", def: "Исправь CI", builtIn: "Исправь CI", defSource: SourceDefault, override: overrides.CIFixPromptPath, promptFile: true},
+		{name: "max-cycles", file: "max-cycles", env: "CODE_CONVERGE_MAX_CYCLES", def: "10", builtIn: "10", defSource: SourceDefault, override: overrides.MaxCycles},
+		{name: "max-ci-recoveries", file: "max-ci-recoveries", env: "CODE_CONVERGE_MAX_CI_RECOVERIES", def: "3", builtIn: "3", defSource: SourceDefault, override: overrides.MaxCIRecoveries},
+		{name: "review-model", file: "review-model", env: "CODE_CONVERGE_REVIEW_MODEL", def: profile.reviewModel, builtIn: fast.reviewModel, defSource: profileSource, override: overrides.ReviewModel},
+		{name: "review-reasoning-effort", file: "review-reasoning-effort", env: "CODE_CONVERGE_REVIEW_REASONING_EFFORT", def: profile.reviewEffort, builtIn: fast.reviewEffort, defSource: profileSource, override: overrides.ReviewEffort},
+		{name: "fix-model", file: "fix-model", env: "CODE_CONVERGE_FIX_MODEL", def: profile.fixModel, builtIn: fast.fixModel, defSource: profileSource, override: overrides.FixModel},
+		{name: "fix-reasoning-effort", file: "fix-reasoning-effort", env: "CODE_CONVERGE_FIX_REASONING_EFFORT", def: profile.fixEffort, builtIn: fast.fixEffort, defSource: profileSource, override: overrides.FixEffort},
+		{name: "fix-prompt", file: "fix-findings.md", env: "CODE_CONVERGE_FIX_PROMPT_FILE", def: "fix findings", builtIn: "fix findings", defSource: SourceDefault, override: overrides.FixPromptPath, promptFile: true},
+		{name: "finalize-model", file: "finalize-model", env: "CODE_CONVERGE_FINALIZE_MODEL", def: profile.finalizeModel, builtIn: fast.finalizeModel, defSource: profileSource, override: overrides.FinalizeModel},
+		{name: "finalize-reasoning-effort", file: "finalize-reasoning-effort", env: "CODE_CONVERGE_FINALIZE_REASONING_EFFORT", def: profile.finalizeEffort, builtIn: fast.finalizeEffort, defSource: profileSource, override: overrides.FinalizeEffort},
+		{name: "finalize-prompt", file: "finalize.md", env: "CODE_CONVERGE_FINALIZE_PROMPT_FILE", def: "commit, push, create PR, ensure CI is green", builtIn: "commit, push, create PR, ensure CI is green", defSource: SourceDefault, override: overrides.FinalizePromptPath, promptFile: true},
+		{name: "ci-fix-model", file: "ci-fix-model", env: "CODE_CONVERGE_CI_FIX_MODEL", def: profile.ciFixModel, builtIn: fast.ciFixModel, defSource: profileSource, override: overrides.CIFixModel},
+		{name: "ci-fix-reasoning-effort", file: "ci-fix-reasoning-effort", env: "CODE_CONVERGE_CI_FIX_REASONING_EFFORT", def: profile.ciFixEffort, builtIn: fast.ciFixEffort, defSource: profileSource, override: overrides.CIFixEffort},
+		{name: "ci-fix-prompt", file: "fix-ci.md", env: "CODE_CONVERGE_CI_FIX_PROMPT_FILE", def: "Исправь CI", builtIn: "Исправь CI", defSource: SourceDefault, override: overrides.CIFixPromptPath, promptFile: true},
 	}
 
 	values := make(map[string]string, len(specs))

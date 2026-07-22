@@ -62,7 +62,7 @@ Implement the active `brief.md` and `design.md` as one compatibility-aware confi
 | Area | Contract | Used by | Failure symptom |
 | --- | --- | --- | --- |
 | setup | Go toolchain and repository Make targets already used by required checks | all steps | existing suites cannot build/run |
-| test | fake runner only; tests must isolate `REVIEWER_*`, project, user, and CLI sources | `STEP-01`–`STEP-04` | host config leaks into expected results |
+| test | fake runner only; tests must isolate `CODE_CONVERGE_*`, project, user, and CLI sources | `STEP-01`–`STEP-04` | host config leaks into expected results |
 | access/network/secrets | no network, model access, GitHub write, or Codex authentication required | all steps | a test attempts live Codex/remote access |
 
 ## Preconditions
@@ -101,7 +101,7 @@ Implement the active `brief.md` and `design.md` as one compatibility-aware confi
 | `STEP-02` | agent | `REQ-02`–`REQ-04`, `SOL-02`, `SOL-04`, `SD-03`, `SD-04`, `CTR-02`, `CTR-03`, `CTR-06`, `CTR-07`, `FM-02`, `FM-03` | add exact profile fallback, explicit tier, metadata, built-in comparison, and exhaustive tests | config resolver/formatter/tests | eight effective stage settings and auditable sources | `CHK-01`, `CHK-02` | `EVID-01`, `EVID-02` | targeted matrix/golden tests | `STEP-01` | none | explicit-vs-profile precedence cannot be represented without contract change |
 | `STEP-03` | agent | `REQ-05`, `SOL-03`, `SD-02`, `CTR-04`, `FM-04` | bind missing effort options and invoke all stages with model/effort | app/config/codex code and tests | four complete invocation pairs | `CHK-03` | `EVID-03` | adapter fake-runner tests | `STEP-02` | none | Codex CLI contract differs from current `modelArgs` assumption |
 | `STEP-04` | agent | `REQ-04`–`REQ-06`, `SOL-05`, `CTR-05`, `INV-01`, `FM-05`, `RB-01`, `RB-02` | update public/derived docs and run functional verification | README, applicable Memory Bank docs, whole repo | coherent executable/public contract | `CHK-04` | `EVID-04` | full required commands | `STEP-03`, `PRE-02` | none | docs require behavior outside brief scope |
-| `STEP-05` | independent reviewer | `REQ-06`, `RB-01` | run simplify review, independent convergence review, and close evidence | complete diff/package | acceptance-ready change or findings | `CHK-04` | `EVID-04` | separate semantic review passes | `STEP-04` | none | critical/important finding cannot be resolved from canonical owners |
+| `STEP-05` | independent code-converge | `REQ-06`, `RB-01` | run simplify review, independent convergence review, and close evidence | complete diff/package | acceptance-ready change or findings | `CHK-04` | `EVID-04` | separate semantic review passes | `STEP-04` | none | critical/important finding cannot be resolved from canonical owners |
 
 ## Parallelizable Work
 

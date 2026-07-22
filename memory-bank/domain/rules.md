@@ -2,7 +2,7 @@
 title: Domain Rules
 doc_kind: domain
 doc_function: canonical
-purpose: Invariants and terminal verdict rules for reviewer runs.
+purpose: Invariants and terminal verdict rules for code-converge runs.
 derived_from:
   - model.md
   - ../../README.md

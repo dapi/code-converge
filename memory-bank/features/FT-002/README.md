@@ -1,5 +1,5 @@
 ---
-title: "FT-002: Complete Reviewer CLI Feature Package"
+title: "FT-002: Complete Code-Converge CLI Feature Package"
 doc_kind: feature
 doc_function: index
 purpose: "Навигация по документации delivery-единицы issue #2. Сначала читать canonical brief; decision log хранит review/FPF provenance, не подменяя canonical owners."
@@ -10,11 +10,11 @@ status: active
 audience: humans_and_agents
 ---
 
-# FT-002: Complete Reviewer CLI
+# FT-002: Complete Code-Converge CLI
 
 ## О разделе
 
-Пакет ведёт issue [#2](https://github.com/dapi/reviewer/issues/2) по Feature Flow как одну проверяемую delivery-unit. Canonical problem space и verify contract находятся в `brief.md`. Solution и execution artifacts появляются только после закрытия material human gates.
+Пакет ведёт issue [#2](https://github.com/dapi/code-converge/issues/2) по Feature Flow как одну проверяемую delivery-unit. Canonical problem space и verify contract находятся в `brief.md`. Solution и execution artifacts появляются только после закрытия material human gates.
 
 ## Аннотированный индекс
 

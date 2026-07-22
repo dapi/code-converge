@@ -2,7 +2,7 @@
 title: Product Documentation Index
 doc_kind: product
 doc_function: index
-purpose: Навигация по product-level документации reviewer. Читать, чтобы понять зачем существует продукт, для кого он создается и как измеряется успех.
+purpose: Навигация по product-level документации code-converge. Читать, чтобы понять зачем существует продукт, для кого он создается и как измеряется успех.
 derived_from:
   - ../dna/governance.md
 status: active
@@ -11,7 +11,7 @@ audience: humans_and_agents
 
 # Product Documentation Index
 
-Каталог `memory-bank/product/` хранит устойчивый продуктовый контекст `reviewer`: why, users, outcomes, metrics, positioning и roadmap. Не подтверждённые исследованиями сведения явно помечаются как assumptions или `unknown`.
+Каталог `memory-bank/product/` хранит устойчивый продуктовый контекст `code-converge`: why, users, outcomes, metrics, positioning и roadmap. Не подтверждённые исследованиями сведения явно помечаются как assumptions или `unknown`.
 
 Product-документы не определяют предметную модель, архитектуру реализации, feature acceptance criteria или execution sequence.
 
@@ -31,7 +31,7 @@ Product-документы не определяют предметную мод
 | `product/` | Why, for whom, what outcome, how success is measured, how product is positioned | Какие domain entities существуют, какие инварианты обязательны, как устроена реализация |
 | `domain/` | Какие понятия, правила, состояния, события и bounded contexts существуют в предметной области | Зачем бизнесу эта инициатива, какие market segments приоритетны, какие каналы продвижения выбраны |
 
-Пример для `reviewer`:
+Пример для `code-converge`:
 
 - Product: сократить ручную координацию review → fix → publish → CI.
 - Domain: finalization разрешён только после review без findings.

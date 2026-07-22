@@ -36,31 +36,31 @@ The existing `internal/config` resolver produces effective values and source met
 
 ## C4 Applicability
 
-`C4-01: C1 System Context required` because the feature changes how an operator supplies CLI, environment, and file configuration to reviewer and changes the configuration reviewer sends to the external Codex process. It does not change a deployable/container boundary, so C2 or deeper is not required.
+`C4-01: C1 System Context required` because the feature changes how an operator supplies CLI, environment, and file configuration to code-converge and changes the configuration code-converge sends to the external Codex process. It does not change a deployable/container boundary, so C2 or deeper is not required.
 
 ```mermaid
 flowchart LR
-  O[Operator] -->|CLI flags| R[reviewer CLI]
-  E[Environment variables] -->|REVIEWER_* values| R
-  F[Project and user .reviewer files] -->|configuration values| R
-  R -->|reviewer config: effective mode and stage settings| O
+  O[Operator] -->|CLI flags| R[code-converge CLI]
+  E[Environment variables] -->|CODE_CONVERGE_* values| R
+  F[Project and user .code-converge files] -->|configuration values| R
+  R -->|code-converge config: effective mode and stage settings| O
   R -->|stage invocation: model and reasoning effort| C[Codex CLI]
 ```
 
-The system boundary is `reviewer CLI`. Operator-controlled arguments, environment, and files are input connectors; human-readable config output is the explainability response; Codex remains the existing external agent process.
+The system boundary is `code-converge CLI`. Operator-controlled arguments, environment, and files are input connectors; human-readable config output is the explainability response; Codex remains the existing external agent process.
 
 ## Selected Design
 
 - `SOL-01` Add `mode` as a normal scalar configuration input, resolve it using existing source precedence, validate `fast|best`, and default it to `fast`.
 - `SOL-02` Store the two immutable profile maps at the configuration boundary. After resolving mode, resolve each of the eight stage fields independently: highest-priority explicit stage value if any, otherwise the selected profile value.
 - `SOL-03` Extend configuration data/source metadata with Finalize and Fix CI reasoning effort; pass all resolved pairs through the existing Codex adapter.
-- `SOL-04` Render mode first-class in `reviewer config`; stage fields retain explicit source metadata or receive a profile-derived source that names the effective mode.
+- `SOL-04` Render mode first-class in `code-converge config`; stage fields retain explicit source metadata or receive a profile-derived source that names the effective mode.
 - `SOL-05` Update the root README atomically with implementation so the proposed table becomes the operative contract and includes all mode and stage option names/default semantics.
 
 ## Accepted Local Decisions
 
-- `SD-01` Mode surfaces are `--mode`, `REVIEWER_MODE`, and project/user file `mode`; values are case-sensitive `fast` and `best`.
-- `SD-02` Finalize and Fix CI gain symmetric reasoning-effort surfaces: `--finalize-reasoning-effort` / `REVIEWER_FINALIZE_REASONING_EFFORT` / `finalize-reasoning-effort`, and `--ci-fix-reasoning-effort` / `REVIEWER_CI_FIX_REASONING_EFFORT` / `ci-fix-reasoning-effort`.
+- `SD-01` Mode surfaces are `--mode`, `CODE_CONVERGE_MODE`, and project/user file `mode`; values are case-sensitive `fast` and `best`.
+- `SD-02` Finalize and Fix CI gain symmetric reasoning-effort surfaces: `--finalize-reasoning-effort` / `CODE_CONVERGE_FINALIZE_REASONING_EFFORT` / `finalize-reasoning-effort`, and `--ci-fix-reasoning-effort` / `CODE_CONVERGE_CI_FIX_REASONING_EFFORT` / `ci-fix-reasoning-effort`.
 - `SD-03` Explicit stage values form an override tier above profiles regardless of the mode's source. Existing precedence applies inside the explicit tier; mode source precedence is resolved independently.
 - `SD-04` Profile-derived stage source renders as `<effective-mode> profile`; an explicit value reports its actual source even when equal to the profile value.
 
@@ -96,7 +96,7 @@ The profile is not appended to the ordinary source list. This preserves the exis
 | Aspect | Decision | Coverage |
 | --- | --- | --- |
 | Components | covered | C1 actor/system boundary plus `internal/app` flag binding, `internal/config` mode/profile/metadata resolution, `internal/codex` pair consumption, and root README public ownership. |
-| Connectors | covered | Operator CLI input, environment/file reads, config output, reviewer → Codex process invocation, and in-process app → resolver → adapter binding; all are synchronous. |
+| Connectors | covered | Operator CLI input, environment/file reads, config output, code-converge → Codex process invocation, and in-process app → resolver → adapter binding; all are synchronous. |
 | Configuration | covered | C1 directions plus independent mode resolution, explicit-stage override tier, exact names/values, profile matrix, and source rendering are defined here. |
 | Behavioral semantics | covered | Resolution is deterministic before the run and immutable through workflow phases; invalid inputs fail before Codex invocation. |
 | Quality/evolution | covered | Central profile table, per-field metadata, full matrix tests, and no implicit escalation keep future modes auditable. |
@@ -132,7 +132,7 @@ The profile is not appended to the ordinary source list. This preserves the exis
 
 ## Rollout / Backout
 
-- `RB-01` Rollout is atomic in one CLI release: config resolver, adapter, tests, and root README change together. Observe required CI and `reviewer config` smoke output before release publication.
+- `RB-01` Rollout is atomic in one CLI release: config resolver, adapter, tests, and root README change together. Observe required CI and `code-converge config` smoke output before release publication.
 - `RB-02` Backout is repository revert/patch release. Existing explicit stage settings remain the compatibility path; no persistent data or migration must be reversed.
 
 ## Design Verification

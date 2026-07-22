@@ -2,7 +2,7 @@
 title: Domain Context Map
 doc_kind: domain
 doc_function: canonical
-purpose: Reviewer domain-context ownership and its boundary with external agent, Git, repository-hosting, and CI systems.
+purpose: Code-Converge domain-context ownership and its boundary with external agent, Git, repository-hosting, and CI systems.
 derived_from:
   - ../dna/governance.md
   - glossary.md
@@ -17,13 +17,13 @@ canonical_for:
 
 # Domain Context Map
 
-The current product has one domain context. Codex, Git, repository hosting, and CI are external systems, not reviewer-owned bounded contexts. Runtime modules and process connectors are documented in [`../engineering/architecture.md`](../engineering/architecture.md).
+The current product has one domain context. Codex, Git, repository hosting, and CI are external systems, not code-converge-owned bounded contexts. Runtime modules and process connectors are documented in [`../engineering/architecture.md`](../engineering/architecture.md).
 
 ## Bounded Contexts
 
 | Context | Owns language / rules for | Upstream contexts | Downstream contexts | Must not know |
 | --- | --- | --- | --- | --- |
-| `Review Orchestration` | Run, stage, review cycle, finding/severity, finalization verdict, workflow transitions, exit outcomes, and configuration precedence | No other reviewer-owned context | No other reviewer-owned context | Internal state or credentials of Codex, Git, repository hosting, or CI |
+| `Review Orchestration` | Run, stage, review cycle, finding/severity, finalization verdict, workflow transitions, exit outcomes, and configuration precedence | No other code-converge-owned context | No other code-converge-owned context | Internal state or credentials of Codex, Git, repository hosting, or CI |
 
 ## Context Relationships
 
@@ -33,7 +33,7 @@ The current product has one domain context. Codex, Git, repository hosting, and 
 
 ## Shared Kernel / Published Language
 
-- Shared kernel: N/A while reviewer has one domain context.
+- Shared kernel: N/A while code-converge has one domain context.
 - Published language: the root [`README.md`](../../README.md) solely owns public CLI option names, exit codes, finalization verdicts, and stdout fields. Domain documents only interpret their meaning.
 
 ## Boundary Rules

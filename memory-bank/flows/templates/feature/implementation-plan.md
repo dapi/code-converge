@@ -199,7 +199,7 @@ must_not_define:
 
 | Evidence ID | Artifact | Producer | Path contract | Reused by checkpoints |
 | --- | --- | --- | --- | --- |
-| `EVID-09` | Например simplify-review verdict, discovery note или manual approval note | implementer / reviewer / human approver | Где лежит или чем фиксируется | `CP-01` |
+| `EVID-09` | Например simplify-review verdict, discovery note или manual approval note | implementer / code-converge / human approver | Где лежит или чем фиксируется | `CP-01` |
 
 ## Готово для приемки
 

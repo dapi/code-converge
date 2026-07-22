@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dapi/reviewer/internal/config"
-	"github.com/dapi/reviewer/internal/runner"
+	"github.com/dapi/code-converge/internal/config"
+	"github.com/dapi/code-converge/internal/runner"
 )
 
 func TestParseReview(t *testing.T) {

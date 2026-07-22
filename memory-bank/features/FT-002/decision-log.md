@@ -5,7 +5,7 @@ doc_function: decision_log
 purpose: "Аудируемый журнал review/FPF reasoning, unresolved decisions и human gates для FT-002; не является canonical owner problem, solution или execution facts."
 derived_from:
   - brief.md
-  - ../../prd/PRD-001-reviewer-cli.md
+  - ../../prd/PRD-001-code-converge-cli.md
   - ../../../README.md
   - ../../engineering/architecture.md
   - ../../ops/release.md
@@ -46,11 +46,11 @@ audience: humans_and_agents
 - **Status:** resolved.
 - **Authority:** user instruction “Используй FPF для принятия решений и продолжай”.
 - **Method:** SelectorMechanism preserved multiple criteria (contract fit, safety, testability, compatibility, delivery cost) without hidden weighting. Evidence-missing candidates abstained; Agent-Tools-CAL supplied explicit budgets/stop conditions; Evidence Graph anchors are the root README, repository policies, current Codex manual, installed `codex-cli 0.144.5` help, Go/CI configuration, and deterministic tests.
-- **`HG-01` result:** Go `1.21.13`; `darwin/linux` on `amd64/arm64`; deterministic `tar.gz` artifacts and `SHA256SUMS`; manual install by copying `reviewer` onto `PATH`; no registry/package-manager publication or signing promise. Artifact deletion/rebuild is the backout unit.
+- **`HG-01` result:** Go `1.21.13`; `darwin/linux` on `amd64/arm64`; deterministic `tar.gz` artifacts and `SHA256SUMS`; manual install by copying `code-converge` onto `PATH`; no registry/package-manager publication or signing promise. Artifact deletion/rebuild is the backout unit.
 - **`HG-02` result:** finalization uses `codex exec --output-schema` and `--output-last-message`; strict JSON contains one verdict and exactly four typed step outcomes, followed by an explicit consistency matrix in `design.md`.
 - **`HG-03` result:** review remains ordinary `codex review --uncommitted`; a narrow anchored clean allowlist and explicit `[P0]`–`[P3]` finding records are accepted. Anything else, including mixed clean/finding claims, abstains as operational failure. Fixtures are the compatibility contract.
 - **`HG-04` result:** acceptance is the required CI plus independent `codex review`; deterministic fake runner/executable fixtures are the mandatory corpus, with artifact build/install/smoke checks for distribution.
-- **`HG-05` result:** no new timeout option is invented; parent cancellation is propagated to child processes. Reviewer does not override Codex sandbox, approvals, or network policy; those remain inherited Codex/operator configuration. Tests cover cancellation and captured stdio.
+- **`HG-05` result:** no new timeout option is invented; parent cancellation is propagated to child processes. Code-Converge does not override Codex sandbox, approvals, or network policy; those remain inherited Codex/operator configuration. Tests cover cancellation and captured stdio.
 - **Consequences:** solution is intentionally conservative. Compatibility expands only by adding evidence-backed fixtures; it never widens through heuristic clean detection.
 
 ## Human Gate

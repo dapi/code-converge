@@ -2,7 +2,7 @@
 title: Engineering Documentation Index
 doc_kind: engineering
 doc_function: index
-purpose: Навигация по reviewer engineering contracts and conventions.
+purpose: Навигация по code-converge engineering contracts and conventions.
 derived_from:
   - ../dna/governance.md
 status: active
@@ -11,7 +11,7 @@ audience: humans_and_agents
 
 # Engineering Documentation Index
 
-Каталог `memory-bank/engineering/` содержит инженерные границы и правила `reviewer`. Не выбранные инструменты или ещё не существующие runtime surfaces должны оставаться явно `unknown` или N/A.
+Каталог `memory-bank/engineering/` содержит инженерные границы и правила `code-converge`. Не выбранные инструменты или ещё не существующие runtime surfaces должны оставаться явно `unknown` или N/A.
 
 - [Engineering Architecture Patterns](architecture.md) — code/module boundaries, runtime patterns, concurrency, error handling и configuration ownership. Domain bounded contexts живут отдельно в [`../domain/context-map.md`](../domain/context-map.md).
 - [Frontend Engineering](frontend.md) — records that the current CLI has no graphical frontend surface.

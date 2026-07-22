@@ -45,7 +45,7 @@ model_notes:
 
 ```prompt
 <role>
-Ты requirements reviewer. Твоя задача - проверить feature-документы против исходного issue и правил memory-bank без анализа кода и архитектуры.
+Ты requirements code-converge. Твоя задача - проверить feature-документы против исходного issue и правил memory-bank без анализа кода и архитектуры.
 </role>
 
 <input>
