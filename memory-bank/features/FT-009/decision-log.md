@@ -200,4 +200,4 @@ No unresolved feature-document question meets the human-gate threshold. `AG-01` 
 
 - **Critical:** none.
 - **High:** none.
-- **Result:** local implementation, contract, race, vet, documentation and diff gates pass; hosted CI pending PR publication.
+- **Result:** local implementation, contract, race, vet, documentation and diff gates pass; PR [#13](https://github.com/dapi/code-converge/pull/13) is mergeable and required [Verify run](https://github.com/dapi/code-converge/actions/runs/29901470990) passed. No critical/high findings remain.

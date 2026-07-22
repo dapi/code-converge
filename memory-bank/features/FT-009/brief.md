@@ -12,7 +12,7 @@ derived_from:
   - ../../../README.md
   - https://github.com/dapi/code-converge/issues/9
 status: active
-delivery_status: in_progress
+delivery_status: done
 audience: humans_and_agents
 must_not_define:
   - implementation_sequence
@@ -177,4 +177,4 @@ The current workflow stdout contract is stable and machine-readable, but operato
 | `EVID-03` | pass | heartbeat/transient/shimmer/stop tests plus `go test -race ./internal/event ./internal/workflow` |
 | `EVID-04` | pass | cancellation, liveness/permanent writer failure and human raw-output isolation tests across app/workflow/codex/runner suites |
 | `EVID-05` | pass | root README and dependent Memory Bank convergence; `make docs-lint` |
-| `EVID-06` | local pass; CI pending | `go test ./...`, `go test -race ./internal/event ./internal/workflow`, `go vet ./...`, `make docs-lint`, `git diff --check`; PR/CI carrier pending publication |
+| `EVID-06` | pass | `go test ./...`, `go test -race ./internal/event ./internal/workflow`, `go vet ./...`, `make docs-lint`, `git diff --check`; PR [#13](https://github.com/dapi/code-converge/pull/13), required [Verify run](https://github.com/dapi/code-converge/actions/runs/29901470990) |
