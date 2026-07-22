@@ -389,18 +389,14 @@ func shimmer(text string, frame, depth int) string {
 	if len(runes) == 0 {
 		return text
 	}
-	stops := [][3]int{{255, 107, 138}, {192, 132, 252}, {96, 165, 250}}
+	center := shimmerHighlightCenter(len(runes), frame)
 	var out strings.Builder
 	for i, r := range runes {
-		position := float64((i+frame)%len(runes)) / float64(max(1, len(runes)-1))
-		scaled := position * 2
-		segment := int(math.Min(1, math.Floor(scaled)))
-		fraction := scaled - float64(segment)
-		from, to := stops[segment], stops[segment+1]
-		rgb := [3]int{}
-		for channel := range rgb {
-			rgb[channel] = int(math.Round(float64(from[channel]) + (float64(to[channel])-float64(from[channel]))*fraction))
+		distance := i - center
+		if distance < 0 {
+			distance = -distance
 		}
+		rgb := shimmerColor(distance)
 		switch depth {
 		case 3:
 			fmt.Fprintf(&out, "\x1b[38;2;%d;%d;%dm%c", rgb[0], rgb[1], rgb[2], r)
@@ -409,7 +405,7 @@ func shimmer(text string, frame, depth int) string {
 			fmt.Fprintf(&out, "\x1b[38;5;%dm%c", index, r)
 		default:
 			code := 35
-			if (i+frame)%2 == 1 {
+			if distance < 2 {
 				code = 36
 			}
 			fmt.Fprintf(&out, "\x1b[%dm%c", code, r)
@@ -417,4 +413,29 @@ func shimmer(text string, frame, depth int) string {
 	}
 	out.WriteString("\x1b[0m")
 	return out.String()
+}
+
+func shimmerHighlightCenter(length, frame int) int {
+	travel := length + 8
+	cycle := travel * 2
+	center := (frame / 2) % cycle
+	if center >= travel {
+		center = cycle - center
+	}
+	return center - 4
+}
+
+func shimmerColor(distance int) [3]int {
+	switch distance {
+	case 0:
+		return [3]int{255, 255, 255}
+	case 1:
+		return [3]int{234, 218, 255}
+	case 2:
+		return [3]int{207, 181, 250}
+	case 3:
+		return [3]int{177, 143, 230}
+	default:
+		return [3]int{147, 112, 196}
+	}
 }

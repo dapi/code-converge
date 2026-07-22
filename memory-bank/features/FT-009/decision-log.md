@@ -91,8 +91,8 @@ Each material question uses the canonical reasoning cycle: frame the bounded cla
 - **Question:** What exact visual/fallback and duration rules close the issue's implementation ambiguities?
 - **Facts:** Issue #9 requires a continuous full-line Codex-style shimmer, one-second timer updates, respect for `NO_COLOR`, no non-TTY ANSI, second/compound durations and no milliseconds. It provides no canonical palette.
 - **Alternatives:** configurable theme/frame rate; fixed true-color-only theme; fixed tiered palette with a no-color fallback.
-- **FPF reasoning:** A configurable theme expands the public contract without operator-outcome evidence. True-color-only violates graceful fallback. A fixed 10 fps three-stop gradient is sufficient for continuous motion, bounded in CPU, and can degrade conservatively by terminal capability. Duration rules choose the minimum precision demonstrated by issue examples while eliminating milliseconds.
-- **Result:** fixed palette/frame/fallback and rounding rules in `SD-04`–`SD-06`; only `auto|never` color policy is public.
+- **FPF reasoning:** A configurable theme expands the public contract without operator-outcome evidence. True-color-only violates graceful fallback. The fixed 10 fps treatment can degrade conservatively by terminal capability; operator feedback showed that a wrapping gradient has a visible seam, so the selected treatment is a returning highlight instead. Duration rules choose the minimum precision demonstrated by issue examples while eliminating milliseconds.
+- **Result:** fixed palette/frame/fallback and rounding rules in `SD-04`–`SD-06`; only `auto|never` color policy is public. Operator feedback later replaced the wrapping gradient with a returning soft highlight, preserving the same refresh rate and fallback policy while avoiding a visible cycle seam.
 - **Confidence:** medium. The aesthetic values are an engineering selection constrained by the issue, not a user-validated brand fact; they are isolated and reversible without changing workflow semantics.
 
 ### `DL-08` — C4/ADR and artifact routing

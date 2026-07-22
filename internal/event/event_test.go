@@ -232,6 +232,25 @@ func TestShimmerCoversWholeLineAtSupportedDepths(t *testing.T) {
 	}
 }
 
+func TestShimmerHighlightTravelsAndReturnsWithoutWrapping(t *testing.T) {
+	const length = 10
+	tests := []struct {
+		frame int
+		want  int
+	}{
+		{0, -4},
+		{8, 0},
+		{34, 13},
+		{36, 14},
+		{38, 13},
+	}
+	for _, test := range tests {
+		if got := shimmerHighlightCenter(length, test.frame); got != test.want {
+			t.Errorf("frame %d: center = %d, want %d", test.frame, got, test.want)
+		}
+	}
+}
+
 func TestLivenessStageLabels(t *testing.T) {
 	for _, stage := range []string{"review", "fix-findings", "finalize", "fix-ci"} {
 		t.Run(stage, func(t *testing.T) {

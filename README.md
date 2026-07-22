@@ -293,7 +293,7 @@ A findings summary always includes the total and only its non-zero severity coun
 
 ### Liveness
 
-In human mode on an interactive stdout terminal, each Codex-backed stage displays one in-place elapsed-time line such as `Reviewing... 1m 24s`. The timer changes once per second while a full-line color shimmer advances at 10 frames per second. The line is cleared before permanent stdout or diagnostic stderr output.
+In human mode on an interactive stdout terminal, each Codex-backed stage displays one in-place elapsed-time line such as `Reviewing... 1m 24s`. The timer changes once per second while a soft color highlight travels across the fully colored line and returns at a 10-frame-per-second refresh rate. The line is cleared before permanent stdout or diagnostic stderr output.
 
 `--color=never` or the presence of `NO_COLOR` disables shimmer while retaining the elapsed line. `auto` uses true color when advertised by `COLORTERM`, ANSI-256 when advertised by `TERM`, basic magenta/cyan otherwise, and no color for unknown or dumb terminals.
 
