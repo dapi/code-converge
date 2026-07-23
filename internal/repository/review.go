@@ -396,7 +396,9 @@ func repositoryIdentity(remoteURL string) (string, error) {
 	value := strings.TrimSuffix(strings.TrimSpace(remoteURL), "/")
 	var host string
 	var path string
-	if parsed, err := url.Parse(value); err == nil && parsed.Scheme != "" {
+	if scpHost, repositoryPath, ok := splitSCPRemote(value); ok {
+		host, path = scpHost, repositoryPath
+	} else if parsed, err := url.Parse(value); err == nil && parsed.Scheme != "" {
 		if !isProviderURLScheme(parsed.Scheme) {
 			return "", fmt.Errorf("remote URL uses unsupported provider scheme %q", parsed.Scheme)
 		}
@@ -409,8 +411,6 @@ func repositoryIdentity(remoteURL string) (string, error) {
 			// when url.Parse normalized away a default port.
 			host = "[" + host + "]"
 		}
-	} else if scpHost, repositoryPath, ok := splitSCPRemote(value); ok {
-		host, path = scpHost, repositoryPath
 	} else {
 		return "", fmt.Errorf("remote URL does not identify a provider host")
 	}
@@ -429,6 +429,9 @@ func repositoryIdentity(remoteURL string) (string, error) {
 }
 
 func splitSCPRemote(value string) (string, string, bool) {
+	if strings.Contains(value, "://") {
+		return "", "", false
+	}
 	hostStart := 0
 	if userSeparator := strings.LastIndex(value, "@"); userSeparator >= 0 {
 		hostStart = userSeparator + 1
@@ -1184,7 +1187,7 @@ func splitGitGlobalOptions(args []string) (prefix []string, subcommand string, r
 }
 
 func hasGitOptionValue(argument string) bool {
-	for _, option := range []string{"--git-dir=", "--work-tree=", "--config=", "--config-env=", "--namespace=", "--super-prefix=", "--attr-source=", "--list-cmds="} {
+	for _, option := range []string{"--git-dir=", "--work-tree=", "--config=", "--config-env=", "--namespace=", "--super-prefix=", "--attr-source=", "--list-cmds=", "--exec-path="} {
 		if strings.HasPrefix(argument, option) {
 			return true
 		}

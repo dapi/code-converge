@@ -731,6 +731,8 @@ func TestRepositoryIdentity(t *testing.T) {
 		want   string
 	}{
 		{"git@github.com:dapi/code-converge.git", "github.com/dapi/code-converge"},
+		{"github.com:dapi/code-converge.git", "github.com/dapi/code-converge"},
+		{"github-work:dapi/code-converge.git", "github-work/dapi/code-converge"},
 		{"alice@github.example.com:owner/repo.git", "github.example.com/owner/repo"},
 		{"ssh://git@github.example.com/dapi/code-converge.git", "github.example.com/dapi/code-converge"},
 		{"ssh://git@example.test:2222/owner/repo.git", "example.test:2222/owner/repo"},
@@ -1668,6 +1670,7 @@ func TestSplitGitGlobalOptionsRecognizesDocumentedValueFlags(t *testing.T) {
 		{args: []string{"--attr-source", "HEAD", "check-attr", "--all", "--", "file"}, prefix: []string{"--attr-source", "HEAD"}, command: "check-attr"},
 		{args: []string{"--attr-source=HEAD", "check-attr", "--all", "--", "file"}, prefix: []string{"--attr-source=HEAD"}, command: "check-attr"},
 		{args: []string{"--list-cmds=builtins"}, prefix: []string{"--list-cmds=builtins"}},
+		{args: []string{"--exec-path=/custom/git-core", "diff", "--cached"}, prefix: []string{"--exec-path=/custom/git-core"}, command: "diff"},
 	} {
 		prefix, subcommand, _, ok := splitGitGlobalOptions(test.args)
 		if !ok || subcommand != test.command || !reflect.DeepEqual(prefix, test.prefix) {
