@@ -3,6 +3,7 @@
 package terminal
 
 import (
+	"bytes"
 	"io"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 )
 
 const maxLines = 2000
+const maxPendingBytes = 64 * 1024
 
 // View stores the two independent pane histories and, while open, renders
 // them in the terminal's alternate screen.
@@ -22,18 +24,34 @@ type View struct {
 		Read([]byte) (int, error)
 	}
 
-	mu             sync.Mutex
-	open           bool
-	workflow       []string
-	agent          []string
-	stream         string
-	focus          int
-	workflowOffset int
-	agentOffset    int
-	pending        []byte
-	restore        *term.State
-	stop           chan struct{}
-	done           chan struct{}
+	mu                sync.Mutex
+	open              bool
+	workflow          []string
+	agent             []string
+	agentRecords      []*agentLine
+	agentPendingLines map[string]*agentLine
+	stream            string
+	focus             int
+	workflowOffset    int
+	agentOffset       int
+	pending           []byte
+	agentPending      map[string][]byte
+	pendingOrder      []string
+	restore           *term.State
+	stop              chan struct{}
+	done              chan struct{}
+	reader            keyReader
+	err               error
+	// Interrupt is invoked when Ctrl-C is received while raw mode is active.
+	// MakeRaw disables ISIG, so forwarding this byte is necessary to preserve
+	// the command's normal signal-driven cancellation behavior.
+	Interrupt func()
+}
+
+type agentLine struct {
+	source   string
+	data     []byte
+	complete bool
 }
 
 func New(out io.Writer, in interface {
@@ -46,7 +64,14 @@ func New(out io.Writer, in interface {
 // Eligible is intentionally conservative: callers must additionally apply
 // their product format and TERM policy.
 func (v *View) Eligible() bool {
-	return v != nil && v.In != nil && term.IsTerminal(int(v.In.Fd()))
+	return v != nil && v.In != nil && term.IsTerminal(int(v.In.Fd())) && IsTerminalWriter(v.Out)
+}
+
+// IsTerminalWriter verifies that a writer is backed by a real terminal, not
+// merely a character device such as /dev/null.
+func IsTerminalWriter(out io.Writer) bool {
+	file, ok := out.(interface{ Fd() uintptr })
+	return ok && term.IsTerminal(int(file.Fd()))
 }
 
 // Start puts stdin into raw mode so one-key input is available. It is safe to
@@ -64,36 +89,64 @@ func (v *View) Start() error {
 	v.restore = state
 	v.stop = make(chan struct{})
 	v.done = make(chan struct{})
+	reader, err := newKeyReader(v.In)
+	if err != nil {
+		v.restore = nil
+		v.stop = nil
+		v.done = nil
+		v.mu.Unlock()
+		_ = term.Restore(int(v.In.Fd()), state)
+		return err
+	}
+	v.reader = reader
+	done := v.done
+	v.agentPending = make(map[string][]byte)
+	v.agentPendingLines = make(map[string]*agentLine)
+	v.pendingOrder = nil
 	v.mu.Unlock()
-	go v.readKeys(v.stop)
+	go v.readKeys(v.stop, reader, done)
+	go v.watchResize(v.stop)
 	return nil
 }
 
-// Stop closes the split view and restores stdin. A raw terminal read cannot be
-// cancelled portably, so its reader exits on the next input after restoration.
-func (v *View) Stop() {
+// Stop closes the split view and restores stdin after the cancellable reader
+// has exited.
+func (v *View) Stop() error {
 	if v == nil {
-		return
+		return nil
 	}
 	v.mu.Lock()
-	stop, done, state := v.stop, v.done, v.restore
-	v.stop, v.done, v.restore = nil, nil, nil
+	stop, done, state, reader := v.stop, v.done, v.restore, v.reader
+	v.stop, v.done, v.restore, v.reader = nil, nil, nil, nil
 	wasOpen := v.open
 	v.open = false
 	v.mu.Unlock()
 	if stop != nil {
 		close(stop)
 	}
+	var result error
+	// Read may be blocked in the platform reader. Close it before waiting so
+	// the reader observes the shutdown and can signal done.
+	if reader != nil {
+		if err := reader.Close(); err != nil {
+			// Preserve the cleanup error, but still wait for the reader below.
+			result = err
+		}
+	}
+	if done != nil {
+		<-done
+	}
 	if wasOpen {
-		_, _ = io.WriteString(v.Out, "\x1b[?25h\x1b[?1049l")
+		if _, err := io.WriteString(v.Out, "\x1b[?25h\x1b[?1049l"); err != nil {
+			result = err
+		}
 	}
 	if state != nil {
-		_ = term.Restore(int(v.In.Fd()), state)
+		if err := term.Restore(int(v.In.Fd()), state); err != nil && result == nil {
+			result = err
+		}
 	}
-	// A raw terminal read cannot be cancelled portably. Restoring the terminal
-	// makes the reader return on the next input; do not block workflow teardown
-	// waiting for that operator action.
-	_ = done
+	return result
 }
 
 func (v *View) Active() bool {
@@ -105,105 +158,239 @@ func (v *View) Active() bool {
 	return v.open
 }
 
-func (v *View) AppendWorkflow(line string) {
+func (v *View) AppendWorkflow(line string) error {
 	if v == nil || line == "" {
-		return
+		return nil
 	}
 	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.err != nil {
+		return v.err
+	}
 	v.workflow = appendBounded(v.workflow, splitLines(line)...)
-	v.renderLocked()
-	v.mu.Unlock()
+	return v.renderLocked()
 }
 
-func (v *View) StartAgent(identity string) {
+func (v *View) StartAgent(identity string) error {
 	if v == nil {
-		return
+		return nil
 	}
 	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.err != nil {
+		return v.err
+	}
 	v.stream = identity
 	v.agent = []string{"[" + identity + "]"}
-	v.renderLocked()
-	v.mu.Unlock()
+	v.agentRecords = nil
+	v.agentOffset = 0
+	v.agentPending = make(map[string][]byte)
+	v.agentPendingLines = make(map[string]*agentLine)
+	v.pendingOrder = nil
+	return v.renderLocked()
 }
 
-func (v *View) CompleteAgent(state string) {
+func (v *View) CompleteAgent(state string) error {
 	if v == nil {
-		return
+		return nil
 	}
 	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.err != nil {
+		return v.err
+	}
 	if v.stream != "" {
+		// Partial lines are rendered in their arrival position already. Completion
+		// only needs to expose the terminal state; do not flush by source, since
+		// doing so can reorder fragments that arrived on different streams.
+		v.agentPending = make(map[string][]byte)
+		v.agentPendingLines = make(map[string]*agentLine)
+		v.pendingOrder = nil
 		v.agent = appendBounded(v.agent, "["+state+"]")
 	}
-	v.renderLocked()
-	v.mu.Unlock()
+	return v.renderLocked()
 }
 
-func (v *View) AppendAgent(source string, data []byte) {
+func (v *View) AppendAgent(source string, data []byte) error {
 	if v == nil || len(data) == 0 {
-		return
-	}
-	prefix := ""
-	if source == "stderr" {
-		prefix = "[stderr] "
+		return nil
 	}
 	v.mu.Lock()
-	v.agent = appendBounded(v.agent, splitLines(prefix+Sanitize(data))...)
-	v.renderLocked()
-	v.mu.Unlock()
+	defer v.mu.Unlock()
+	if v.err != nil {
+		return v.err
+	}
+	if source != "stderr" {
+		source = "stdout"
+	}
+	if v.agentPending == nil {
+		v.agentPending = make(map[string][]byte)
+	}
+	if v.agentPendingLines == nil {
+		v.agentPendingLines = make(map[string]*agentLine)
+	}
+	line := v.agentPendingLines[source]
+	if line == nil {
+		line = &agentLine{source: source}
+		v.agentRecords = append(v.agentRecords, line)
+		v.agentPendingLines[source] = line
+		present := false
+		for _, pendingSource := range v.pendingOrder {
+			if pendingSource == source {
+				present = true
+				break
+			}
+		}
+		if !present {
+			v.pendingOrder = append(v.pendingOrder, source)
+		}
+	}
+	// Keep an unterminated logical line bounded too. A process can emit an
+	// arbitrarily long line (or binary data without newlines), so cap the
+	// retained suffix before it enters pane state.
+	if len(data) > maxPendingBytes {
+		data = data[len(data)-maxPendingBytes:]
+	}
+	pending := line.data
+	if excess := len(pending) + len(data) - maxPendingBytes; excess > 0 {
+		pending = pending[excess:]
+	}
+	line.data = append(pending, data...)
+	for {
+		complete, rest, found := bytes.Cut(line.data, []byte{'\n'})
+		if !found {
+			break
+		}
+		line.data = complete
+		line.complete = true
+		delete(v.agentPendingLines, source)
+		delete(v.agentPending, source)
+		if len(rest) == 0 {
+			break
+		}
+		line = &agentLine{source: source, data: rest}
+		v.agentRecords = append(v.agentRecords, line)
+		v.agentPendingLines[source] = line
+	}
+	if pendingLine := v.agentPendingLines[source]; pendingLine != nil {
+		v.agentPending[source] = append([]byte(nil), pendingLine.data...)
+	}
+	v.rebuildAgentLocked()
+	return v.renderLocked()
 }
 
-func (v *View) Toggle() {
+func (v *View) rebuildAgentLocked() {
+	if len(v.agentRecords) > maxLines {
+		v.agentRecords = append([]*agentLine(nil), v.agentRecords[len(v.agentRecords)-maxLines:]...)
+	}
+	v.agentPending = make(map[string][]byte)
+	v.agentPendingLines = make(map[string]*agentLine)
+	v.pendingOrder = nil
+	for _, line := range v.agentRecords {
+		if previous := v.agentPendingLines[line.source]; previous == line {
+			continue
+		}
+		// A source's pending record is the last incomplete record for it. A
+		// completed record has no continuation until a later fragment arrives.
+		if !line.complete {
+			v.agentPendingLines[line.source] = line
+			v.agentPending[line.source] = append([]byte(nil), line.data...)
+			v.pendingOrder = append(v.pendingOrder, line.source)
+		}
+	}
+	v.agent = []string{"[" + v.stream + "]"}
+	for _, line := range v.agentRecords {
+		prefix := ""
+		if line.source == "stderr" {
+			prefix = "[stderr] "
+		}
+		v.agent = append(v.agent, prefix+Sanitize(line.data))
+	}
+}
+
+// WriteTransient serializes the open-state check and the fallback terminal
+// write with Toggle/rendering. It returns true when the view consumed the
+// liveness frame.
+func (v *View) WriteTransient(out io.Writer, value string) (bool, error) {
 	if v == nil {
-		return
+		_, err := io.WriteString(out, value)
+		return false, err
 	}
 	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.err != nil {
+		return false, v.err
+	}
+	if v.open {
+		return true, nil
+	}
+	_, err := io.WriteString(out, value)
+	return false, err
+}
+
+func (v *View) Toggle() error {
+	if v == nil {
+		return nil
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.err != nil {
+		return v.err
+	}
 	v.open = !v.open
 	if v.open {
-		_, _ = io.WriteString(v.Out, "\x1b[?1049h\x1b[?25l")
-		v.renderLocked()
+		if err := v.writeLocked("\x1b[?1049h\x1b[?25l"); err != nil {
+			return err
+		}
+		return v.renderLocked()
 	} else {
-		_, _ = io.WriteString(v.Out, "\x1b[?25h\x1b[?1049l")
+		return v.writeLocked("\x1b[?25h\x1b[?1049l")
 	}
-	v.mu.Unlock()
 }
 
 func (v *View) scroll(delta int) {
 	v.mu.Lock()
+	if !v.open {
+		v.mu.Unlock()
+		return
+	}
 	if v.focus == 0 {
 		v.workflowOffset = max(0, v.workflowOffset+delta)
 	} else {
 		v.agentOffset = max(0, v.agentOffset+delta)
 	}
-	v.renderLocked()
+	_ = v.renderLocked()
 	v.mu.Unlock()
 }
 
 func (v *View) tail() {
 	v.mu.Lock()
+	if !v.open {
+		v.mu.Unlock()
+		return
+	}
 	if v.focus == 0 {
 		v.workflowOffset = 0
 	} else {
 		v.agentOffset = 0
 	}
-	v.renderLocked()
+	_ = v.renderLocked()
 	v.mu.Unlock()
 }
 
 func (v *View) nextFocus() {
 	v.mu.Lock()
+	if !v.open {
+		v.mu.Unlock()
+		return
+	}
 	v.focus = 1 - v.focus
-	v.renderLocked()
+	_ = v.renderLocked()
 	v.mu.Unlock()
 }
 
-func (v *View) readKeys(stop <-chan struct{}) {
-	defer func() {
-		v.mu.Lock()
-		if v.done != nil {
-			close(v.done)
-		}
-		v.mu.Unlock()
-	}()
+func (v *View) readKeys(stop <-chan struct{}, reader keyReader, done chan<- struct{}) {
+	defer close(done)
 	buf := make([]byte, 32)
 	for {
 		select {
@@ -211,7 +398,7 @@ func (v *View) readKeys(stop <-chan struct{}) {
 			return
 		default:
 		}
-		n, err := v.In.Read(buf)
+		n, err := reader.Read(buf)
 		select {
 		case <-stop:
 			return
@@ -232,12 +419,25 @@ func (v *View) handleKeys(keys []byte) {
 	for i < len(v.pending) {
 		switch v.pending[i] {
 		case 'i':
-			v.Toggle()
+			_ = v.Toggle()
+			i++
+		case 0x03:
+			if v.Interrupt != nil {
+				v.Interrupt()
+			}
 			i++
 		case '\t':
-			v.nextFocus()
+			if v.Active() {
+				v.nextFocus()
+			}
 			i++
 		case 0x1b:
+			if !v.Active() {
+				// Navigation escape sequences are view-local. Do not retain a
+				// partial sequence while the view is closed.
+				i++
+				continue
+			}
 			if i+2 >= len(v.pending) {
 				v.pending = append([]byte(nil), v.pending[i:]...)
 				return
@@ -283,9 +483,34 @@ func (v *View) handleKeys(keys []byte) {
 	v.pending = v.pending[:0]
 }
 
-func (v *View) renderLocked() {
+func (v *View) watchResize(stop <-chan struct{}) {
+	resizes, cancel := resizeSignals()
+	defer cancel()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-resizes:
+			v.mu.Lock()
+			_ = v.renderLocked()
+			v.mu.Unlock()
+		}
+	}
+}
+
+// Resize lets tests and alternate runtimes request an immediate reflow.
+func (v *View) Resize() error {
+	if v == nil {
+		return nil
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.renderLocked()
+}
+
+func (v *View) renderLocked() error {
 	if !v.open {
-		return
+		return v.err
 	}
 	width, height := 80, 24
 	if v.In != nil {
@@ -293,8 +518,10 @@ func (v *View) renderLocked() {
 			width, height = w, h
 		}
 	}
-	top := (height - 2) / 2
-	bottom := height - 2 - top
+	// Two headers and one footer consume three terminal rows.
+	body := height - 3
+	top := body / 2
+	bottom := body - top
 	lines := make([]string, 0, height)
 	lines = append(lines, "Workflow log")
 	lines = append(lines, tailWrapped(v.workflow, width, top, v.workflowOffset)...)
@@ -315,7 +542,35 @@ func (v *View) renderLocked() {
 		focus = "agent"
 	}
 	lines = append(lines, "i: close  Tab/arrows/Page/End: pane navigation ("+focus+")")
-	_, _ = io.WriteString(v.Out, "\x1b[H\x1b[2J"+strings.Join(lines, "\n"))
+	return v.writeLocked("\x1b[H\x1b[2J" + strings.Join(lines, "\n"))
+}
+
+func (v *View) writeLocked(value string) error {
+	if v.err != nil {
+		return v.err
+	}
+	if _, err := io.WriteString(v.Out, value); err != nil {
+		v.err = err
+		// A writer can fail after partially accepting an alternate-screen
+		// transition. Attempt restoration immediately and leave open set so Stop
+		// retries the screen restoration during workflow teardown.
+		_, _ = io.WriteString(v.Out, "\x1b[?25h\x1b[?1049l")
+		if v.restore != nil && v.In != nil {
+			_ = term.Restore(int(v.In.Fd()), v.restore)
+			v.restore = nil
+		}
+		return err
+	}
+	return nil
+}
+
+func (v *View) Err() error {
+	if v == nil {
+		return nil
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.err
 }
 
 func appendBounded(lines []string, values ...string) []string {

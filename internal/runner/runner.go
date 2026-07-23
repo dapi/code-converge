@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -20,7 +19,11 @@ type Invocation struct {
 }
 
 // Output is one observed process chunk. It is delivered while a process is
-// running and remains separate from the final captured Result.
+// running and remains separate from the final captured Result. Supplying an
+// observer opts into the bounded live-observer drain; leave it nil when the
+// caller requires inherited-descriptor output to be captured through EOF.
+// Chunks retain their source label, but independent stdout/stderr pipes do not
+// provide an exact cross-stream write order.
 type Output struct {
 	Source string // stdout or stderr
 	Data   []byte
@@ -40,6 +43,76 @@ type Exec struct {
 	Dir        string
 }
 
+type outputQueue struct {
+	mu           sync.Mutex
+	cond         *sync.Cond
+	items        []Output
+	pendingBytes int
+	closed       bool
+}
+
+// The observer is a presentation path and must not be allowed to retain an
+// unbounded amount of process output when rendering falls behind. Captured
+// stdout/stderr remain lossless; only the pending observer data is lossy under
+// sustained overload. Evicting the oldest data keeps the view close to the
+// live tail, which is also what the bounded panes display.
+const (
+	maxOutputQueueBytes = 1 << 20
+	maxOutputQueueItems = 32
+)
+
+func newOutputQueue() *outputQueue {
+	q := &outputQueue{}
+	q.cond = sync.NewCond(&q.mu)
+	return q
+}
+
+func (q *outputQueue) add(output Output) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.closed {
+		return
+	}
+
+	if len(output.Data) > maxOutputQueueBytes {
+		output.Data = output.Data[len(output.Data)-maxOutputQueueBytes:]
+	}
+	for len(q.items) > 0 && (len(q.items) >= maxOutputQueueItems || q.pendingBytes+len(output.Data) > maxOutputQueueBytes) {
+		q.pendingBytes -= len(q.items[0].Data)
+		q.items[0].Data = nil
+		q.items = q.items[1:]
+	}
+	q.items = append(q.items, output)
+	q.pendingBytes += len(output.Data)
+	q.cond.Signal()
+}
+
+func (q *outputQueue) close() {
+	q.mu.Lock()
+	q.closed = true
+	q.cond.Broadcast()
+	q.mu.Unlock()
+}
+
+func (q *outputQueue) run(output func(Output)) {
+	for {
+		q.mu.Lock()
+		for len(q.items) == 0 && !q.closed {
+			q.cond.Wait()
+		}
+		if len(q.items) == 0 && q.closed {
+			q.mu.Unlock()
+			return
+		}
+		item := q.items[0]
+		q.pendingBytes -= len(item.Data)
+		q.items[0].Data = nil
+		q.items = q.items[1:]
+		q.mu.Unlock()
+		output(item)
+	}
+}
+
 func (r Exec) Run(ctx context.Context, invocation Invocation) (Result, error) {
 	name := r.Executable
 	if invocation.Executable != "" {
@@ -54,47 +127,54 @@ func (r Exec) Run(ctx context.Context, invocation Invocation) (Result, error) {
 	cmd.Env = append(os.Environ(), invocation.Env...)
 	cmd.Stdin = bytes.NewBufferString(invocation.Stdin)
 	var stdout, stderr bytes.Buffer
-	stdoutPipe, err := cmd.StdoutPipe()
+	stdoutReader, stdoutWriter, err := os.Pipe()
 	if err != nil {
 		return Result{}, fmt.Errorf("capture stdout: %w", err)
 	}
-	stderrPipe, err := cmd.StderrPipe()
+	stderrReader, stderrWriter, err := os.Pipe()
 	if err != nil {
+		_ = stdoutReader.Close()
+		_ = stdoutWriter.Close()
 		return Result{}, fmt.Errorf("capture stderr: %w", err)
 	}
+	cmd.Stdout = stdoutWriter
+	cmd.Stderr = stderrWriter
 	if err := ctx.Err(); err != nil {
+		_ = stdoutReader.Close()
+		_ = stdoutWriter.Close()
+		_ = stderrReader.Close()
+		_ = stderrWriter.Close()
 		return Result{}, err
 	}
 	err = cmd.Start()
+	// The child (and any descendants it creates) now owns the write ends.
+	// Keeping parent copies open would prevent the readers from seeing EOF.
+	_ = stdoutWriter.Close()
+	_ = stderrWriter.Close()
 	if err != nil {
+		_ = stdoutReader.Close()
+		_ = stderrReader.Close()
 		result := Result{Stdout: stdout.String(), Stderr: stderr.String()}
 		return result, formatRunError(name, err, result.Stderr)
 	}
-	var copies sync.WaitGroup
-	var outputMu sync.Mutex
-	copyStream := func(source string, input io.Reader, capture *bytes.Buffer) {
-		defer copies.Done()
-		buffer := make([]byte, 32*1024)
-		for {
-			n, readErr := input.Read(buffer)
-			if n > 0 {
-				chunk := append([]byte(nil), buffer[:n]...)
-				_, _ = capture.Write(chunk)
-				if invocation.Output != nil {
-					outputMu.Lock()
-					invocation.Output(Output{Source: source, Data: chunk})
-					outputMu.Unlock()
-				}
-			}
-			if readErr != nil {
-				return
-			}
-		}
+	var outputDone chan struct{}
+	var outputs *outputQueue
+	if invocation.Output != nil {
+		outputs = newOutputQueue()
+		outputDone = make(chan struct{})
+		go func() {
+			outputs.run(invocation.Output)
+			close(outputDone)
+		}()
 	}
-	copies.Add(2)
-	go copyStream("stdout", stdoutPipe, &stdout)
-	go copyStream("stderr", stderrPipe, &stderr)
 	done := make(chan struct{})
+	streamsDone := make(chan struct{})
+	// A single multiplexer observes both descriptors. Separate reader
+	// goroutines would make observer order depend on goroutine scheduling.
+	go func() {
+		copyStreams(stdoutReader, stderrReader, &stdout, &stderr, outputs, done)
+		close(streamsDone)
+	}()
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -102,9 +182,18 @@ func (r Exec) Run(ctx context.Context, invocation Invocation) (Result, error) {
 		case <-done:
 		}
 	}()
-	copies.Wait()
 	err = cmd.Wait()
 	close(done)
+	// Capture-only runs drain to EOF so descendants that inherited the pipe do
+	// not lose output. The live observer path uses a bounded post-exit drain to
+	// avoid making an interactive run wait forever for a descendant-owned pipe.
+	<-streamsDone
+	_ = stdoutReader.Close()
+	_ = stderrReader.Close()
+	if outputs != nil {
+		outputs.close()
+		<-outputDone
+	}
 	result := Result{Stdout: stdout.String(), Stderr: stderr.String()}
 	if err != nil {
 		return result, formatRunError(name, err, result.Stderr)

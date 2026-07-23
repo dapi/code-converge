@@ -60,18 +60,28 @@ func (w *Workflow) Run(ctx context.Context) int {
 		}
 		stageCtx, cancelStage := context.WithCancel(ctx)
 		liveness := w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "review", Model: w.stageModel("review"), ReasoningEffort: w.stageReasoningEffort("review"), ReviewPhase: phase, Cycle: cycle}, stageStarted, cancelStage)
-		w.Log.StartAgent("review " + strconv.Itoa(phase) + "." + strconv.Itoa(cycle))
+		if err := w.Log.StartAgent("review " + strconv.Itoa(phase) + "." + strconv.Itoa(cycle)); err != nil {
+			_ = liveness.Stop()
+			cancelStage()
+			w.diagnostic("render interactive view", err)
+			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+		}
 		review, err := w.Agent.Review(stageCtx)
+		var presentationErr error
 		if err != nil {
-			w.Log.CompleteAgent("review failed")
+			presentationErr = w.Log.CompleteAgent("review failed")
 		} else {
-			w.Log.CompleteAgent("review completed")
+			presentationErr = w.Log.CompleteAgent("review completed")
 		}
 		livenessErr := liveness.Stop()
 		cancelStage()
 		duration := durationField(now().Sub(stageStarted))
 		if livenessErr != nil {
 			w.diagnostic("write liveness", livenessErr)
+			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+		}
+		if presentationErr != nil {
+			w.diagnostic("render interactive view", presentationErr)
 			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 		}
 		if err != nil {
@@ -110,17 +120,27 @@ func (w *Workflow) Run(ctx context.Context) int {
 			}
 			stageCtx, cancelStage = context.WithCancel(ctx)
 			liveness = w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "fix-findings", Model: w.stageModel("fix-findings"), ReasoningEffort: w.stageReasoningEffort("fix-findings"), ReviewPhase: phase, Cycle: cycle}, stageStarted, cancelStage)
-			w.Log.StartAgent("fix-findings " + strconv.Itoa(phase) + "." + strconv.Itoa(cycle))
+			if err := w.Log.StartAgent("fix-findings " + strconv.Itoa(phase) + "." + strconv.Itoa(cycle)); err != nil {
+				_ = liveness.Stop()
+				cancelStage()
+				w.diagnostic("render interactive view", err)
+				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+			}
 			err = w.Agent.FixFindings(stageCtx, review.Report)
+			presentationErr = nil
 			if err != nil {
-				w.Log.CompleteAgent("fix-findings failed")
+				presentationErr = w.Log.CompleteAgent("fix-findings failed")
 			} else {
-				w.Log.CompleteAgent("fix-findings completed")
+				presentationErr = w.Log.CompleteAgent("fix-findings completed")
 			}
 			livenessErr = liveness.Stop()
 			cancelStage()
 			if livenessErr != nil {
 				w.diagnostic("write liveness", livenessErr)
+				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+			}
+			if presentationErr != nil {
+				w.diagnostic("render interactive view", presentationErr)
 				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 			}
 			stageStatus := "success"
@@ -156,17 +176,27 @@ func (w *Workflow) Run(ctx context.Context) int {
 		}
 		stageCtx, cancelStage = context.WithCancel(ctx)
 		liveness = w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "finalize", Model: w.stageModel("finalize"), ReasoningEffort: w.stageReasoningEffort("finalize")}, stageStarted, cancelStage)
-		w.Log.StartAgent("finalize")
+		if err := w.Log.StartAgent("finalize"); err != nil {
+			_ = liveness.Stop()
+			cancelStage()
+			w.diagnostic("render interactive view", err)
+			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+		}
 		finalization, err := w.Agent.Finalize(stageCtx)
+		presentationErr = nil
 		if err != nil {
-			w.Log.CompleteAgent("finalize failed")
+			presentationErr = w.Log.CompleteAgent("finalize failed")
 		} else {
-			w.Log.CompleteAgent("finalize completed")
+			presentationErr = w.Log.CompleteAgent("finalize completed")
 		}
 		livenessErr = liveness.Stop()
 		cancelStage()
 		if livenessErr != nil {
 			w.diagnostic("write liveness", livenessErr)
+			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+		}
+		if presentationErr != nil {
+			w.diagnostic("render interactive view", presentationErr)
 			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 		}
 		if err != nil {
@@ -195,17 +225,27 @@ func (w *Workflow) Run(ctx context.Context) int {
 			}
 			stageCtx, cancelStage = context.WithCancel(ctx)
 			liveness = w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "fix-ci", Model: w.stageModel("fix-ci"), ReasoningEffort: w.stageReasoningEffort("fix-ci"), ReviewPhase: phase}, stageStarted, cancelStage)
-			w.Log.StartAgent("fix-ci " + strconv.Itoa(phase))
+			if err := w.Log.StartAgent("fix-ci " + strconv.Itoa(phase)); err != nil {
+				_ = liveness.Stop()
+				cancelStage()
+				w.diagnostic("render interactive view", err)
+				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+			}
 			err = w.Agent.FixCI(stageCtx)
+			presentationErr = nil
 			if err != nil {
-				w.Log.CompleteAgent("fix-ci failed")
+				presentationErr = w.Log.CompleteAgent("fix-ci failed")
 			} else {
-				w.Log.CompleteAgent("fix-ci completed")
+				presentationErr = w.Log.CompleteAgent("fix-ci completed")
 			}
 			livenessErr = liveness.Stop()
 			cancelStage()
 			if livenessErr != nil {
 				w.diagnostic("write liveness", livenessErr)
+				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+			}
+			if presentationErr != nil {
+				w.diagnostic("render interactive view", presentationErr)
 				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 			}
 			stageStatus := "success"

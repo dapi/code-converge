@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/dapi/code-converge/internal/terminal"
 )
 
 func TestEmit(t *testing.T) {
@@ -102,6 +104,25 @@ func TestInteractiveHumanStageStartIsOmitted(t *testing.T) {
 	}
 }
 
+func TestInteractiveHumanStageStartIsWrittenWhenViewIsClosed(t *testing.T) {
+	var out bytes.Buffer
+	view := terminal.New(&out, nil)
+	logger := Logger{Out: &out, Format: "human", Interactive: true, View: view, Now: func() time.Time { return time.Date(2026, 7, 21, 10, 4, 5, 0, time.UTC) }, HumanMaxCycles: 10}
+	if err := logger.Emit("stage_started", F("stage", "review"), F("model", "gpt-test"), F("reasoning_effort", "high"), F("review_phase", "1"), F("cycle", "1")); err != nil {
+		t.Fatal(err)
+	}
+	want := "10:04:05 [1/10] [gpt-test/high] Review started\n"
+	if got := out.String(); got != want {
+		t.Fatalf("closed-view stage start = %q, want %q", got, want)
+	}
+	if err := view.Toggle(); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(out.String(), want); got != 2 {
+		t.Fatalf("stage start rendered %d times, want one stdout record and one pane record", got)
+	}
+}
+
 func TestAgentOutputWithoutViewNeverWritesWorkflowStdout(t *testing.T) {
 	var out bytes.Buffer
 	logger := Logger{Out: &out, Format: "human"}
@@ -171,6 +192,50 @@ func TestHeartbeatIsNewlineSafeAndStops(t *testing.T) {
 		t.Fatalf("late write after stop: %q", late)
 	default:
 	}
+}
+
+func TestHeartbeatIsRoutedToOpenView(t *testing.T) {
+	var out bytes.Buffer
+	view := terminal.New(&out, nil)
+	view.Toggle()
+	logger := Logger{Out: &out, Format: "human", View: view}
+	if err := logger.writeHeartbeat(StageContext{Stage: "review", Cycle: 1}, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if !view.Active() || !strings.Contains(out.String(), "Review still running") {
+		t.Fatalf("heartbeat was not rendered in active view: %q", out.String())
+	}
+	_ = view.Stop()
+}
+
+func TestFinalRecordRestoresViewFirst(t *testing.T) {
+	var out bytes.Buffer
+	view := terminal.New(&out, nil)
+	if err := view.Toggle(); err != nil {
+		t.Fatal(err)
+	}
+	logger := Logger{Out: &out, Format: "human", Now: func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) }, View: view}
+	if err := logger.Emit("run_completed", F("status", "success"), F("exit_code", "0"), F("total_duration_ms", "0")); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if restore, done := strings.Index(got, "\x1b[?1049l"), strings.Index(got, "Done (0s)"); restore < 0 || done < restore {
+		t.Fatalf("final output was not restored first: %q", got)
+	}
+}
+
+func TestDiagnosticIsSanitizedInActiveView(t *testing.T) {
+	var out bytes.Buffer
+	view := terminal.New(&out, nil)
+	if err := view.Toggle(); err != nil {
+		t.Fatal(err)
+	}
+	logger := Logger{Err: &out, View: view}
+	logger.Diagnostic("agent failed", errors.New("bad \x1b[31mterminal sequence"))
+	if strings.Contains(out.String(), "\x1b[31m") {
+		t.Fatalf("unsafe diagnostic reached view: %q", out.String())
+	}
+	_ = view.Stop()
 }
 
 func TestTransientClearedBeforePermanentAndDiagnostic(t *testing.T) {

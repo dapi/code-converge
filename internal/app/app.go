@@ -152,6 +152,8 @@ func (a App) Run(ctx context.Context, args []string) int {
 	if processRunner == nil {
 		processRunner = runner.Exec{Executable: "codex", Dir: cwd}
 	}
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
 	reviewScope := &repository.ReviewScope{Runner: processRunner, Base: cfg.ReviewBase, Root: cfg.Root}
 	defer reviewScope.Close()
 	var view *terminal.View
@@ -164,8 +166,9 @@ func (a App) Run(ctx context.Context, args []string) int {
 		lookup = os.LookupEnv
 	}
 	termName, _ := lookup("TERM")
-	if cfg.LogFormat == "human" && a.isTerminal(stdout) && termName != "" && termName != "dumb" {
+	if cfg.LogFormat == "human" && terminal.IsTerminalWriter(stdout) && termName != "" && termName != "dumb" {
 		candidate := terminal.New(stdout, stdin)
+		candidate.Interrupt = cancelRun
 		if candidate.Eligible() && candidate.Start() == nil {
 			view = candidate
 			defer view.Stop()
@@ -173,11 +176,15 @@ func (a App) Run(ctx context.Context, args []string) int {
 	}
 	logger := event.Logger{
 		Out: stdout, Err: stderr, Now: a.Now, Format: cfg.LogFormat, Heartbeat: cfg.Heartbeat,
-		Interactive: a.isTerminal(stdout), ColorDepth: a.colorDepth(cfg, stdout), View: view,
+		Interactive: terminal.IsTerminalWriter(stdout), ColorDepth: a.colorDepth(cfg, stdout), View: view,
 	}
-	agent := codex.Adapter{Runner: processRunner, Config: cfg, ReviewScope: reviewScope, Output: logger.AgentOutput}
+	var agentOutput func(string, []byte)
+	if view != nil {
+		agentOutput = logger.AgentOutput
+	}
+	agent := codex.Adapter{Runner: processRunner, Config: cfg, ReviewScope: reviewScope, Output: agentOutput}
 	w := workflow.Workflow{Config: cfg, Agent: agent, Repository: repository.Status{Runner: processRunner}, Log: &logger, Err: stderr, Now: a.Now}
-	return w.Run(ctx)
+	return w.Run(runCtx)
 }
 
 func rootUsage(out io.Writer) {
