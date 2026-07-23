@@ -86,12 +86,12 @@ The log applies the canonical FPF propose → analyze → test reasoning cycle. 
 
 ### `DL-07` — Private index across Codex shell-environment policy
 
-- **Status:** resolved during review-improve Cycle 2; promoted as `SD-07`, `FM-08`, `CON-05`.
+- **Status:** superseded for transport mechanics by the later FT-016 scoped-Git hardening; the requirement promoted as `SD-07`, `FM-08`, `CON-05` remains active.
 - **Question:** Is passing `ReviewTarget.Env` to the Codex process sufficient to keep `GIT_INDEX_FILE` available to reviewing-agent tool commands?
 - **Facts:** `internal/runner` passes `ReviewTarget.Env` to the Codex process. The current official Codex manual states that `shell_environment_policy` controls variables forwarded to spawned commands, may use `include_only`/`exclude`, and that `set` values always win. Issue #22 and `REQ-04` require the private-index snapshot to remain available to the reviewing agent. The index path is local non-secret target metadata already present in `ReviewTarget.Env`.
 - **Alternatives:** (A) rely on default environment inheritance; (B) mention only the path in the prompt; (C) preserve process env and add an invocation-local `shell_environment_policy.set.GIT_INDEX_FILE` override matching the prompt/path.
 - **FPF reasoning:** **Propose:** C is the only candidate robust to documented user filters without changing persistent configuration. **Analyze:** A fails under `include_only`; B relies on model behavior and can still leave ordinary Git tool calls pointed at the real index. C uses the supported override precedence and changes exactly one non-secret variable for this invocation. **Test predictions:** process env, config override and prompt contain the identical TOML-safe path; missing or duplicate target entries fail before Codex starts.
-- **Result:** bind the exact private-index path into both the process environment and Codex spawned-tool policy; validate a single non-empty target entry.
+- **Result:** the original delivery bound the exact private-index path into both the process environment and Codex spawned-tool policy. FT-016 follow-up hardening replaced that transport with a wrapper-first `PATH` and private sidecar so the same snapshot remains available without exporting `GIT_INDEX_FILE` to unrelated commands; FT-022's schema/final-message result channel is unchanged.
 - **Confidence:** high; direct runner, issue and current Codex manual facts.
 
 ### `DL-08` — Selected base versus merge-base comparison

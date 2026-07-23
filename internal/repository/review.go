@@ -26,7 +26,7 @@ const ghPRListLimit = "1000000"
 
 const disableSplitIndexConfig = "core.splitIndex=false"
 
-// ReviewTarget is the resolved base and private index used for one review.
+// ReviewTarget is the resolved base and scoped Git environment used for one review.
 type ReviewTarget struct {
 	Base       string
 	BaseCommit string
