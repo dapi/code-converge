@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"io"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -114,6 +115,8 @@ func (w *Workflow) Run(ctx context.Context) int {
 				canCheckpoint = clean
 				if !clean {
 					checkpointSkipReason = "pre_existing_changes"
+				} else {
+					checkpointSkipReason = ""
 				}
 			}
 			stageStarted = now()
@@ -239,7 +242,7 @@ func (w *Workflow) Run(ctx context.Context) int {
 func (w *Workflow) completeFindingsRemaining(elapsed time.Duration, checkpoint repository.Checkpoint, hadFixes bool, skippedReason string) int {
 	fields := []event.Field{event.F("status", "findings_remaining"), intField("exit_code", ExitFindingsRemaining), event.F("total_duration_ms", milliseconds(elapsed))}
 	if checkpoint.Created {
-		fields = append(fields, event.F("checkpoint_status", "committed_local"), event.F("checkpoint_branch", checkpoint.Branch), event.F("checkpoint_commit", checkpoint.Commit))
+		fields = append(fields, event.F("checkpoint_status", "committed_local"), event.F("checkpoint_branch", url.QueryEscape(checkpoint.Branch)), event.F("checkpoint_commit", checkpoint.Commit))
 	} else if hadFixes {
 		if skippedReason != "" {
 			fields = append(fields, event.F("checkpoint_status", "not_attempted"), event.F("checkpoint_reason", skippedReason))

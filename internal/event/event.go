@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -352,7 +353,11 @@ func renderHuman(eventName string, fields []Field, maxCycles, maxCIRecoveries in
 		case "findings_remaining":
 			switch values["checkpoint_status"] {
 			case "committed_local":
-				return fmt.Sprintf("Stopped: fix budget exhausted; finalization was not reached; checkpoint committed locally on %s at %s and not pushed (%s, exit 1)", values["checkpoint_branch"], values["checkpoint_commit"], d), nil
+				branch, err := url.QueryUnescape(values["checkpoint_branch"])
+				if err != nil {
+					return "", fmt.Errorf("decode checkpoint_branch: %w", err)
+				}
+				return fmt.Sprintf("Stopped: fix budget exhausted; finalization was not reached; checkpoint committed locally on %s at %s and not pushed (%s, exit 1)", branch, values["checkpoint_commit"], d), nil
 			case "no_changes":
 				return fmt.Sprintf("Stopped: fix budget exhausted; finalization was not reached; no checkpoint was needed (%s, exit 1)", d), nil
 			case "not_attempted":
