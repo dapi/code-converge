@@ -42,6 +42,7 @@ type View struct {
 	done              chan struct{}
 	reader            keyReader
 	err               error
+	transientClearer  func() error
 	// Interrupt is invoked when Ctrl-C is received while raw mode is active.
 	// MakeRaw disables ISIG, so forwarding this byte is necessary to preserve
 	// the command's normal signal-driven cancellation behavior.
@@ -308,13 +309,13 @@ func (v *View) rebuildAgentLocked() {
 	}
 }
 
-// WriteTransient serializes the open-state check and the fallback terminal
-// write with Toggle/rendering. It returns true when the view consumed the
-// liveness frame.
-func (v *View) WriteTransient(out io.Writer, value string) (bool, error) {
+// WriteTransient serializes the open-state check and fallback rendering with
+// Toggle/rendering. fallback runs only while the primary screen is active, so
+// it can clear a transient frame in the same buffer where it was drawn. It
+// returns true when the view consumed the liveness frame.
+func (v *View) WriteTransient(fallback func() error) (bool, error) {
 	if v == nil {
-		_, err := io.WriteString(out, value)
-		return false, err
+		return false, fallback()
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -324,8 +325,19 @@ func (v *View) WriteTransient(out io.Writer, value string) (bool, error) {
 	if v.open {
 		return true, nil
 	}
-	_, err := io.WriteString(out, value)
-	return false, err
+	return false, fallback()
+}
+
+// SetTransientClearer registers the primary-screen cleanup that must happen
+// after this view restores that screen. The callback is invoked without the
+// view lock, so it may safely coordinate with the progress renderer.
+func (v *View) SetTransientClearer(clearer func() error) {
+	if v == nil {
+		return
+	}
+	v.mu.Lock()
+	v.transientClearer = clearer
+	v.mu.Unlock()
 }
 
 func (v *View) Toggle() error {
@@ -333,19 +345,27 @@ func (v *View) Toggle() error {
 		return nil
 	}
 	v.mu.Lock()
-	defer v.mu.Unlock()
 	if v.err != nil {
+		v.mu.Unlock()
 		return v.err
 	}
 	v.open = !v.open
 	if v.open {
 		if err := v.writeLocked("\x1b[?1049h\x1b[?25l"); err != nil {
+			v.mu.Unlock()
 			return err
 		}
-		return v.renderLocked()
-	} else {
-		return v.writeLocked("\x1b[?25h\x1b[?1049l")
+		err := v.renderLocked()
+		v.mu.Unlock()
+		return err
 	}
+	err := v.writeLocked("\x1b[?25h\x1b[?1049l")
+	clearer := v.transientClearer
+	v.mu.Unlock()
+	if err != nil || clearer == nil {
+		return err
+	}
+	return clearer()
 }
 
 func (v *View) scroll(delta int) {

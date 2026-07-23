@@ -19,6 +19,7 @@ import (
 	selfupdate "github.com/dapi/code-converge/internal/update"
 	"github.com/dapi/code-converge/internal/version"
 	"github.com/dapi/code-converge/internal/workflow"
+	"golang.org/x/term"
 )
 
 type optionalFlag struct{ target *config.OptionalString }
@@ -36,16 +37,17 @@ func (f optionalFlag) Set(value string) error {
 }
 
 type App struct {
-	Stdout     io.Writer
-	Stderr     io.Writer
-	Stdin      *os.File
-	Cwd        string
-	Home       string
-	Runner     runner.Runner
-	Now        func() time.Time
-	IsTerminal func(io.Writer) bool
-	LookupEnv  func(string) (string, bool)
-	Updater    selfupdate.Runner
+	Stdout        io.Writer
+	Stderr        io.Writer
+	Stdin         *os.File
+	Cwd           string
+	Home          string
+	Runner        runner.Runner
+	Now           func() time.Time
+	IsTerminal    func(io.Writer) bool
+	TerminalWidth func(io.Writer) (int, error)
+	LookupEnv     func(string) (string, bool)
+	Updater       selfupdate.Runner
 }
 
 func (a App) Run(ctx context.Context, args []string) int {
@@ -180,6 +182,9 @@ func (a App) Run(ctx context.Context, args []string) int {
 		Out: stdout, Err: stderr, Now: a.Now, Format: cfg.LogFormat, Heartbeat: cfg.Heartbeat,
 		Interactive: a.isTerminal(stdout), ColorDepth: a.colorDepth(cfg, stdout), View: view,
 	}
+	if logger.Interactive && cfg.LogFormat == "human" && cfg.Heartbeat == 0 {
+		logger.TerminalWidth = func() (int, error) { return a.terminalWidth(stdout) }
+	}
 	if !cfg.NoSessionLog {
 		writer, sessionErr := session.Start(session.Config{
 			Dir: cfg.SessionLogDir, Retention: cfg.SessionLogRetention, Now: a.Now,
@@ -229,8 +234,22 @@ func (a App) isTerminal(out io.Writer) bool {
 	if !ok {
 		return false
 	}
-	info, err := file.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(int(file.Fd()))
+}
+
+func (a App) terminalWidth(out io.Writer) (int, error) {
+	if a.TerminalWidth != nil {
+		return a.TerminalWidth(out)
+	}
+	file, ok := out.(*os.File)
+	if !ok {
+		return 0, fmt.Errorf("stdout is not a file")
+	}
+	width, _, err := term.GetSize(int(file.Fd()))
+	if err != nil {
+		return 0, err
+	}
+	return width, nil
 }
 
 func (a App) colorDepth(cfg config.Config, out io.Writer) int {

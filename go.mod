@@ -2,6 +2,10 @@ module github.com/dapi/code-converge
 
 go 1.21.13
 
-require golang.org/x/term v0.21.0
+require (
+	github.com/mattn/go-runewidth v0.0.16
+	github.com/rivo/uniseg v0.2.0
+	golang.org/x/term v0.21.0
+)
 
-require golang.org/x/sys v0.21.0 // indirect
+require golang.org/x/sys v0.21.0
