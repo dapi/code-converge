@@ -263,8 +263,8 @@ func TestCIRecoveryRestartsReviewPhase(t *testing.T) {
 
 func TestStageModelsAreLogged(t *testing.T) {
 	agent := &fakeAgent{reviews: []codex.ReviewResult{findings(), clean(), clean()}, finalizations: []codex.Finalization{ciFailed(), success()}}
-	_, output, _ := run(t, config.Config{MaxCycles: 1, MaxCIRecoveries: 1, ReviewModel: "review", ReviewEffort: "high", FixModel: "fix", FixEffort: "low", FinalizeModel: "final", CIFixModel: "ci"}, agent)
-	for _, stage := range []struct{ name, model, effort string }{{"review", "review", "high"}, {"fix-findings", "fix", "low"}, {"finalize", "final", "agent-default"}, {"fix-ci", "ci", "agent-default"}} {
+	_, output, _ := run(t, config.Config{MaxCycles: 1, MaxCIRecoveries: 1, ReviewModel: "review", ReviewEffort: "high", FixModel: "fix", FixEffort: "low", FinalizeModel: "final", FinalizeEffort: "medium", CIFixModel: "ci", CIFixEffort: "high"}, agent)
+	for _, stage := range []struct{ name, model, effort string }{{"review", "review", "high"}, {"fix-findings", "fix", "low"}, {"finalize", "final", "medium"}, {"fix-ci", "ci", "high"}} {
 		assertRecord(t, output, "event=stage_started", "stage="+stage.name, "model="+stage.model, "reasoning_effort="+stage.effort)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -18,6 +19,11 @@ import (
 	"time"
 
 	"github.com/dapi/code-converge/internal/runner"
+)
+
+var (
+	chmod      = os.Chmod
+	createTemp = os.CreateTemp
 )
 
 type Config struct {
@@ -71,8 +77,13 @@ func Start(cfg Config) (*Writer, error) {
 	if err := os.MkdirAll(cfg.Dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create session log directory: %w", err)
 	}
-	_ = os.Chmod(cfg.Dir, 0o700)
-	cleanupErr := cleanup(cfg.Dir, cfg.Retention, cfg.Now())
+	var diagnostics []error
+	if err := chmod(cfg.Dir, 0o700); err != nil {
+		diagnostics = append(diagnostics, fmt.Errorf("set session log directory permissions: %w", err))
+	}
+	if err := cleanup(cfg.Dir, cfg.Retention, cfg.Now()); err != nil {
+		diagnostics = append(diagnostics, err)
+	}
 
 	random, err := randomSuffix()
 	if err != nil {
@@ -85,9 +96,10 @@ func Start(cfg Config) (*Writer, error) {
 	startedAt := cfg.Now().UTC().Format(time.RFC3339Nano)
 	writer := &Writer{dir: cfg.Dir, sessionDir: sessionDir, startedAt: startedAt, now: cfg.Now, diagnostic: cfg.Diagnostic}
 	if err := writer.writeJSON("session.json", sessionRecord{StartedAt: startedAt}); err != nil {
+		_ = os.RemoveAll(sessionDir)
 		return nil, err
 	}
-	return writer, cleanupErr
+	return writer, errors.Join(diagnostics...)
 }
 
 func (w *Writer) Path() string { return w.sessionDir }
@@ -149,7 +161,7 @@ func (w *Writer) writeJSON(name string, value any) error {
 		return fmt.Errorf("marshal session record: %w", err)
 	}
 	data = append(data, '\n')
-	temporary, err := os.CreateTemp(w.sessionDir, ".session-log-*")
+	temporary, err := createTemp(w.sessionDir, ".session-log-*")
 	if err != nil {
 		return fmt.Errorf("create session record: %w", err)
 	}
@@ -192,7 +204,7 @@ func cleanup(root string, retention time.Duration, now time.Time) error {
 		if err != nil {
 			return fmt.Errorf("inspect session log: %w", err)
 		}
-		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || !info.ModTime().Before(now.Add(-retention)) {
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || !completedBefore(path, now.Add(-retention)) {
 			continue
 		}
 		if err := os.RemoveAll(path); err != nil {
@@ -200,6 +212,27 @@ func cleanup(root string, retention time.Duration, now time.Time) error {
 		}
 	}
 	return nil
+}
+
+// completedBefore reports whether path belongs to a session that has explicitly
+// completed before cutoff. An incomplete or unreadable session is retained: it
+// may still be active, and cleanup must never remove another running workflow.
+func completedBefore(path string, cutoff time.Time) bool {
+	metadataPath := filepath.Join(path, "session.json")
+	info, err := os.Lstat(metadataPath)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	data, err := os.ReadFile(metadataPath)
+	if err != nil {
+		return false
+	}
+	var record sessionRecord
+	if err := json.Unmarshal(data, &record); err != nil || record.CompletedAt == "" {
+		return false
+	}
+	completedAt, err := time.Parse(time.RFC3339Nano, record.CompletedAt)
+	return err == nil && completedAt.Before(cutoff)
 }
 
 func randomSuffix() (string, error) {
@@ -211,14 +244,16 @@ func randomSuffix() (string, error) {
 }
 
 var (
-	keySecret   = regexp.MustCompile(`(?i)((?:token|secret|password|api[-_]?key|authorization|cookie)\s*(?:[:=]\s*|\s+))([^\s,;]+)`)
-	bearer      = regexp.MustCompile(`(?i)\bbearer\s+[^\s,;]+`)
-	githubToken = regexp.MustCompile(`(?i)\b(?:ghp|gho|ghs|ghr)_[a-z0-9_]+\b|\bgithub_pat_[a-z0-9_]+\b`)
+	keySecret    = regexp.MustCompile(`(?i)((?:["']?[a-z0-9_.-]*(?:token|secret|password|api[-_]?key|apikey|authorization|cookie)[a-z0-9_.-]*["']?)\s*(?:[:=]\s*|\s+))(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;}\]\r\n]+)`)
+	secretHeader = regexp.MustCompile(`(?im)(^|\r?\n)(\s*(?:authorization|cookie)\s*:\s*)[^\r\n]*`)
+	bearer       = regexp.MustCompile(`(?i)\bbearer\s+[^\s,;]+`)
+	githubToken  = regexp.MustCompile(`(?i)\b(?:ghp|gho|ghs|ghr)_[a-z0-9_]+\b|\bgithub_pat_[a-z0-9_]+\b`)
 )
 
 func redact(value string) string {
-	value = keySecret.ReplaceAllString(value, "$1[REDACTED]")
 	value = bearer.ReplaceAllString(value, "Bearer [REDACTED]")
+	value = keySecret.ReplaceAllString(value, "$1[REDACTED]")
+	value = secretHeader.ReplaceAllString(value, "$1$2[REDACTED]")
 	return githubToken.ReplaceAllString(value, "[REDACTED]")
 }
 
@@ -226,6 +261,21 @@ func redactAll(values []string) []string {
 	result := make([]string, len(values))
 	for index, value := range values {
 		result[index] = redact(value)
+		if index > 0 && credentialFlag(values[index-1]) {
+			result[index] = "[REDACTED]"
+		}
 	}
 	return result
+}
+
+func credentialFlag(value string) bool {
+	key := strings.TrimLeft(value, "-")
+	if strings.Contains(key, "=") {
+		return false
+	}
+	key = strings.ToLower(key)
+	return strings.Contains(key, "token") || strings.Contains(key, "secret") ||
+		strings.Contains(key, "password") || strings.Contains(key, "api-key") ||
+		strings.Contains(key, "api_key") || strings.Contains(key, "apikey") ||
+		strings.Contains(key, "authorization") || strings.Contains(key, "cookie")
 }

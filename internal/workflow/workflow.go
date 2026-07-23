@@ -253,7 +253,15 @@ func (w *Workflow) stageReasoningEffort(stage string) string {
 			return w.Config.FixEffort
 		}
 		return "medium"
-	case "finalize", "fix-ci":
+	case "finalize":
+		if w.Config.FinalizeEffort != "" {
+			return w.Config.FinalizeEffort
+		}
+		return "agent-default"
+	case "fix-ci":
+		if w.Config.CIFixEffort != "" {
+			return w.Config.CIFixEffort
+		}
 		return "agent-default"
 	default:
 		return "unknown"

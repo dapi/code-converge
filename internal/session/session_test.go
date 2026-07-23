@@ -30,8 +30,8 @@ func TestRecordsRedactedCodexInvocation(t *testing.T) {
 	if err != nil || writer == nil {
 		t.Fatalf("writer=%v err=%v", writer, err)
 	}
-	fake := &fakeRunner{result: runner.Result{Stdout: "Bearer ghp_secret", Stderr: "token=other", ExitCode: 7}, err: errors.New("codex exited: github_pat_secret")}
-	_, err = Wrap(fake, writer).Run(runner.WithStageContext(context.Background(), runner.StageContext{Stage: "review", ReviewPhase: 1, Cycle: 2, Model: "model", ReasoningEffort: "high"}), runner.Invocation{Args: []string{"--api-key=secret", "exec"}, Stdin: "Authorization: Bearer secret", Env: []string{"TOKEN=not-logged"}})
+	fake := &fakeRunner{result: runner.Result{Stdout: `Bearer ghp_secret {"token":"json_secret"}`, Stderr: "token=other", ExitCode: 7}, err: errors.New("codex exited: github_pat_secret")}
+	_, err = Wrap(fake, writer).Run(runner.WithStageContext(context.Background(), runner.StageContext{Stage: "review", ReviewPhase: 1, Cycle: 2, Model: "model", ReasoningEffort: "high"}), runner.Invocation{Args: []string{"--api-key=inline_secret", "--client-secret", "following_secret", "exec"}, Stdin: "Authorization: Bearer header_secret", Env: []string{"TOKEN=not-logged"}})
 	if err == nil || fake.calls != 1 {
 		t.Fatalf("err=%v calls=%d", err, fake.calls)
 	}
@@ -40,7 +40,7 @@ func TestRecordsRedactedCodexInvocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, secret := range []string{"ghp_secret", "other", "github_pat_secret", "TOKEN=not-logged"} {
+	for _, secret := range []string{"ghp_secret", "json_secret", "other", "github_pat_secret", "inline_secret", "following_secret", "header_secret", "TOKEN=not-logged"} {
 		if strings.Contains(text, secret) {
 			t.Fatalf("session record leaked %q: %s", secret, text)
 		}
@@ -58,6 +58,19 @@ func TestRecordsRedactedCodexInvocation(t *testing.T) {
 	}
 }
 
+func TestRedactRemovesCompleteAuthorizationAndCookieHeaders(t *testing.T) {
+	value := "Authorization: Basic dXNlcjpwYXNz\nCookie: SID=secret; CSRF=other"
+	redacted := redact(value)
+	for _, secret := range []string{"dXNlcjpwYXNz", "SID=secret", "CSRF=other"} {
+		if strings.Contains(redacted, secret) {
+			t.Fatalf("redaction leaked %q: %q", secret, redacted)
+		}
+	}
+	if redacted != "Authorization: [REDACTED]\nCookie: [REDACTED]" {
+		t.Fatalf("redacted=%q", redacted)
+	}
+}
+
 func TestCleanupIsBoundedAndOptInRecordDirectoriesAreConcurrent(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
@@ -66,7 +79,25 @@ func TestCleanupIsBoundedAndOptInRecordDirectoriesAreConcurrent(t *testing.T) {
 		t.Fatal(err)
 	}
 	oldTime := now.Add(-25 * time.Hour)
-	if err := os.Chtimes(old, oldTime, oldTime); err != nil {
+	oldRecord, err := json.Marshal(sessionRecord{StartedAt: oldTime.Add(-time.Hour).Format(time.RFC3339Nano), CompletedAt: oldTime.Format(time.RFC3339Nano)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(old, "session.json"), oldRecord, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	active := filepath.Join(root, "session-active")
+	if err := os.Mkdir(active, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	activeRecord, err := json.Marshal(sessionRecord{StartedAt: oldTime.Format(time.RFC3339Nano)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(active, "session.json"), activeRecord, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(active, oldTime, oldTime); err != nil {
 		t.Fatal(err)
 	}
 	outside := filepath.Join(t.TempDir(), "outside")
@@ -87,8 +118,68 @@ func TestCleanupIsBoundedAndOptInRecordDirectoriesAreConcurrent(t *testing.T) {
 	if _, err := os.Stat(old); !os.IsNotExist(err) {
 		t.Fatalf("expired log remains: %v", err)
 	}
+	if _, err := os.Stat(active); err != nil {
+		t.Fatalf("cleanup removed active session: %v", err)
+	}
 	if _, err := os.Stat(outside); err != nil {
 		t.Fatalf("cleanup touched symlink target: %v", err)
+	}
+}
+
+func TestCleanupRetainsSessionWithSymlinkedMetadata(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+	sessionDir := filepath.Join(root, "session-symlinked-metadata")
+	if err := os.Mkdir(sessionDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	outsideRecord := filepath.Join(t.TempDir(), "session.json")
+	old := now.Add(-25 * time.Hour)
+	data, err := json.Marshal(sessionRecord{StartedAt: old.Add(-time.Hour).Format(time.RFC3339Nano), CompletedAt: old.Format(time.RFC3339Nano)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outsideRecord, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideRecord, filepath.Join(sessionDir, "session.json")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if err := cleanup(root, 24*time.Hour, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(sessionDir); err != nil {
+		t.Fatalf("cleanup removed session with symlinked metadata: %v", err)
+	}
+}
+
+func TestStartReportsRootPermissionFailureWithoutDiscardingWriter(t *testing.T) {
+	originalChmod := chmod
+	chmod = func(string, os.FileMode) error { return errors.New("chmod denied") }
+	t.Cleanup(func() { chmod = originalChmod })
+	writer, err := Start(Config{Dir: t.TempDir(), Retention: time.Hour})
+	if writer == nil || err == nil || !strings.Contains(err.Error(), "set session log directory permissions: chmod denied") {
+		t.Fatalf("writer=%v err=%v", writer, err)
+	}
+}
+
+func TestStartRemovesSessionDirectoryWhenInitialRecordWriteFails(t *testing.T) {
+	originalCreateTemp := createTemp
+	createTemp = func(string, string) (*os.File, error) { return nil, errors.New("create denied") }
+	t.Cleanup(func() { createTemp = originalCreateTemp })
+	root := t.TempDir()
+	writer, err := Start(Config{Dir: root, Retention: time.Hour})
+	if writer != nil || err == nil || !strings.Contains(err.Error(), "create session record: create denied") {
+		t.Fatalf("writer=%v err=%v", writer, err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "session-") {
+			t.Fatalf("initialization failure left session directory %q", entry.Name())
+		}
 	}
 }
 
