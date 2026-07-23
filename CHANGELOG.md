@@ -6,6 +6,17 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Added diagnostic session logs with configurable retention, owner-only permissions where supported, and a per-run opt-out.
+- Added an interactive terminal view, toggled with `i`, for inspecting active Codex output without losing workflow progress.
+- Expanded review scope to the intended pull-request base through committed, staged, unstaged, and untracked changes, with deterministic base discovery and source reporting.
+- Added checkpoint commits and pushes after successful findings-fix stages.
+
+### Fixed
+
+- Fixed stale interactive liveness lines so terminal output is cleared reliably across stage transitions and completion.
+
 ## [0.4.0] - 2026-07-23
 
 ### Added
