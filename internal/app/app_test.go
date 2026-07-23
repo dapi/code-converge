@@ -502,3 +502,29 @@ func TestAppHumanDevNullWorkflow(t *testing.T) {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
 }
+
+func TestAppHumanDumbTerminalUsesPermanentProgress(t *testing.T) {
+	root, home := testRepo(t)
+	var stdout, stderr bytes.Buffer
+	fake := &appFakeRunner{
+		t:           t,
+		review:      runner.Result{Stdout: "No findings.\n"},
+		reviewMsg:   cleanReviewJSONForApp,
+		finalizeMsg: `{"verdict":"SUCCESS","commit":"success","push":"success","change_request":"skipped","ci":"skipped"}`,
+	}
+	code := (App{
+		Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home, Runner: fake,
+		IsTerminal: func(io.Writer) bool { return true },
+		LookupEnv:  func(key string) (string, bool) { return "dumb", key == "TERM" },
+	}).Run(context.Background(), nil)
+	if code != workflow.ExitSuccess || stderr.Len() != 0 {
+		t.Fatalf("code=%d stderr=%q stdout=%q", code, stderr.String(), stdout.String())
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "Review started\n") {
+		t.Fatalf("permanent progress records missing: %q", got)
+	}
+	if strings.ContainsAny(got, "\r\x1b") {
+		t.Fatalf("dumb-terminal output contains control sequences: %q", got)
+	}
+}

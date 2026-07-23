@@ -170,7 +170,8 @@ func (a App) Run(ctx context.Context, args []string) int {
 		lookup = os.LookupEnv
 	}
 	termName, _ := lookup("TERM")
-	if cfg.LogFormat == "human" && terminal.IsTerminalWriter(stdout) && termName != "" && termName != "dumb" {
+	interactiveTerminal := cfg.LogFormat == "human" && a.isTerminal(stdout) && termName != "" && termName != "dumb"
+	if interactiveTerminal && terminal.IsTerminalWriter(stdout) {
 		candidate := terminal.New(stdout, stdin)
 		candidate.Interrupt = cancelRun
 		if candidate.Eligible() && candidate.Start() == nil {
@@ -180,7 +181,11 @@ func (a App) Run(ctx context.Context, args []string) int {
 	}
 	logger := event.Logger{
 		Out: stdout, Err: stderr, Now: a.Now, Format: cfg.LogFormat, Heartbeat: cfg.Heartbeat,
-		Interactive: a.isTerminal(stdout), ColorDepth: a.colorDepth(cfg, stdout), View: view,
+		// A TTY alone is insufficient: TERM=dumb (and an absent TERM) does not
+		// promise to interpret carriage-return/ANSI transient frames. Keep all
+		// output permanent in that environment so captured session output cannot
+		// be corrupted by terminal control sequences.
+		Interactive: interactiveTerminal, ColorDepth: a.colorDepth(cfg, stdout), View: view,
 	}
 	if logger.Interactive && cfg.LogFormat == "human" && cfg.Heartbeat == 0 {
 		logger.TerminalWidth = func() (int, error) { return a.terminalWidth(stdout) }
