@@ -127,7 +127,15 @@ The log applies the canonical FPF propose → analyze → test reasoning cycle. 
 - **Critical/high:** none.
 - **Findings:** none. Independent review session `019f8dd7-3ff5-7922-b328-059b6a6e3120` returned `findings: []`, `overall_correctness: patch is correct`, and confidence `0.87`.
 - **Changes:** none required after the independent review.
-- **Hosted evidence:** pending PR creation, mergeability and required CI.
+- **Hosted evidence:** pending PR creation, mergeability and required CI at this iteration.
+
+### Iteration 3 — publication and hosted convergence
+
+- **Critical/high:** none.
+- **Review signals:** PR [#23](https://github.com/dapi/code-converge/pull/23) has no review or comment findings.
+- **Mergeability:** GitHub reports `MERGEABLE`.
+- **Verification:** implementation commit `eb5dd83` passed required [Verify run](https://github.com/dapi/code-converge/actions/runs/29988067825); local full/race/docs/diff checks and the independent clean review remain valid.
+- **Changes:** delivery evidence is closed in `brief.md`, the feature index is marked complete and the implementation plan is archived. A docs-only evidence commit and its required CI remain the final publication check.
 
 ## Human Gate
 

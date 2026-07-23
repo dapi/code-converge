@@ -15,7 +15,7 @@ derived_from:
   - ../../../README.md
   - https://github.com/dapi/code-converge/issues/22
 status: active
-delivery_status: in_progress
+delivery_status: done
 audience: humans_and_agents
 must_not_define:
   - implementation_sequence
@@ -186,4 +186,4 @@ Execution was approved explicitly in the 2026-07-23 delivery turn and is recorde
 | `EVID-02` | pass | `TestReviewFakeExecutableBoundary`, invocation/target assertions and stream-conflict fixtures prove schema/final paths, model/effort, stdin, cwd, exact process/tool `GIT_INDEX_FILE`, merge-base comparison, sole-carrier behavior and cleanup. |
 | `EVID-03` | pass | `go test ./internal/repository ./internal/workflow ./internal/app` passes; app fixtures preserve clean/no-change/finalization and exit-2 behavior while excluding conflicting terminal streams. |
 | `EVID-04` | pass | Root README and dependent architecture/testing/PRD/domain owners were reviewed together; `make docs-lint` and `git diff --check` pass. |
-| `EVID-05` | pending hosted evidence | `DL-09` records `AG-01`/`AG-02`; local `go test ./...`, `go vet ./...`, `go test -race ./internal/codex ./internal/app`, docs lint and diff check pass. Independent Codex review session `019f8dd7-3ff5-7922-b328-059b6a6e3120` reports no findings at confidence `0.87`. PR mergeability and required CI remain to be recorded. |
+| `EVID-05` | pass | `DL-09` records `AG-01`/`AG-02`; local `go test ./...`, `go vet ./...`, `go test -race ./internal/codex ./internal/app`, docs lint and diff check pass. Independent Codex review session `019f8dd7-3ff5-7922-b328-059b6a6e3120` reports no findings at confidence `0.87`. PR [#23](https://github.com/dapi/code-converge/pull/23) is mergeable and required [Verify run](https://github.com/dapi/code-converge/actions/runs/29988067825) passed. |

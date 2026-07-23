@@ -8,7 +8,7 @@ derived_from:
   - design.md
   - decision-log.md
   - ../../engineering/testing-policy.md
-status: active
+status: archived
 audience: humans_and_agents
 must_not_define:
   - ft_022_scope
