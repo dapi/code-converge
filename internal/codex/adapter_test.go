@@ -407,13 +407,26 @@ func TestReviewUsesOnlyFinalResponseAndPreservesTarget(t *testing.T) {
 	if strings.Contains(args, "GIT_INDEX_FILE") {
 		t.Errorf("review args expose the private index: %q", args)
 	}
+	for _, name := range []string{"GIT_INDEX_FILE", "GIT_EXEC_PATH", "GIT_DIR", "GIT_WORK_TREE"} {
+		found := false
+		for _, unset := range invocation.UnsetEnv {
+			if unset == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("review invocation does not remove inherited %s: %#v", name, invocation.UnsetEnv)
+		}
+	}
 	for _, want := range []string{r.baseCommit, r.mergeBase, "git diff --cached " + r.mergeBase} {
 		if !strings.Contains(invocation.Stdin, want) {
 			t.Errorf("review prompt does not contain %q:\n%s", want, invocation.Stdin)
 		}
 	}
-	if result.Scope.BaseCommit != r.baseCommit || result.Scope.MergeBase != r.mergeBase || !reflect.DeepEqual(result.Scope.Env, invocation.Env) {
-		t.Fatalf("scope = %#v, invocation env = %#v", result.Scope, invocation.Env)
+	if result.Scope.BaseCommit != r.baseCommit || result.Scope.MergeBase != r.mergeBase ||
+		!reflect.DeepEqual(result.Scope.Env, invocation.Env) || !reflect.DeepEqual(result.Scope.UnsetEnv, invocation.UnsetEnv) {
+		t.Fatalf("scope = %#v, invocation = %#v", result.Scope, invocation)
 	}
 }
 

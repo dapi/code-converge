@@ -1501,6 +1501,52 @@ func TestReviewScopePrivateIndexSurvivesPathOnlyEnvironment(t *testing.T) {
 	}
 }
 
+func TestReviewScopeRemovesInheritedGitTransportEnvironment(t *testing.T) {
+	root := t.TempDir()
+	runGit := func(args ...string) {
+		t.Helper()
+		if output, err := exec.Command("git", append([]string{"-C", root}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+	}
+	runGit("init", "-q")
+	runGit("config", "user.email", "test@example.com")
+	runGit("config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(root, "base.txt"), []byte("base"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", "base.txt")
+	runGit("commit", "-qm", "base")
+	if err := os.WriteFile(filepath.Join(root, "change.txt"), []byte("change"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(t.TempDir(), "foreign-index"))
+	t.Setenv("GIT_EXEC_PATH", t.TempDir())
+	t.Setenv("GIT_DIR", filepath.Join(t.TempDir(), "foreign-git-dir"))
+
+	scope := &ReviewScope{Runner: runner.Exec{Dir: root}, Root: root, Base: "HEAD"}
+	target, err := scope.Prepare(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer scope.Close()
+	if !reflect.DeepEqual(target.UnsetEnv, gitTransportEnvironment) {
+		t.Fatalf("review environment removals = %#v, want %#v", target.UnsetEnv, gitTransportEnvironment)
+	}
+	result, err := (runner.Exec{Dir: root}).Run(context.Background(), runner.Invocation{
+		Executable: "sh",
+		Args: []string{"-c",
+			"test -z \"$GIT_INDEX_FILE\" && test -z \"$GIT_EXEC_PATH\" && test -z \"$GIT_DIR\" && git diff --cached --name-only HEAD",
+		},
+		Env:      target.Env,
+		UnsetEnv: target.UnsetEnv,
+	})
+	if err != nil || !strings.Contains(result.Stdout, "change.txt") {
+		t.Fatalf("sanitized scoped review = %#v, %v; want change.txt", result, err)
+	}
+}
+
 func TestReviewScopePrivateIndexDoesNotMaintainSplitIndex(t *testing.T) {
 	root := t.TempDir()
 	runGit := func(args ...string) {

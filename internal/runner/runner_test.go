@@ -54,6 +54,20 @@ func TestExecOverridesInheritedEnvironment(t *testing.T) {
 	}
 }
 
+func TestExecUnsetsInheritedEnvironment(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is POSIX-only")
+	}
+	t.Setenv("CODE_CONVERGE_TEST_ENV", "inherited")
+	result, err := (Exec{Executable: "sh"}).Run(context.Background(), Invocation{
+		Args:     []string{"-c", "if env | grep '^CODE_CONVERGE_TEST_ENV='; then exit 1; fi; printf absent"},
+		UnsetEnv: []string{"CODE_CONVERGE_TEST_ENV"},
+	})
+	if err != nil || result.Stdout != "absent" {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+}
+
 func TestExecCancellation(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture is POSIX-only")

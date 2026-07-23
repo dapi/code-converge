@@ -33,6 +33,14 @@ type ReviewTarget struct {
 	MergeBase  string
 	Source     string
 	Env        []string
+	UnsetEnv   []string
+}
+
+var gitTransportEnvironment = []string{
+	"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+	"GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+	"GIT_NAMESPACE", "GIT_CEILING_DIRECTORIES", "GIT_EXEC_PATH",
+	"GIT_DISCOVERY_ACROSS_FILESYSTEM", "GIT_IMPLICIT_WORK_TREE",
 }
 
 // ReviewScope discovers a base once and refreshes a private index before each review.
@@ -99,7 +107,10 @@ func (s *ReviewScope) Prepare(ctx context.Context) (ReviewTarget, error) {
 	if err := s.snapshotWorktree(ctx); err != nil {
 		return ReviewTarget{}, fmt.Errorf("snapshot worktree for review: %w", err)
 	}
-	return ReviewTarget{Base: s.base, BaseCommit: s.baseCommit, MergeBase: s.mergeBase, Source: s.source, Env: env}, nil
+	return ReviewTarget{
+		Base: s.base, BaseCommit: s.baseCommit, MergeBase: s.mergeBase, Source: s.source,
+		Env: env, UnsetEnv: append([]string(nil), gitTransportEnvironment...),
+	}, nil
 }
 
 func (s *ReviewScope) snapshotWorktree(ctx context.Context) error {
@@ -380,7 +391,12 @@ func (s *ReviewScope) currentBranchProvider(ctx context.Context, branch string) 
 	// Git's missing-remote diagnostics are localized. Pin this one diagnostic-
 	// bearing call to the C locale so the narrow optional-provider fallback below
 	// is deterministic across user environments.
-	remoteURLResult, err := s.Runner.Run(ctx, runner.Invocation{Executable: "git", Args: []string{"remote", "get-url", "--push", "--all", remote}, Env: []string{"LC_ALL=C"}})
+	remoteURLResult, err := s.Runner.Run(ctx, runner.Invocation{
+		Executable: "git",
+		Args:       []string{"remote", "get-url", "--push", "--all", remote},
+		Env:        []string{"LC_ALL=C"},
+		UnsetEnv:   gitTransportEnvironment,
+	})
 	if err != nil {
 		if ctx.Err() != nil {
 			return "", ctx.Err()
@@ -629,6 +645,7 @@ func (s *ReviewScope) clearHiddenSnapshotIndexFlags(ctx context.Context) error {
 		Executable: "git",
 		Args:       s.rootGitArgs("-c", disableSplitIndexConfig, "ls-files", "-v", "-z"),
 		Env:        s.snapshotEnvironment(),
+		UnsetEnv:   gitTransportEnvironmentExcept("GIT_INDEX_FILE"),
 	})
 	if err != nil {
 		return err
@@ -655,6 +672,7 @@ func (s *ReviewScope) updateSnapshotIndexFlags(ctx context.Context, flag string,
 		Args:       s.rootGitArgs("-c", disableSplitIndexConfig, "update-index", flag, "-z", "--stdin"),
 		Stdin:      strings.Join(paths, "\x00") + "\x00",
 		Env:        s.snapshotEnvironment(),
+		UnsetEnv:   gitTransportEnvironmentExcept("GIT_INDEX_FILE"),
 	})
 	if err != nil {
 		return fmt.Errorf("clear %s: %w", flag, err)
@@ -735,7 +753,9 @@ func (s *ReviewScope) reviewEnvironment() ([]string, error) {
 }
 
 func gitExecutablePath(gitExecutable string) (string, error) {
-	output, err := exec.Command(gitExecutable, "--exec-path").Output()
+	command := exec.Command(gitExecutable, "--exec-path")
+	command.Env = sanitizedGitProcessEnvironment()
+	output, err := command.Output()
 	if err != nil {
 		return "", fmt.Errorf("locate git exec path for scoped review: %w", err)
 	}
@@ -919,6 +939,10 @@ func copyScopedGitIndex(indexPath string) (string, error) {
 }
 
 func scopedGitProcessEnvironment(indexPath, wrapperDir string) []string {
+	// The Codex invocation and top-level review Git calls already remove
+	// caller-inherited repository selectors. Preserve Git variables established
+	// by a running parent Git process for aliases, hooks and worktree helpers;
+	// replace only the two transports owned by this wrapper.
 	remove := map[string]bool{"GIT_INDEX_FILE": true, "GIT_EXEC_PATH": true}
 	var environment []string
 	for _, value := range os.Environ() {
@@ -1246,11 +1270,56 @@ func (s *ReviewScope) runGit(ctx context.Context, env []string, args ...string) 
 	if reviewIndexEnvironment(env) {
 		args = append([]string{"-c", disableSplitIndexConfig}, args...)
 	}
-	result, err := s.Runner.Run(ctx, runner.Invocation{Executable: "git", Args: args, Env: env})
+	result, err := s.Runner.Run(ctx, runner.Invocation{
+		Executable: "git",
+		Args:       args,
+		Env:        env,
+		UnsetEnv:   gitTransportEnvironmentExcept(environmentNames(env)...),
+	})
 	if err != nil {
 		return result, err
 	}
 	return result, nil
+}
+
+func environmentNames(environment []string) []string {
+	names := make([]string, 0, len(environment))
+	for _, value := range environment {
+		if name, _, ok := strings.Cut(value, "="); ok {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func gitTransportEnvironmentExcept(exceptions ...string) []string {
+	allowed := make(map[string]bool, len(exceptions))
+	for _, name := range exceptions {
+		allowed[name] = true
+	}
+	unset := make([]string, 0, len(gitTransportEnvironment))
+	for _, name := range gitTransportEnvironment {
+		if !allowed[name] {
+			unset = append(unset, name)
+		}
+	}
+	return unset
+}
+
+func sanitizedGitProcessEnvironment() []string {
+	remove := make(map[string]bool, len(gitTransportEnvironment))
+	for _, name := range gitTransportEnvironment {
+		remove[name] = true
+	}
+	var environment []string
+	for _, value := range os.Environ() {
+		name, _, ok := strings.Cut(value, "=")
+		if ok && remove[name] {
+			continue
+		}
+		environment = append(environment, value)
+	}
+	return environment
 }
 
 func reviewIndexEnvironment(environment []string) bool {

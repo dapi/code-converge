@@ -15,6 +15,7 @@ type Invocation struct {
 	Args       []string
 	Stdin      string
 	Env        []string
+	UnsetEnv   []string
 	Output     func(Output)
 }
 
@@ -147,7 +148,7 @@ func (r Exec) Run(ctx context.Context, invocation Invocation) (Result, error) {
 	cmd := exec.Command(name, invocation.Args...)
 	configureProcessGroup(cmd)
 	cmd.Dir = r.Dir
-	cmd.Env = mergeEnvironment(os.Environ(), invocation.Env)
+	cmd.Env = mergeEnvironment(os.Environ(), invocation.Env, invocation.UnsetEnv)
 	cmd.Stdin = bytes.NewBufferString(invocation.Stdin)
 	var stdout, stderr bytes.Buffer
 	stdoutReader, stdoutWriter, err := os.Pipe()
@@ -232,18 +233,29 @@ func (r Exec) Run(ctx context.Context, invocation Invocation) (Result, error) {
 // mergeEnvironment applies overrides without duplicate keys. Some process
 // launchers use the first duplicate environment entry, so appending an override
 // is not sufficient for values such as PATH and GIT_INDEX_FILE.
-func mergeEnvironment(base, overrides []string) []string {
-	environment := append([]string(nil), base...)
+func mergeEnvironment(base, overrides, unset []string) []string {
+	removed := make(map[string]bool, len(unset))
+	for _, name := range unset {
+		removed[name] = true
+	}
+	environment := make([]string, 0, len(base)+len(overrides))
 	positions := make(map[string]int, len(environment))
-	for index, value := range environment {
+	for _, value := range base {
 		if name, _, ok := strings.Cut(value, "="); ok {
-			positions[name] = index
+			if removed[name] {
+				continue
+			}
+			positions[name] = len(environment)
 		}
+		environment = append(environment, value)
 	}
 	for _, value := range overrides {
 		name, _, ok := strings.Cut(value, "=")
 		if !ok {
 			environment = append(environment, value)
+			continue
+		}
+		if removed[name] {
 			continue
 		}
 		if index, exists := positions[name]; exists {

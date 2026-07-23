@@ -106,10 +106,11 @@ func (a Adapter) Review(ctx context.Context) (ReviewResult, error) {
 		"exec", "--output-schema", schemaPath, "--output-last-message", messagePath, "-",
 	)
 	if _, err := a.Runner.Run(ctx, runner.Invocation{
-		Args:   args,
-		Env:    target.Env,
-		Stdin:  reviewPrompt(target),
-		Output: a.output(),
+		Args:     args,
+		Env:      target.Env,
+		UnsetEnv: target.UnsetEnv,
+		Stdin:    reviewPrompt(target),
+		Output:   a.output(),
 	}); err != nil {
 		return ReviewResult{}, err
 	}
