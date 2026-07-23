@@ -6,6 +6,8 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-23
+
 ### Added
 
 - Added diagnostic session logs with configurable retention, owner-only permissions where supported, and a per-run opt-out.
