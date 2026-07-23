@@ -1,13 +1,13 @@
 ---
-title: "FT-016: Implementation Plan"
+title: "FT-016: Archived Implementation Plan"
 doc_kind: feature
 doc_function: derived
-purpose: "Execution plan for FT-016 base discovery and one complete branch-and-worktree review snapshot."
+purpose: "Archived execution plan for FT-016 base discovery and one complete branch-and-worktree review snapshot."
 derived_from:
   - brief.md
   - design.md
   - ../../engineering/testing-policy.md
-status: active
+status: archived
 audience: humans_and_agents
 must_not_define:
   - ft_016_scope
@@ -18,6 +18,8 @@ must_not_define:
 ---
 
 # FT-016: Implementation Plan
+
+> Archived after the implementation was merged in PR [#19](https://github.com/dapi/code-converge/pull/19) and the required `Verify` run passed. Canonical outcome and evidence are in [`brief.md`](brief.md).
 
 ## Discovery Context
 

@@ -21,4 +21,4 @@ audience: humans_and_agents
 - [`design.md`](design.md) — selected public contract, architecture coverage, Git/provider boundaries и failure semantics.
 - [`implementation-plan.md`](implementation-plan.md) — grounded execution sequence, checkpoints и evidence realization.
 
-`HG-01` закрыт FPF decision `DL-03`; feature готова к execution planning.
+`HG-01` закрыт FPF decision `DL-03`. Реализация принята: PR [#19](https://github.com/dapi/code-converge/pull/19) слит 2026-07-22, а required `Verify` завершился успешно. `brief.md` зафиксирован в terminal state `done`; plan архивирован.
