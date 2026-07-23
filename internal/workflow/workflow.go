@@ -197,6 +197,11 @@ func (w *Workflow) Run(ctx context.Context) int {
 		case "FAILED":
 			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 		case "CI_FAILED":
+			// CI_FAILED is a published finalization result. A subsequent review
+			// phase must not describe this already-pushed checkpoint as local.
+			checkpointed = false
+			lastCheckpoint = repository.Checkpoint{}
+			checkpointSkipReason = ""
 			if recoveries >= w.Config.MaxCIRecoveries {
 				return w.complete("ci_failure", ExitCI, now().Sub(runStarted))
 			}

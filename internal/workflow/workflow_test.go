@@ -40,6 +40,7 @@ type fakeRepository struct {
 	dirty           bool
 	cleanErr        error
 	checkpoint      repository.Checkpoint
+	checkpoints     []repository.Checkpoint
 	checkpointErr   error
 	cleanCalls      int
 	checkpointCalls int
@@ -57,6 +58,9 @@ func (f *fakeRepository) IsClean(context.Context) (bool, error) {
 
 func (f *fakeRepository) Checkpoint(context.Context) (repository.Checkpoint, error) {
 	f.checkpointCalls++
+	if index := f.checkpointCalls - 1; index < len(f.checkpoints) {
+		return f.checkpoints[index], f.checkpointErr
+	}
 	return f.checkpoint, f.checkpointErr
 }
 
@@ -317,6 +321,22 @@ func TestCIRecoveryRestartsReviewPhase(t *testing.T) {
 		t.Fatalf("code=%d ci fixes=%d", code, agent.ciFixCalls)
 	}
 	assertRecord(t, output, "event=stage_started", "stage=review", "review_phase=2", "cycle=1")
+}
+
+func TestCIRecoveryClearsPublishedCheckpointBeforeNextPhase(t *testing.T) {
+	agent := &fakeAgent{
+		reviews:       []codex.ReviewResult{findings(), clean(), findings(), findings()},
+		finalizations: []codex.Finalization{ciFailed()},
+	}
+	repository := &fakeRepository{checkpoints: []repository.Checkpoint{{Created: true, Branch: "feature/checkpoints", Commit: "abc1234"}, {}}}
+	code, output, stderr := runWithRepository(t, config.Config{MaxCycles: 1, MaxCIRecoveries: 1}, agent, repository)
+	if code != ExitFindingsRemaining || stderr != "" || agent.ciFixCalls != 1 {
+		t.Fatalf("code=%d ci fixes=%d stderr=%q", code, agent.ciFixCalls, stderr)
+	}
+	assertRecord(t, output, "event=run_completed", "status=findings_remaining", "checkpoint_status=no_changes")
+	if strings.Contains(output, "checkpoint_commit=abc1234") {
+		t.Fatalf("published checkpoint leaked into next phase terminal result:\n%s", output)
+	}
 }
 
 func TestStageModelsAreLogged(t *testing.T) {

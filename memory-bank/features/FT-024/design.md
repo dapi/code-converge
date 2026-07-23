@@ -21,7 +21,7 @@ must_not_define:
 
 - `SOL-01`: `internal/repository.Status` owns the Git boundary: porcelain status, clean-precondition, local `git add -A` / `git commit`, and branch/short-SHA lookup. It never pushes.
 - `SOL-02`: `internal/workflow.Workflow` checks checkpoint eligibility before `fix-findings`, continues remediation on a dirty baseline without checkpointing, checkpoints only a successful clean-baseline fix, and fails closed on repository-operation errors.
-- `SOL-03`: The workflow remembers that this run created a checkpoint. A clean review then enters finalization even with no remaining worktree changes; the finalizer is told that committing is inapplicable but pushing/PR/CI are still required.
+- `SOL-03`: The workflow remembers a checkpoint only until finalization. A clean review then enters finalization even with no remaining worktree changes; after a `CI_FAILED` publication result, checkpoint metadata is cleared before the next review phase so terminal output cannot call an already-pushed commit local.
 - `SOL-04`: `run_completed findings_remaining` carries machine-safe `checkpoint_status`, plus `checkpoint_branch` and `checkpoint_commit` for a local commit; human rendering expands that state into an unambiguous terminal sentence.
 
 ## C4 Applicability Decision
