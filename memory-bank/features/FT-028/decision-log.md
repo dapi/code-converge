@@ -102,6 +102,14 @@ must_not_define:
 - **High:** none after self-review of the affected app/event/workflow paths, dependency diff, deterministic reflow coverage, and validation output.
 - **Result:** local checks are green. Hosted CI and independent PR review remain required before `delivery_status: done`.
 
+### Iteration 3 — hosted convergence
+
+- **Critical:** none.
+- **High:** none.
+- **Review signals:** no PR comments or reviews; self-review of the final diff found no critical/high issue.
+- **Verification:** required GitHub Actions [Verify run](https://github.com/dapi/code-converge/actions/runs/30021940686) passed, including `make verify`, distribution build, and Linux AMD64 artifact smoke test.
+- **Result:** feature delivery is done; `implementation-plan.md` is archived in accordance with Feature Flow. A final documentation-only CI run remains required for this evidence update.
+
 ## Human Gate
 
 No unresolved question currently requires a human decision. `HG-01` was resolved by the user's instruction to use FPF for the choice; `DL-02` records the selected scope and the evidence required to validate it.
