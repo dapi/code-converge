@@ -479,14 +479,14 @@ func repositoryIdentity(remoteURL string) (string, error) {
 	if host == "" || len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return "", fmt.Errorf("remote URL does not identify exactly one owner and repository")
 	}
-	repository := strings.TrimSuffix(parts[1], ".git")
+	repository := strings.TrimSuffix(strings.ToLower(parts[1]), ".git")
 	if repository == "" {
 		return "", fmt.Errorf("remote URL has an empty repository name")
 	}
 	// GitHub repository identities are case-insensitive. Use one canonical
 	// representation before identities are used as map keys or query targets so
 	// equivalent push URLs cannot appear to be conflicting repositories.
-	return strings.ToLower(host) + "/" + strings.ToLower(parts[0]) + "/" + strings.ToLower(repository), nil
+	return strings.ToLower(host) + "/" + strings.ToLower(parts[0]) + "/" + repository, nil
 }
 
 func splitSCPRemote(value string) (string, string, bool) {

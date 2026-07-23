@@ -821,6 +821,7 @@ func TestRepositoryIdentity(t *testing.T) {
 		{"git@[2001:db8::1]:owner/repo.git", "[2001:db8::1]/owner/repo"},
 		{"https://github.com/dapi/code-converge.git", "github.com/dapi/code-converge"},
 		{"git@GitHub.COM:Dapi/Code-Converge.git", "github.com/dapi/code-converge"},
+		{"git@GitHub.com:Owner/Repo.GIT", "github.com/owner/repo"},
 	} {
 		if got, err := repositoryIdentity(test.remote); err != nil || got != test.want {
 			t.Errorf("repositoryIdentity(%q) = %q, %v; want %q", test.remote, got, err, test.want)
@@ -845,7 +846,7 @@ func TestCurrentBranchProviderDeduplicatesCaseVariants(t *testing.T) {
 		case "config --get branch.feature.pushRemote":
 			return runner.Result{Stdout: "origin"}, nil
 		case "remote get-url --push --all origin":
-			return runner.Result{Stdout: "git@github.com:dapi/code-converge.git\ngit@GitHub.COM:Dapi/Code-Converge.git"}, nil
+			return runner.Result{Stdout: "git@github.com:dapi/code-converge.git\ngit@GitHub.COM:Dapi/Code-Converge.GIT"}, nil
 		default:
 			t.Fatalf("unexpected invocation: %#v", inv)
 			return runner.Result{}, nil
