@@ -338,7 +338,7 @@ func TestAppNoChangeSkipsFinalize(t *testing.T) {
 		t.Fatalf("stdout:\n%s", stdout.String())
 	}
 	last := fake.invocations[len(fake.invocations)-1]
-	if last.Executable != "git" || !reflect.DeepEqual(last.Args, []string{"status", "--porcelain"}) {
+	if last.Executable != "git" || !reflect.DeepEqual(last.Args, []string{"status", "--porcelain", "--untracked-files=all"}) {
 		t.Fatalf("invocations = %#v", fake.invocations)
 	}
 }

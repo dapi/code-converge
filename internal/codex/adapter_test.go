@@ -199,7 +199,7 @@ func TestAdapterInvocations(t *testing.T) {
 	if err := a.FixFindings(context.Background(), result.Report); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Finalize(context.Background()); err != nil {
+	if _, err := a.Finalize(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.FixCI(context.Background()); err != nil {
@@ -574,9 +574,11 @@ type codexFakeRunner struct {
 	writePath  string
 	writeBytes []byte
 	writeFile  bool
+	invocation runner.Invocation
 }
 
 func (r *codexFakeRunner) Run(_ context.Context, invocation runner.Invocation) (runner.Result, error) {
+	r.invocation = invocation
 	for i, arg := range invocation.Args {
 		if arg == "--output-last-message" && i+1 < len(invocation.Args) && r.writeFile {
 			_ = os.WriteFile(invocation.Args[i+1], r.writeBytes, 0o600)
@@ -600,7 +602,7 @@ func TestFixCIWithModel(t *testing.T) {
 func TestFinalizeReadMessageError(t *testing.T) {
 	r := &codexFakeRunner{result: runner.Result{}, writeFile: false}
 	a := Adapter{Runner: r, Config: config.Config{FinalizeModel: "m", FinalizePrompt: "p"}}
-	_, err := a.Finalize(context.Background())
+	_, err := a.Finalize(context.Background(), false)
 	if err == nil || !strings.Contains(err.Error(), "read finalization response") {
 		t.Fatalf("error = %v", err)
 	}
@@ -609,9 +611,20 @@ func TestFinalizeReadMessageError(t *testing.T) {
 func TestFinalizeParseError(t *testing.T) {
 	r := &codexFakeRunner{result: runner.Result{}, writeFile: true, writeBytes: []byte(`not json`)}
 	a := Adapter{Runner: r, Config: config.Config{FinalizeModel: "m", FinalizePrompt: "p"}}
-	_, err := a.Finalize(context.Background())
+	_, err := a.Finalize(context.Background(), false)
 	if err == nil {
 		t.Fatal("expected parse error")
+	}
+}
+
+func TestFinalizeCheckpointPromptSkipsEmptyCommit(t *testing.T) {
+	r := &codexFakeRunner{result: runner.Result{}, writeFile: true, writeBytes: []byte(`{"verdict":"SUCCESS","commit":"skipped","push":"success","change_request":"skipped","ci":"skipped"}`)}
+	a := Adapter{Runner: r, Config: config.Config{FinalizeModel: "m", FinalizePrompt: "finalize"}}
+	if _, err := a.Finalize(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.invocation.Stdin; !strings.Contains(got, "already committed as local checkpoints") || !strings.Contains(got, "Do not create an empty commit") {
+		t.Fatalf("checkpoint finalization prompt = %q", got)
 	}
 }
 

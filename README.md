@@ -21,8 +21,9 @@ flowchart TD
     C -- yes --> E{Fix budget remains?}
     E -- yes --> D[Fix findings]
     E -- no --> X1[Exit 1]
-    D --> B
-    C -- no --> N{Repository changes?}
+    D --> K["Commit local checkpoint when fixes changed the clean worktree"]
+    K --> B
+    C -- no --> N{Unfinalized changes or local checkpoint?}
     N -- no --> X0[Exit 0: no-op]
     N -- yes --> F[Commit, push, create change request if needed, check applicable CI]
     F --> G{Result}
@@ -99,9 +100,9 @@ flowchart TD
        │
        ▼
   ┌──────────────────────┐
-  │ Check Git status     │
-  │ staged / unstaged /  │
-  │ untracked changes?   │
+  │ Check Git status and │
+  │ run-local checkpoint │
+  │ state                │
   └───────┬─────────┬────┘
           │ yes     │ no
           ▼         └────────► run_completed success, exit 0
@@ -178,19 +179,19 @@ For metrics, schema priorities are normalized as follows: `0` (`P0`) → `critic
 
 ### 2. Fix findings
 
-When the review has findings, `code-converge` starts a fresh Codex session with the configured fix-findings prompt followed by the complete classified review report. This gives the stateless remediation session the findings it must address without forwarding the report to workflow stdout. By default, the prompt is:
+When the review has findings, `code-converge` detects whether the Git worktree is clean before considering an automatic checkpoint, then starts a fresh Codex session with the configured fix-findings prompt followed by the complete classified review report. This preserves remediation for the documented staged, unstaged and untracked review scope. A dirty baseline safely skips checkpointing so it cannot capture pre-existing user work. By default, the prompt is:
 
 ```text
 fix findings
 ```
 
-The default `fast` profile uses `gpt-5.6-luna` with reasoning effort `medium`. After a successful agent run, the workflow returns to **Review**.
+The default `fast` profile uses `gpt-5.6-luna` with reasoning effort `medium`. Before and after the agent runs, `code-converge` records `HEAD` and checks Git status. If the fix changed an initially clean worktree, it stages the changes and creates one local commit with the stable message `chore: checkpoint review fixes`; it never pushes this checkpoint. A commit made directly by the agent is also detected as a local checkpoint, even when the worktree is clean, so a later clean review still reaches finalization. A dirty pre-fix worktree continues through remediation but skips the automatic checkpoint and reports that reason if the budget is later exhausted. A no-change fix attempts no empty commit. A status, `HEAD`, staging, commit, branch, or commit-ID failure is operational (exit `2`) and the workflow does not start another review. After a successful checkpoint decision or skip, the workflow returns to **Review**.
 
-`max-cycles` is the maximum number of fix-findings attempts in one review phase; its built-in default is `10` and it must be non-negative. The initial review does not consume this budget. After the final allowed fix attempt, `code-converge` always performs one verification review. If that review still has findings, `code-converge` reports that the limit has been reached and exits with code `1`. A failed fix-findings command is an operational failure and exits with code `2`.
+`max-cycles` is the maximum number of fix-findings attempts in one review phase; its built-in default is `10` and it must be non-negative. The initial review does not consume this budget. After the final allowed fix attempt, `code-converge` always performs one verification review. If that review still has findings, `code-converge` reports that the limit has been reached, that clean-review finalization was not reached, and the latest local checkpoint state before exiting with code `1`. A failed fix-findings command is an operational failure and exits with code `2`.
 
 ### 3. Commit, push, create a change request, and check CI
 
-Once a review returns no findings, `code-converge` checks Git status for staged, unstaged and untracked changes. If there are none, it completes successfully as a no-op without starting finalization or attempting an empty commit. If changes exist, it asks Codex to finalize them. The default prompt is:
+Once a review returns no findings, `code-converge` checks Git status for staged, unstaged and untracked changes. If there are none and this run created no local checkpoints, it completes successfully as a no-op without starting finalization or attempting an empty commit. If changes exist, or this run created a local checkpoint, it asks Codex to finalize them. In the latter case the finalizer is told not to create an empty commit; it still pushes the current branch, creates a change request if needed, and verifies CI. The default prompt is:
 
 ```text
 commit, push, create PR, ensure CI is green
@@ -223,7 +224,7 @@ If the agent completes successfully, the entire workflow begins again with a new
 | Code | Meaning |
 | --- | --- |
 | `0` | The review is clean and either no staged, unstaged or untracked changes exist, or changes are committed and pushed; a change request exists if needed; required CI is green or CI is not applicable. `update` also returns `0` when the installed version is current or the user declines the update. |
-| `1` | Review findings remain after the configured maximum number of fix-findings attempts. |
+| `1` | Review findings remain after the configured maximum number of fix-findings attempts. The terminal record states that finalization was not reached and gives the latest local checkpoint outcome. |
 | `2` | An operational/configuration failure occurred, review output was ambiguous, fix-findings failed, or finalization failed for a reason other than red CI. `update` uses it for unsupported hosts, invalid release metadata, download/checksum failures, or replacement/permission failures. |
 | `3` | The CI-fix stage failed or the maximum number of CI-recovery attempts was exhausted. |
 
@@ -250,7 +251,7 @@ The required event catalog is:
 | `review_completed` | `stage=review`, `model`, `reasoning_effort`, `review_phase`, `cycle`, `status=clean\|findings\|failed`, and `duration_ms`. A classified result (`clean` or `findings`) also requires all findings counters plus `review_scope=branch_and_worktree`, `review_base` (resolved commit SHA), `review_merge_base` and `review_base_source=explicit\|open_pr\|branch_merge_base\|remote_default`; on command or classification failure these fields and counters are omitted. This is the review stage's sole completion record. |
 | `stage_completed` | `stage=fix-findings\|finalize\|fix-ci`, `model`, `reasoning_effort`, `status=success\|failed`, and `duration_ms`; `fix-findings` also has `review_phase` and `cycle`, while `fix-ci` has `review_phase`. A successfully parsed finalization response also requires `verdict=SUCCESS\|CI_FAILED\|FAILED`; an invocation or parsing failure uses `status=failed` and omits `verdict`. |
 | `step_completed` | `stage=finalize`, `model`, `reasoning_effort`, `step=commit\|push\|change_request\|ci`, and `status=success\|skipped\|failed\|unknown`. Each finalization attempt emits one record for every listed step; a step that is inapplicable or not reached is `skipped`, while an outcome that cannot be established is `unknown`. |
-| `run_completed` | `status=success\|findings_remaining\|operational_failure\|ci_failure`, `exit_code`, and `total_duration_ms`. |
+| `run_completed` | `status=success\|findings_remaining\|operational_failure\|ci_failure`, `exit_code`, and `total_duration_ms`. For `findings_remaining`, also `checkpoint_status=committed_local\|no_changes\|not_attempted`; `committed_local` additionally requires percent-encoded `checkpoint_branch` and `checkpoint_commit`, while `not_attempted` requires `checkpoint_reason=fix_budget_exhausted\|pre_existing_changes`. |
 
 For example:
 
