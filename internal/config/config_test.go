@@ -18,6 +18,7 @@ var codeConvergeEnv = []string{
 	"CODE_CONVERGE_FINALIZE_REASONING_EFFORT", "CODE_CONVERGE_FINALIZE_PROMPT_FILE", "CODE_CONVERGE_CI_FIX_MODEL",
 	"CODE_CONVERGE_CI_FIX_REASONING_EFFORT", "CODE_CONVERGE_CI_FIX_PROMPT_FILE",
 	"CODE_CONVERGE_REVIEW_BASE",
+	"CODE_CONVERGE_SESSION_LOG_DIR", "CODE_CONVERGE_SESSION_LOG_RETENTION",
 }
 
 func TestLoggingConfiguration(t *testing.T) {
@@ -112,6 +113,69 @@ func TestDefaultLogFormatIsHuman(t *testing.T) {
 	}
 	if !strings.Contains(Format(cfg), "log-format: human (built-in default)") {
 		t.Fatalf("config output:\n%s", Format(cfg))
+	}
+}
+
+func TestSessionLogConfiguration(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	projectDir := filepath.Join(root, "logs")
+	write(t, filepath.Join(home, ".code-converge", "session-log-dir"), filepath.Join(home, "user-logs"))
+	write(t, filepath.Join(root, ".code-converge", "session-log-dir"), projectDir)
+	write(t, filepath.Join(root, ".code-converge", "session-log-retention"), "2h")
+	cfg, err := Load(root, home, Overrides{SessionLogDir: OptionalString{Value: "~/cli-logs", Set: true}, SessionLogRetention: OptionalString{Value: "3h", Set: true}, NoSessionLog: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SessionLogDir != filepath.Join(home, "cli-logs") || cfg.SessionLogRetention != 3*time.Hour || !cfg.NoSessionLog || source(cfg, "session-log-dir") != SourceCLI || source(cfg, "session-log-retention") != SourceCLI {
+		t.Fatalf("cfg=%#v", cfg)
+	}
+	for _, overrides := range []Overrides{{SessionLogDir: OptionalString{Value: "relative", Set: true}}, {SessionLogRetention: OptionalString{Value: "0", Set: true}}, {SessionLogRetention: OptionalString{Value: "-1s", Set: true}}} {
+		if _, err := Load(root, home, overrides); err == nil {
+			t.Fatalf("accepted invalid session config: %#v", overrides)
+		}
+	}
+}
+
+func TestSessionLogConfigurationPrecedence(t *testing.T) {
+	for _, setting := range []struct {
+		name, env string
+		value     func(string, string) string
+		get       func(Config) string
+	}{
+		{"session-log-dir", "CODE_CONVERGE_SESSION_LOG_DIR", func(_, home string) string { return filepath.Join(home, "environment") }, func(cfg Config) string { return cfg.SessionLogDir }},
+		{"session-log-retention", "CODE_CONVERGE_SESSION_LOG_RETENTION", func(root, _ string) string { return "1h" }, func(cfg Config) string {
+			if cfg.SessionLogRetention == 3*time.Hour {
+				return "3h"
+			}
+			return cfg.SessionLogRetention.String()
+		}},
+	} {
+		t.Run(setting.name, func(t *testing.T) {
+			cleanEnv(t)
+			root, home := repo(t)
+			environment := setting.value(root, home)
+			user := setting.value(filepath.Join(root, "user"), home)
+			project := setting.value(filepath.Join(root, "project"), home)
+			cli := setting.value(filepath.Join(root, "cli"), home)
+			if setting.name == "session-log-dir" {
+				user, project, cli = filepath.Join(home, "user"), filepath.Join(home, "project"), filepath.Join(home, "cli")
+			}
+			t.Setenv(setting.env, environment)
+			write(t, filepath.Join(home, ".code-converge", setting.name), user)
+			write(t, filepath.Join(root, ".code-converge", setting.name), project)
+			overrides := Overrides{}
+			if setting.name == "session-log-dir" {
+				overrides.SessionLogDir = OptionalString{Value: cli, Set: true}
+			} else {
+				overrides.SessionLogRetention = OptionalString{Value: "3h", Set: true}
+				cli = "3h"
+			}
+			cfg, err := Load(root, home, overrides)
+			if err != nil || setting.get(cfg) != cli || source(cfg, setting.name) != SourceCLI {
+				t.Fatalf("cfg=%#v err=%v", cfg, err)
+			}
+		})
 	}
 }
 

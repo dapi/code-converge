@@ -78,6 +78,21 @@ func (l *Logger) Diagnostic(message string, err error) {
 	fmt.Fprintf(l.Err, "code-converge: %s: %v\n", message, err)
 }
 
+// SessionLog writes the one human-only handoff line for a successfully created
+// private diagnostic session. It is intentionally outside the kv event schema.
+func (l *Logger) SessionLog(path string) error {
+	if path == "" || l.normalizedFormat() != "human" {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if err := l.clearLocked(); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(l.Out, "%sSession log: %s\n", l.now().Format("15:04:05 "), path)
+	return err
+}
+
 type Liveness struct {
 	stop chan struct{}
 	done chan struct{}
