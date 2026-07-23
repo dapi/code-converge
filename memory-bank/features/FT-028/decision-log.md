@@ -133,6 +133,14 @@ must_not_define:
 - **Fix:** `App.isTerminal` now delegates to `term.IsTerminal` for `*os.File`; `/dev/null` is regression-tested as non-interactive, so no transient liveness or width lookup is installed there.
 - **State:** feature is reopened pending local and hosted verification; the plan is active until the corrected PR is green.
 
+### Iteration 7 — final hosted convergence
+
+- **Critical:** none.
+- **High:** none.
+- **Review fix:** merged the current `master` terminal-view/session runtime changes without weakening FT-028. The width reader is installed for interactive human liveness whether or not the interactive view is active, so a view toggle retains the same safe width-aware fallback. A real TTY remains required by `term.IsTerminal`; redirected `/dev/null` stays non-interactive.
+- **Verification:** `go test ./...`; `go test -race ./internal/event ./internal/workflow ./internal/app`; `go vet ./...`; `make docs-lint`; `git diff --check`; Linux/macOS `amd64`/`arm64` cross-builds. Required GitHub Actions [Verify run](https://github.com/dapi/code-converge/actions/runs/30037097252) passed, including `make verify`, Windows cross-compilation, distribution build, and Linux AMD64 artifact smoke test.
+- **Result:** PR #29 is merge-clean, required CI is green, and no critical/high review finding remains. Feature delivery is done; the implementation plan is archived.
+
 ## Human Gate
 
 No unresolved question currently requires a human decision. `HG-01` was resolved by the user's instruction to use FPF for the choice; `DL-02` records the selected scope and the evidence required to validate it.
