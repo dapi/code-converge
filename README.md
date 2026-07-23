@@ -4,6 +4,14 @@
 
 `code-converge` supports [Codex](https://github.com/openai/codex) as its only agent. The command is intended to be run from the repository that should be reviewed.
 
+## Root help
+
+`code-converge -h` and `code-converge --help` are equivalent, write the following usage line to stdout, and exit `0` without loading configuration or starting an update or review workflow:
+
+```text
+usage: code-converge [flags] [config]
+```
+
 ## Workflow
 
 ```mermaid
