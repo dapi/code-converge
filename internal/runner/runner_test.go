@@ -68,6 +68,23 @@ func TestExecCancellationTerminatesDescendants(t *testing.T) {
 	}
 }
 
+func TestExecReapsBeforeDescendantClosesInheritedPipes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is POSIX-only")
+	}
+	started := time.Now()
+	result, err := (Exec{Executable: "sh"}).Run(context.Background(), Invocation{
+		Args:   []string{"-c", "sleep 60 & printf done"},
+		Output: func(Output) {},
+	})
+	if err != nil || !strings.Contains(result.Stdout, "done") {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("run took %s; inherited pipe kept it blocked", elapsed)
+	}
+}
+
 func TestExecIncludesCapturedDiagnosticOnFailure(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture is POSIX-only")

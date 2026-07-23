@@ -20,6 +20,8 @@ jobs:
           go-version: '1.21.13'
           cache-dependency-path: go.mod
       - run: make verify
+      - name: Cross-compile Windows binary
+        run: GOOS=windows GOARCH=amd64 go build -o "$RUNNER_TEMP/code-converge.exe" ./cmd/code-converge
       - run: make dist
       - name: Smoke Linux AMD64 artifact
         run: |

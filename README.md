@@ -317,6 +317,14 @@ Non-TTY output has no implicit liveness and never contains ANSI controls. In hum
 
 Heartbeat is disabled by default, accepts `0` or a Go duration of at least `1s`, and is rejected with `log-format=kv`. Liveness stops and joins before stage completion, failure, cancellation, or later output; a liveness write error becomes operational failure.
 
+### Interactive agent output view
+
+In `human` mode, when both standard input and standard output are terminals and `TERM` is neither empty nor `dumb`, Code-Converge accepts one-key terminal input. Press `i` during a workflow to toggle a split view without interrupting the active Codex process. The upper pane retains the workflow log; the lower pane shows arriving stdout and stderr from the active agent. Stderr lines are marked `[stderr]`.
+
+The view uses the terminal alternate screen and restores it when closed, on workflow completion, cancellation, interruption, setup failure, or panic unwinding. Each pane retains its most recent 2,000 logical lines; long lines wrap to the current terminal width. `Tab` selects a pane, arrow keys and Page Up/Down scroll it, and `End` returns it to the live tail. A view opened before an agent starts says `No active agent output`; completion leaves the final stream visible until the next agent stage.
+
+Agent output is sanitized before rendering: terminal controls are removed, invalid UTF-8 is rendered as replacement characters, and raw process output never enters workflow stdout. If the terminal is ineligible or raw-mode setup fails, no view is started and the existing human output continues unchanged. Non-interactive output and `kv` retain their existing contracts and never require a TTY.
+
 `code-converge config` is a separate human-readable command and is not part of the workflow event stream.
 
 ## Configuration
