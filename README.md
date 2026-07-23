@@ -57,14 +57,14 @@ flowchart TD
         ╔═══════════════════╗     ◄──────────────────────────────┐
         ║   REVIEW STAGE    ║                                   │
         ║                   ║                                   │
-        ║ codex review      ║                                   │
-        ║ --base + snapshot ║                                   │
+        ║ codex exec        ║                                   │
+        ║ schema + snapshot ║                                   │
         ╚════════╤══════════╝                                   │
                  │                                              │
                  ▼                                              │
         ┌────────────────┐                                      │
-        │  Parse review  │                                      │
-        │  report text   │                                      │
+        │ Read strict JSON│                                      │
+        │ final file only │                                      │
         └───────┬────────┘                                      │
                 │                                               │
        ┌────────┴────────┐                                      │
@@ -159,7 +159,7 @@ flowchart TD
 
 Key points:
 
-- **Review** — resolves the intended pull-request base and runs one `codex review --base` against a private merge-base-to-worktree snapshot, including committed, staged, unstaged and untracked changes. It accepts existing plain-text reports and the strictly validated structured report format emitted by supported Codex CLI versions.
+- **Review** — resolves the intended pull-request base and runs one schema-constrained `codex exec` against a private merge-base-to-worktree snapshot, including committed, staged, unstaged and untracked changes. Only the final-message file is classified; terminal stdout/stderr are not review data.
 - **Fix** — `codex exec -`, stdin = fix-prompt + full review report. The stateless remediation session receives the findings it must address.
 - **Finalize** — `codex exec --output-schema`, strict JSON verdict with hard validation.
 - **CI recovery** — on `CI_FAILED`, fixes CI, resets the fix cycle, and restarts from Review.
@@ -168,13 +168,13 @@ Key points:
 
 ### 1. Review
 
-`code-converge` runs the normal non-interactive `codex review` command in the current directory. By default it resolves one review base in this order: an explicit review-base setting, the base of one open pull request for the current branch, `branch.<current>.gh-merge-base`, then exactly one remote default-branch ref. Provider discovery resolves its branch name against one remote-tracking ref and compares its commit SHA with the provider's advertised base SHA; a stale ref fails with an actionable fetch diagnostic. The resolved base SHA is pinned for every review in the run. Code-Converge computes the merge-base and prepares a private Git index from that tree plus the current worktree; this includes committed, staged, unstaged and untracked changes without modifying the real index or worktree. Ambiguous, missing or stale candidates fail with a diagnostic before Codex starts. Provider discovery through `gh` is optional; unavailable `gh` or authentication falls through to local Git sources. No implicit fetch, PR mutation or other remote mutation occurs.
+`code-converge` runs non-interactive `codex exec --output-schema <schema> --output-last-message <message> -` in the current directory. By default it resolves one review base in this order: an explicit review-base setting, the base of one open pull request for the current branch, `branch.<current>.gh-merge-base`, then exactly one remote default-branch ref. Provider discovery resolves its branch name against one remote-tracking ref and compares its commit SHA with the provider's advertised base SHA; a stale ref fails with an actionable fetch diagnostic. The resolved base SHA is pinned for every review in the run. Code-Converge computes the merge-base and prepares a private Git index from that tree plus the current worktree; this includes committed, staged, unstaged and untracked changes without modifying the real index or worktree. The exact private `GIT_INDEX_FILE` is supplied to the Codex process and forced into its spawned-tool environment for that invocation; the review instruction compares `git diff --cached` from the computed merge base. Ambiguous, missing or stale candidates fail with a diagnostic before Codex starts. Provider discovery through `gh` is optional; unavailable `gh` or authentication falls through to local Git sources. No implicit fetch, PR mutation or other remote mutation occurs.
 
 `--review-base <ref>`, `CODE_CONVERGE_REVIEW_BASE` and `.code-converge/review-base` explicitly select the base using the normal configuration precedence. A branch already merged into the selected base has no committed delta but still reviews worktree changes; a fully clean run follows the existing clean/no-change path. It uses the model and reasoning effort resolved from the selected mode and any explicit stage overrides.
 
-The review adapter reads the ordinary Codex review report and distinguishes findings from an explicitly clean review. It accepts the existing plain-text forms and a strict structured JSON object with exactly `findings`, `overall_correctness`, `overall_explanation`, and `overall_confidence_score`. Structured findings require the observed `title`, `body`, `confidence_score`, numeric `priority`, and `code_location` shape. It does not require a caller-supplied output schema. A non-zero command exit, malformed/incomplete/unknown structured data, or a report that cannot otherwise be classified safely is an operational failure and exits with code `2`; ambiguous output is never treated as a clean review.
+The review adapter supplies a strict JSON Schema and, after a zero Codex exit, reads only the file named by `--output-last-message`. The response must contain exactly `findings`, `overall_correctness`, `overall_explanation`, and `overall_confidence_score`; every finding must contain `title`, `body`, `confidence_score`, numeric `priority`, and `code_location` in the documented nested shape. An empty `findings` array is the only clean result. Plain text, terminal stdout/stderr, duplicate or unknown fields, invalid priorities, missing/empty/malformed files, and non-zero command exits cannot be classified as clean and produce operational exit `2`. Codex compatibility is capability-based: the configured CLI must support `exec`, `--output-schema`, and `--output-last-message`; unsupported invocations fail closed without falling back to terminal parsing.
 
-For metrics, Codex priorities are normalized as follows: `P0` → `critical`, `P1` → `high`, `P2` → `medium`, and `P3` → `low`. A bracketed numeric priority outside that range is counted as `unknown`; other bracket labels are not findings and make a findings report unclassifiable. `findings_total` must equal the sum of all five counters.
+For metrics, schema priorities are normalized as follows: `0` (`P0`) → `critical`, `1` (`P1`) → `high`, `2` (`P2`) → `medium`, and `3` (`P3`) → `low`. Any other priority makes the response invalid. The public `unknown` counter remains present for event-schema compatibility and is zero for accepted structured responses. `findings_total` must equal the sum of all five counters.
 
 ### 2. Fix findings
 
@@ -229,7 +229,7 @@ If the agent completes successfully, the entire workflow begins again with a new
 
 ## Logging and metrics
 
-During a workflow run, `code-converge` writes operational progress to standard output in one deterministically selected format: `human` or `kv`. The built-in default is `human`; select `kv` explicitly for machine-readable automation. TTY detection never selects the semantic format. Raw Codex stdout is captured by the adapter and is not forwarded to workflow stdout; diagnostics and error details go to stderr.
+During a workflow run, `code-converge` writes operational progress to standard output in one deterministically selected format: `human` or `kv`. The built-in default is `human`; select `kv` explicitly for machine-readable automation. TTY detection never selects the semantic format. Raw Codex stdout and stderr are captured by the process boundary and are never review-result data or workflow stdout; stderr may enrich the diagnostic for a failed Codex process.
 
 ### Structured `kv` format
 

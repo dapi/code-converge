@@ -21,7 +21,7 @@ canonical_for:
 | Run | aggregate | One invocation of `code-converge` | Contains ordered stages and review cycles. |
 | Review phase | value | A bounded review/fix convergence sequence | Starts initially and again after a successful CI recovery. |
 | Review cycle | value | One review followed by an optional finding fix | Belongs to a review phase. |
-| Finding | value | A code-review remark parsed from the ordinary Codex review report | Has one normalized severity; contributes to cycle counts. |
+| Finding | value | A code-review remark parsed from the schema-valid Codex final response | Has one normalized severity; contributes to cycle counts. |
 | Stage | stateful operation | Review, fix findings, finalization, or CI fix | Produces a typed result and duration. |
 | Finalization verdict | value | `SUCCESS`, `CI_FAILED`, or `FAILED` | Determines terminal success, CI recovery, or exit `2`. |
 | Configuration value | value | Option plus source | Resolves once per run and is shown by `code-converge config`. |

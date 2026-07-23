@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -76,33 +75,92 @@ type Adapter struct {
 
 func (a Adapter) Review(ctx context.Context) (ReviewResult, error) {
 	if a.ReviewScope == nil {
-		result, err := a.Runner.Run(ctx, runner.Invocation{Args: append(modelArgs(a.Config.ReviewModel, a.Config.ReviewEffort), "review", "--uncommitted")})
-		if err != nil {
-			return ReviewResult{}, err
-		}
-		review, err := ParseReview(result.Stdout)
-		if err != nil {
-			return ReviewResult{}, err
-		}
-		review.Report = strings.TrimSpace(ansiPattern.ReplaceAllString(result.Stdout, ""))
-		return review, nil
+		return ReviewResult{}, errors.New("review scope is required")
 	}
 	target, err := a.ReviewScope.Prepare(ctx)
 	if err != nil {
 		return ReviewResult{}, err
 	}
-	args := append(modelArgs(a.Config.ReviewModel, a.Config.ReviewEffort), "review", "--base", target.BaseCommit)
-	result, err := a.Runner.Run(ctx, runner.Invocation{Args: args, Env: target.Env})
+	if strings.TrimSpace(target.BaseCommit) == "" || strings.TrimSpace(target.MergeBase) == "" {
+		return ReviewResult{}, errors.New("review target requires a selected base commit and merge base")
+	}
+	indexPath, err := reviewIndexPath(target.Env)
 	if err != nil {
 		return ReviewResult{}, err
 	}
-	review, err := ParseReview(result.Stdout)
+
+	dir, err := os.MkdirTemp("", "code-converge-review-response-")
+	if err != nil {
+		return ReviewResult{}, fmt.Errorf("create review response workspace: %w", err)
+	}
+	defer os.RemoveAll(dir)
+	schemaPath := filepath.Join(dir, "schema.json")
+	messagePath := filepath.Join(dir, "message.json")
+	if err := os.WriteFile(schemaPath, []byte(reviewSchema), 0o600); err != nil {
+		return ReviewResult{}, fmt.Errorf("write review output schema: %w", err)
+	}
+
+	args := append(
+		modelArgs(a.Config.ReviewModel, a.Config.ReviewEffort),
+		"-c", "shell_environment_policy.set.GIT_INDEX_FILE="+strconv.Quote(indexPath),
+		"exec", "--output-schema", schemaPath, "--output-last-message", messagePath, "-",
+	)
+	if _, err := a.Runner.Run(ctx, runner.Invocation{
+		Args:  args,
+		Env:   target.Env,
+		Stdin: reviewPrompt(target, indexPath),
+	}); err != nil {
+		return ReviewResult{}, err
+	}
+	message, err := os.ReadFile(messagePath)
+	if err != nil {
+		return ReviewResult{}, fmt.Errorf("read review response: %w", err)
+	}
+	review, err := parseStructuredReview(message)
 	if err != nil {
 		return ReviewResult{}, err
 	}
-	review.Report = strings.TrimSpace(ansiPattern.ReplaceAllString(result.Stdout, ""))
+	review.Report = strings.TrimSpace(string(message))
 	review.Scope = target
 	return review, nil
+}
+
+func reviewIndexPath(env []string) (string, error) {
+	var path string
+	found := false
+	for _, entry := range env {
+		name, value, hasValue := strings.Cut(entry, "=")
+		if name != "GIT_INDEX_FILE" {
+			continue
+		}
+		if found || !hasValue || strings.TrimSpace(value) == "" {
+			return "", errors.New("review target requires exactly one non-empty GIT_INDEX_FILE")
+		}
+		path = value
+		found = true
+	}
+	if !found {
+		return "", errors.New("review target requires exactly one non-empty GIT_INDEX_FILE")
+	}
+	return path, nil
+}
+
+func reviewPrompt(target repository.ReviewTarget, indexPath string) string {
+	return fmt.Sprintf(
+		`Review the changes in the prepared private Git index.
+
+Selected base commit: %s
+Merge base and comparison start: %s
+Private index path: %s
+
+GIT_INDEX_FILE is set to the private index path for this process and for commands you run. Review the equivalent of git diff --cached %s so the comparison covers the merge-base-to-private-snapshot change. Inspect related files when needed, but do not modify the repository, the real index, or the worktree.
+
+Return actionable code-review findings. Use an empty findings array when there are none. Return only the JSON object required by the supplied output schema.`,
+		target.BaseCommit,
+		target.MergeBase,
+		indexPath,
+		target.MergeBase,
+	)
 }
 
 func (a Adapter) FixFindings(ctx context.Context, report string) error {
@@ -146,56 +204,6 @@ func modelArgs(model, effort string) []string {
 		args = append(args, "-c", "model_reasoning_effort="+strconv.Quote(effort))
 	}
 	return args
-}
-
-var (
-	ansiPattern          = regexp.MustCompile(`\x1b\[[0-9;]*[[:alpha:]]`)
-	bracketedFindingLine = regexp.MustCompile(`^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)?\[([^]]+)\]\s+.+$`)
-	priorityToken        = regexp.MustCompile(`^P[0-9]+$`)
-	findingHeading       = regexp.MustCompile(`(?i)^#{1,6}\s+findings\s*:?[[:space:]]*$`)
-)
-
-func ParseReview(raw string) (ReviewResult, error) {
-	text := strings.TrimSpace(ansiPattern.ReplaceAllString(raw, ""))
-	if text == "" {
-		return ReviewResult{}, errors.New("empty review report")
-	}
-	if strings.HasPrefix(text, "{") {
-		return parseStructuredReview([]byte(text))
-	}
-	var counts Counts
-	inFindings := false
-	found := 0
-	for _, line := range strings.Split(text, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if findingHeading.MatchString(trimmed) {
-			inFindings = true
-			continue
-		}
-		if strings.HasPrefix(trimmed, "#") && inFindings {
-			inFindings = false
-		}
-		match := bracketedFindingLine.FindStringSubmatch(line)
-		if len(match) == 2 {
-			priority := strings.ToUpper(match[1])
-			if !priorityToken.MatchString(priority) {
-				return ReviewResult{}, fmt.Errorf("review report contains unsupported finding label %q", match[1])
-			}
-			addPriority(&counts, priority)
-			found++
-			continue
-		}
-	}
-	if found > 0 {
-		if containsExplicitCleanLine(text) {
-			return ReviewResult{}, errors.New("review report mixes findings with a clean verdict")
-		}
-		return ReviewResult{Counts: counts}, nil
-	}
-	if isExplicitCleanReport(text) {
-		return ReviewResult{Clean: true}, nil
-	}
-	return ReviewResult{}, errors.New("review report is not safely classifiable")
 }
 
 func parseStructuredReview(data []byte) (ReviewResult, error) {
@@ -299,71 +307,6 @@ func validateStructuredReview(response structuredReview) error {
 		}
 	}
 	return nil
-}
-
-func containsExplicitCleanLine(text string) bool {
-	for _, line := range strings.Split(text, "\n") {
-		if isExplicitClean(line) {
-			return true
-		}
-	}
-	return false
-}
-
-func addPriority(counts *Counts, priority string) {
-	switch priority {
-	case "P0":
-		counts.Critical++
-	case "P1":
-		counts.High++
-	case "P2":
-		counts.Medium++
-	case "P3":
-		counts.Low++
-	default:
-		counts.Unknown++
-	}
-}
-
-func isExplicitClean(text string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(text))
-	normalized = strings.TrimSpace(strings.TrimPrefix(normalized, "- "))
-	normalized = strings.TrimSpace(strings.TrimPrefix(normalized, "* "))
-	normalized = strings.TrimSpace(strings.TrimPrefix(normalized, "## review"))
-	normalized = strings.TrimSpace(strings.TrimPrefix(normalized, "## findings"))
-	normalized = strings.TrimSpace(strings.TrimPrefix(normalized, ":"))
-	allowed := map[string]bool{
-		"none found": true, "none found.": true,
-		"no findings": true, "no findings.": true,
-		"no findings found": true, "no findings found.": true,
-		"no issues found": true, "no issues found.": true,
-		"no actionable findings": true, "no actionable findings.": true,
-		"the review found no issues": true, "the review found no issues.": true,
-		"the review found no findings": true, "the review found no findings.": true,
-		"i found no issues in the changes": true, "i found no issues in the changes.": true,
-	}
-	return allowed[normalized]
-}
-
-// isExplicitCleanReport accepts only a heading plus an allowlisted clean line
-// (or a standalone allowlisted clean line). Arbitrary prose is rejected.
-func isExplicitCleanReport(text string) bool {
-	cleanLine := false
-	for _, line := range strings.Split(text, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || findingHeading.MatchString(trimmed) || strings.EqualFold(trimmed, "## review") {
-			continue
-		}
-		if isExplicitClean(trimmed) {
-			if cleanLine {
-				return false
-			}
-			cleanLine = true
-			continue
-		}
-		return false
-	}
-	return cleanLine
 }
 
 func ParseFinalization(data []byte) (Finalization, error) {
@@ -482,6 +425,48 @@ func oneOf(value string, choices ...string) bool {
 	}
 	return false
 }
+
+const reviewSchema = `{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["findings", "overall_correctness", "overall_explanation", "overall_confidence_score"],
+  "properties": {
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "body", "confidence_score", "priority", "code_location"],
+        "properties": {
+          "title": {"type": "string"},
+          "body": {"type": "string"},
+          "confidence_score": {"type": "number"},
+          "priority": {"type": "integer", "enum": [0, 1, 2, 3]},
+          "code_location": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["absolute_file_path", "line_range"],
+            "properties": {
+              "absolute_file_path": {"type": "string"},
+              "line_range": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["start", "end"],
+                "properties": {
+                  "start": {"type": "integer"},
+                  "end": {"type": "integer"}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "overall_correctness": {"type": "string"},
+    "overall_explanation": {"type": "string"},
+    "overall_confidence_score": {"type": "number"}
+  }
+}`
 
 const finalizationSchema = `{
   "type": "object",
