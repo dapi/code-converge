@@ -11,7 +11,7 @@ derived_from:
   - ../../../README.md
   - https://github.com/dapi/code-converge/issues/10
 status: active
-delivery_status: in_progress
+delivery_status: done
 audience: humans_and_agents
 must_not_define:
   - implementation_sequence
@@ -134,4 +134,4 @@ An interactive terminal run can show the continuing workflow log and the active 
 | `EVID-02` | pass | `go test ./...` including existing app/event/workflow non-interactive fixtures |
 | `EVID-03` | pass | `TERM=xterm` pseudo-TTY smoke with a fake Codex: sent `i` to open/close; captured alternate-screen enter/restore, workflow pane, and arriving agent output in `/tmp/ft010-interactive-smoke.log`. |
 | `EVID-04` | pass | `make docs-lint` |
-| `EVID-05` | local pass; CI pending | `go test ./...`, `go vet ./...`, `make docs-lint`, `git diff --check` |
+| `EVID-05` | pass | `go test -race ./...`, `go test ./...`, `go vet ./...`, `make verify`, `git diff --check`; PR [#26](https://github.com/dapi/code-converge/pull/26), required [Verify run](https://github.com/dapi/code-converge/actions/runs/30015808350) passed. |

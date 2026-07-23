@@ -8,7 +8,7 @@ derived_from:
   - design.md
   - ../../adr/ADR-001-interactive-terminal-runtime.md
   - ../../engineering/testing-policy.md
-status: active
+status: archived
 audience: humans_and_agents
 must_not_define:
   - feature_scope

@@ -12,7 +12,7 @@ audience: humans_and_agents
 
 # FT-010: Interactive agent-output view
 
-This package routes [issue #10](https://github.com/dapi/code-converge/issues/10) as one delivery unit through Feature Flow. `brief.md` is the canonical owner of the problem, blocking decisions, and verification contract.
+This package records the completed [issue #10](https://github.com/dapi/code-converge/issues/10) delivery through Feature Flow. `brief.md` is the canonical owner of the problem, blocking decisions, and verification contract.
 
 ## Annotated index
 
@@ -21,4 +21,4 @@ This package routes [issue #10](https://github.com/dapi/code-converge/issues/10)
 - [design.md](design.md) — canonical selected solution, interactive terminal contracts, and failure semantics.
 - [implementation-plan.md](implementation-plan.md) — derived execution sequence, checkpoints, and evidence realization.
 
-`HG-01` was resolved by FPF decision `DL-03`. `ADR-001` supplies the reusable terminal-runtime boundary.
+`HG-01` was resolved by FPF decision `DL-03`. `ADR-001` supplies the reusable terminal-runtime boundary; local and CI evidence is recorded in `brief.md`.
