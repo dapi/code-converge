@@ -182,7 +182,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 		Out: stdout, Err: stderr, Now: a.Now, Format: cfg.LogFormat, Heartbeat: cfg.Heartbeat,
 		Interactive: a.isTerminal(stdout), ColorDepth: a.colorDepth(cfg, stdout), View: view,
 	}
-	if logger.Interactive && cfg.LogFormat == "human" && cfg.Heartbeat == 0 && view == nil {
+	if logger.Interactive && cfg.LogFormat == "human" && cfg.Heartbeat == 0 {
 		logger.TerminalWidth = func() (int, error) { return a.terminalWidth(stdout) }
 	}
 	if !cfg.NoSessionLog {

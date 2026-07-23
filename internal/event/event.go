@@ -270,15 +270,6 @@ func (l *Logger) writeTransient(stage StageContext, elapsed time.Duration, frame
 	line := fmt.Sprintf("%s%s... %s", l.humanPrefix(l.stageAttempt(stage), stage.Model, stage.ReasoningEffort), label, compoundSeconds(seconds))
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.View != nil && l.View.Active() {
-		consumed, err := l.View.WriteTransient(l.Out, "\r\x1b[2K"+line)
-		if err != nil {
-			return fmt.Errorf("render interactive view: %w", err)
-		}
-		if consumed {
-			return nil
-		}
-	}
 	width, err := l.terminalWidthLocked()
 	if err != nil {
 		return err
@@ -293,7 +284,15 @@ func (l *Logger) writeTransient(stage StageContext, elapsed time.Duration, frame
 	if l.ColorDepth > 0 {
 		line = shimmer(line, frame, l.ColorDepth)
 	}
-	if _, err := io.WriteString(l.Out, "\r\x1b[2K"+line); err != nil {
+	if l.View != nil {
+		consumed, err := l.View.WriteTransient(l.Out, "\r\x1b[2K"+line)
+		if err != nil {
+			return fmt.Errorf("render interactive view: %w", err)
+		}
+		if consumed {
+			return nil
+		}
+	} else if _, err := io.WriteString(l.Out, "\r\x1b[2K"+line); err != nil {
 		return err
 	}
 	l.transient = true
