@@ -10,6 +10,22 @@ import (
 	"time"
 )
 
+func TestMain(m *testing.M) {
+	clearGitRepositoryEnvironment()
+	os.Exit(m.Run())
+}
+
+func clearGitRepositoryEnvironment() {
+	for _, name := range []string{
+		"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+		"GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+		"GIT_NAMESPACE", "GIT_CEILING_DIRECTORIES",
+		"GIT_DISCOVERY_ACROSS_FILESYSTEM", "GIT_IMPLICIT_WORK_TREE",
+	} {
+		_ = os.Unsetenv(name)
+	}
+}
+
 var codeConvergeEnv = []string{
 	"CODE_CONVERGE_LOG_FORMAT", "CODE_CONVERGE_HEARTBEAT", "CODE_CONVERGE_COLOR",
 	"CODE_CONVERGE_MODE",

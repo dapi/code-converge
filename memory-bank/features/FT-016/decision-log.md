@@ -204,6 +204,78 @@ The reasoning bounds this feature to review-input selection, separates issue fac
 - **Verification:** `GOCACHE=/private/tmp/code-converge-gocache go test ./internal/repository` and `go vet ./...` pass. `go test ./...` is blocked only because sandbox policy denies `internal/update` an IPv6 loopback listener; `make docs-lint` is blocked because sandbox DNS cannot resolve `proxy.golang.org` to download its pinned linter. `git diff --check`, required CI and independent final review remain closure evidence.
 - **Human gate:** no; the user explicitly authorized the remediation.
 
+### Cycle 17 — absolute shell-alias repository-creation remediation
+
+- **Routing:** Bug Fix flow within FT-016. An absolute Git executable in a shell alias could evade repository-creation detection and inherit a disposable review index, violating the private-index isolation invariant. The active `high-risk` profile remains applicable.
+- **Review scope:** repository-creation classification in `internal/repository/review.go`.
+- **Important:** reviewer `P2`: `alias.copy=!/usr/bin/git clone ...` was not recognized because detection accepted only the literal `git` executable name, producing a clone with an inherited disposable index.
+- **Changes:** recognize absolute Git executable paths by basename, parse simple Git global options before classifying `clone` and `worktree add`, and fail closed for shell aliases containing shell syntax or otherwise not safely classifiable. Added a real-Git absolute-shell-alias clone regression and classifier coverage.
+- **Verification:** `GOCACHE=/private/tmp/code-converge-gocache go test ./internal/repository`, `GOCACHE=/private/tmp/code-converge-gocache go test ./...`, `GOCACHE=/private/tmp/code-converge-gocache go vet ./...`, `make docs-lint` and `git diff --check` pass. Independent review and required CI remain closure evidence.
+- **Human gate:** no; this restores the established repository-creation safety contract.
+
+### Cycle 18 — shell-alias target-isolation remediation
+
+- **Routing:** Bug Fix flow within FT-016. A read-only absolute Git shell alias with `-C`, `--git-dir` or `--work-tree` could receive the review index before redirecting to another repository, violating the established isolation invariant. The active `high-risk` profile remains applicable.
+- **Review scope:** shell-alias Git-target classification in `internal/repository/review.go`.
+- **Important:** reviewer `P2`: `!/usr/bin/git -C ../other status` was treated as a safe read-only alias even though its descendant bypassed the wrapper and used the reviewed repository's disposable index in `../other`.
+- **Changes:** shell aliases with repository-target-selection global options now fail closed and receive no review index. Added a real-Git regression proving an absolute alias targeting a nested repository returns its normal status and leaves the review index unchanged.
+- **Verification:** `GOCACHE=/private/tmp/code-converge-gocache go test ./internal/repository`, `GOCACHE=/private/tmp/code-converge-gocache go test ./...`, `GOCACHE=/private/tmp/code-converge-gocache go vet ./...`, `make docs-lint` and `git diff --check` pass. Independent review and required CI remain closure evidence.
+- **Human gate:** no; this restores the accepted repository-isolation behavior.
+
+### Cycle 19 — provider endpoint-identity remediation
+
+- **Routing:** Bug Fix flow within FT-016. The findings violate `CTR-02`: a partially supported push destination set is not a uniquely verified provider repository, and a non-default endpoint port is part of its identity. The active `high-risk` profile remains applicable.
+- **Review scope:** provider identity derivation and provider-query target selection in `internal/repository/review.go`.
+- **Important:** reviewer `P2`: mixed provider and local/unsupported push URLs silently selected the provider URL; reviewer `P2`: URL parsing discarded a non-default SSH port and queried the default provider endpoint.
+- **Changes:** provider discovery now falls back to local sources when its push URL set is mixed, and preserves non-default SSH/HTTP(S) ports in the canonical identity and `gh --repo` target. Added deterministic mixed-destination fallback and non-default-port query regressions.
+- **Verification:** `GOCACHE=/private/tmp/code-converge-gocache go test ./internal/repository`, `GOCACHE=/private/tmp/code-converge-gocache go test ./...`, `GOCACHE=/private/tmp/code-converge-gocache go vet ./...`, `make docs-lint` and `git diff --check` pass.
+- **Human gate:** no; this restores the established verified-provider and local-fallback behavior.
+
+### Cycle 20 — escaped-alias and paginated-provider-candidate remediation
+
+- **Routing:** Bug Fix flow within FT-016. The findings contradict `INV-01` because uniqueness was decided from `gh`'s default partial result set, and violate the private-index isolation invariant because a valid backslash-escaped regular alias could hide `clone`. The active `high-risk` profile remains applicable.
+- **Review scope:** regular Git alias parsing and open-PR candidate collection in `internal/repository/review.go`.
+- **Important:** reviewer `P1`: Git executes `alias.clone-repository = cl\\one` as `clone`, while the wrapper treated `cl\\one` literally and could inject the disposable review index into a newly created repository. Reviewer `P2`: `gh pr list` returns only 30 results by default, allowing a later matching PR to be omitted from uniqueness evaluation.
+- **Changes:** parse backslash escapes in regular aliases, including escaped whitespace and double-quoted escapes, before recursively classifying the resulting Git command. Query open PR candidates with a one-million `gh --limit`, which makes the CLI paginate beyond its default result page before uniqueness is evaluated. Added direct parser coverage, a real-Git escaped-clone isolation regression, and fake-provider assertions for the explicit limit.
+- **Verification:** `GOCACHE=/private/tmp/code-converge-gocache go test ./...` and `GOCACHE=/private/tmp/code-converge-gocache go vet ./...` pass; `git diff --check` passes after the documentation update. `make docs-lint` remains blocked because sandbox DNS cannot resolve `proxy.golang.org` to download its pinned linter. Required CI and independent final review remain closure evidence.
+- **Human gate:** no; this restores established fail-closed alias classification and provider candidate pagination without changing the public contract.
+
+### Cycle 21 — direct-helper and path-list isolation remediation
+
+- **Routing:** Bug Fix flow within FT-016. The findings violate `CTR-04`: Git helpers exposed through the Codex-facing wrapper directory bypass private-index selection, and a temporary wrapper path containing a path-list separator can make the wrapper unreachable. The active `high-risk` profile remains applicable.
+- **Review scope:** scoped Git transport in `internal/repository/review.go`.
+- **Important:** reviewer `P1`: direct `git-*` commands resolved from the wrapper directory use the real index. Reviewer `P2`: a caller-controlled temporary directory containing the platform path-list separator is split when prepended to `PATH`.
+- **Changes:** keep only the `git` symlink and its sidecar in the Codex-facing `PATH` directory; link Git helpers into a separate directory used solely as the wrapper child's `GIT_EXEC_PATH`. Reject temporary wrapper and helper paths containing the platform path-list separator before snapshot preparation. Added real-Git coverage for direct-helper separation and a deterministic separator rejection test.
+- **Verification:** `GOCACHE=/private/tmp/code-converge-gocache go test ./...`, `GOCACHE=/private/tmp/code-converge-gocache go vet ./...` and `git diff --check` pass. `make docs-lint` passed before the final evidence update, but its required retry is blocked because sandbox DNS cannot resolve `proxy.golang.org` for the pinned linter module. Required CI and independent final review remain closure evidence.
+- **Human gate:** no; this restores the established scoped-review transport contract.
+
+### Cycle 22 — configured-remote fallback and SCP-user remediation
+
+- **Routing:** Bug Fix flow within FT-016. The findings violate `REQ-05` and the provider-identity contract: an expected missing configured remote must not block local base selection, and an SCP-style remote's username is not part of its provider host. The active `high-risk` profile remains applicable.
+- **Review scope:** configured push-remote error handling and SCP-style provider identity parsing in `internal/repository/review.go`.
+- **Important:** reviewer `P2`: a removed or URL-less `branch.<name>.remote` prevented the documented `gh-merge-base`/local fallback; `alice@github.example.com:owner/repo.git` was queried with `alice@` as part of the host.
+- **Changes:** classify only Git's expected missing-remote/no-URL diagnostics as optional provider unavailability, preserving cancellation and unrelated command errors; remove any SCP username before canonicalizing the provider host. Added deterministic local-fallback, command-error propagation and arbitrary-username identity regressions.
+- **Verification:** `GOCACHE=/private/tmp/code-converge-gocache go test ./...`, `GOCACHE=/private/tmp/code-converge-gocache go vet ./...` and `git diff --check` pass. `make docs-lint` is blocked because the sandbox cannot resolve `proxy.golang.org` to fetch its pinned linter; required CI and independent final review remain closure evidence.
+- **Human gate:** no; this restores the accepted optional-provider fallback and canonical provider-identity behavior.
+
+### Cycle 23 — complete-hidden-snapshot and endpoint-normalization remediation
+
+- **Routing:** Bug Fix flow within FT-016. The findings contradict `REQ-01`, `REQ-05` and `CTR-03`: valid tracked worktree edits must enter the private snapshot, and optional provider discovery must be stable across locale and valid endpoint syntax. The active `high-risk` profile remains applicable.
+- **Review scope:** private-index staging and provider endpoint derivation in `internal/repository/review.go`.
+- **Important:** reviewer `P1`: copied `skip-worktree` and `assume-unchanged` flags let sparse or hidden tracked edits evade ordinary `git add -A`. Reviewer `P2`: missing-remote recognition depended on localized stderr. Reviewer `P2`: default-port IPv6 provider hosts lost their required brackets.
+- **Changes:** clear hidden flags only in the disposable index, retaining absent sparse paths while using sparse-aware staging; run the diagnostic-bearing push-URL lookup with `LC_ALL=C`; preserve IPv6 brackets for default and non-default ports in provider identities. Added real-Git sparse and assume-unchanged snapshot regressions plus deterministic locale and IPv6 normalization coverage.
+- **Verification:** `GOCACHE=/private/tmp/code-converge-gocache go test ./internal/repository`, `GOCACHE=/private/tmp/code-converge-gocache go test ./...`, `GOCACHE=/private/tmp/code-converge-gocache go vet ./...`, `make docs-lint` and `git diff --check` pass. Required CI and independent final review remain closure evidence.
+- **Human gate:** no; this restores the documented complete-scope and optional-provider behavior without changing the public contract.
+
+### Cycle 24 — root-scoped snapshot and pinned-base remediation
+
+- **Routing:** Bug Fix flow within FT-016. The findings contradict `REQ-01`, `REQ-02` and `REQ-05`: a complete local snapshot must work from a repository subdirectory, branch merge intent remains a local fallback when its name contains `/`, and emitted merge-base metadata must describe the pinned review base. The active `high-risk` profile remains applicable.
+- **Review scope:** local base resolution and private-index snapshot preparation in `internal/repository/review.go`.
+- **Important:** reviewer `P1`: a relative index path from a subdirectory was resolved against the repository root, and valid slash-containing `gh-merge-base` branch names were not checked against remote-tracking refs. Reviewer `P2`: merge-base was computed from a mutable symbolic ref after its commit had already been pinned.
+- **Changes:** run root-dependent index and snapshot commands with `git -C <review-root>`; allow every unresolved branch candidate, including slash-containing names, through the unambiguous remote-tracking lookup; calculate `merge-base` from the pinned base commit. Added deterministic branch-merge-base and pinned-commit tests, a real-Git subdirectory snapshot regression, and aligned app fake-runner coverage for root-scoped commands.
+- **Verification:** `GOCACHE=/private/tmp/code-converge-test.XXXXXX go test ./...`, `GOCACHE=/private/tmp/code-converge-vet.XXXXXX go vet ./...`, `make docs-lint`, `gofmt -d` for the modified Go files and `git diff --check` pass. Required CI and independent final review remain high-risk gates.
+- **Human gate:** no; the user explicitly authorized the remediation.
+
 ## Human Gate
 
 ### `HG-01` — Public review-base/scope contract

@@ -6,16 +6,25 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/dapi/code-converge/internal/runner"
 )
 
 var errNoProviderRemote = errors.New("no provider remote is configured")
+
+// ghPRListLimit makes gh paginate through a high ceiling of candidates instead
+// of deciding uniqueness from its default first page of 30 pull requests.
+// gh stops earlier when the candidate collection is exhausted.
+const ghPRListLimit = "1000000"
+
+const disableSplitIndexConfig = "core.splitIndex=false"
 
 // ReviewTarget is the resolved base and private index used for one review.
 type ReviewTarget struct {
@@ -33,9 +42,9 @@ type ReviewScope struct {
 	Base   string
 	Root   string
 
-	base, baseCommit, mergeBase, source string
-	tempDir, gitWrapperDir              string
-	copyIndex                           func(context.Context, string) error
+	base, baseCommit, mergeBase, source  string
+	tempDir, gitWrapperDir, gitHelperDir string
+	copyIndex                            func(context.Context, string) error
 }
 
 type scopedGitConfiguration struct {
@@ -43,6 +52,7 @@ type scopedGitConfiguration struct {
 	Root       string `json:"root"`
 	Index      string `json:"index"`
 	WrapperDir string `json:"wrapper_dir"`
+	HelperDir  string `json:"helper_dir"`
 }
 
 func (s *ReviewScope) Prepare(ctx context.Context) (ReviewTarget, error) {
@@ -55,16 +65,24 @@ func (s *ReviewScope) Prepare(ctx context.Context) (ReviewTarget, error) {
 		if err != nil {
 			return ReviewTarget{}, fmt.Errorf("resolve selected base %q: %w", base, err)
 		}
-		mergeBase, err := s.git(ctx, nil, "merge-base", "HEAD", base)
+		mergeBase, err := s.git(ctx, nil, "merge-base", "HEAD", baseCommit)
 		if err != nil {
 			return ReviewTarget{}, fmt.Errorf("find merge-base for %q: %w", base, err)
 		}
 		s.base, s.baseCommit, s.mergeBase, s.source = base, baseCommit, mergeBase, source
 	}
 	if s.tempDir == "" {
-		dir, err := os.MkdirTemp("", "code-converge-review-index-")
+		dir, err := s.createReviewTempDir()
 		if err != nil {
-			return ReviewTarget{}, fmt.Errorf("create review index: %w", err)
+			return ReviewTarget{}, err
+		}
+		if err := validatePathListEntry(filepath.Join(dir, "bin")); err != nil {
+			_ = os.RemoveAll(dir)
+			return ReviewTarget{}, err
+		}
+		if err := validatePathListEntry(filepath.Join(dir, "git-exec")); err != nil {
+			_ = os.RemoveAll(dir)
+			return ReviewTarget{}, err
 		}
 		s.tempDir = dir
 	}
@@ -75,7 +93,10 @@ func (s *ReviewScope) Prepare(ctx context.Context) (ReviewTarget, error) {
 	if err := s.copyRealIndex(ctx, filepath.Join(s.tempDir, "index")); err != nil {
 		return ReviewTarget{}, fmt.Errorf("prepare review index: %w", err)
 	}
-	if _, err := s.git(ctx, s.snapshotEnvironment(), "add", "-A"); err != nil {
+	if err := s.clearHiddenSnapshotIndexFlags(ctx); err != nil {
+		return ReviewTarget{}, fmt.Errorf("prepare review index flags: %w", err)
+	}
+	if _, err := s.git(ctx, s.snapshotEnvironment(), s.rootGitArgs("add", "--sparse", "-A")...); err != nil {
 		return ReviewTarget{}, fmt.Errorf("snapshot worktree for review: %w", err)
 	}
 	return ReviewTarget{Base: s.base, BaseCommit: s.baseCommit, MergeBase: s.mergeBase, Source: s.source, Env: env}, nil
@@ -88,6 +109,7 @@ func (s *ReviewScope) Close() error {
 	err := os.RemoveAll(s.tempDir)
 	s.tempDir = ""
 	s.gitWrapperDir = ""
+	s.gitHelperDir = ""
 	return err
 }
 
@@ -169,7 +191,7 @@ func (s *ReviewScope) openPRBase(ctx context.Context, branch string) (providerBa
 	var unavailableTarget string
 	var unavailableError error
 	for _, target := range targets {
-		output, err := s.Runner.Run(ctx, runner.Invocation{Executable: "gh", Args: []string{"pr", "list", "--repo", target, "--head", branch, "--state", "open", "--json", "baseRefName,baseRefOid,headRefName,headRepository"}})
+		output, err := s.Runner.Run(ctx, runner.Invocation{Executable: "gh", Args: []string{"pr", "list", "--repo", target, "--head", branch, "--state", "open", "--json", "baseRefName,baseRefOid,headRefName,headRepository", "--limit", ghPRListLimit}})
 		if err != nil {
 			// Provider discovery is optional only when it produces no candidate.
 			// Once another target returns a matching PR, every target is needed to
@@ -213,6 +235,64 @@ func (s *ReviewScope) openPRBase(ctx context.Context, branch string) (providerBa
 	}
 }
 
+// createReviewTempDir keeps the private index transport outside the worktree.
+// os.MkdirTemp honors TMPDIR, which may point into the repository being
+// snapshotted. In that case, its wrapper and index files would otherwise be
+// picked up by git add --sparse -A.
+func (s *ReviewScope) createReviewTempDir() (string, error) {
+	dir, err := os.MkdirTemp("", "code-converge-review-index-")
+	if err != nil {
+		return "", fmt.Errorf("create review index: %w", err)
+	}
+	canonicalDir, err := canonicalPath(dir)
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return "", fmt.Errorf("resolve review index path: %w", err)
+	}
+	reviewRoot := s.Root
+	if reviewRoot == "" {
+		reviewRoot, err = os.Getwd()
+		if err != nil {
+			_ = os.RemoveAll(dir)
+			return "", fmt.Errorf("resolve reviewed worktree: %w", err)
+		}
+	}
+	canonicalRoot, err := canonicalPath(reviewRoot)
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return "", fmt.Errorf("resolve reviewed worktree: %w", err)
+	}
+	if !pathWithin(canonicalDir, canonicalRoot) {
+		return canonicalDir, nil
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return "", fmt.Errorf("remove unsafe review index: %w", err)
+	}
+	parent := filepath.Dir(canonicalRoot)
+	if parent == canonicalRoot {
+		return "", fmt.Errorf("create review index: reviewed worktree %q has no parent outside the worktree", canonicalRoot)
+	}
+	dir, err = os.MkdirTemp(parent, "code-converge-review-index-")
+	if err != nil {
+		return "", fmt.Errorf("create review index outside reviewed worktree: %w", err)
+	}
+	canonicalDir, err = canonicalPath(dir)
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return "", fmt.Errorf("resolve review index path: %w", err)
+	}
+	if pathWithin(canonicalDir, canonicalRoot) {
+		_ = os.RemoveAll(dir)
+		return "", fmt.Errorf("create review index: temporary directory %q is inside reviewed worktree %q", canonicalDir, canonicalRoot)
+	}
+	return canonicalDir, nil
+}
+
+func pathWithin(path, root string) bool {
+	relative, err := filepath.Rel(root, path)
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
+}
+
 // providerTargets returns every configured provider repository that could own
 // the PR. In the common fork workflow, the push remote identifies the PR head,
 // while an upstream remote owns the PR itself.
@@ -246,11 +326,9 @@ func (s *ReviewScope) providerTargets(ctx context.Context, head string) ([]strin
 
 func (s *ReviewScope) currentBranchProvider(ctx context.Context, branch string) (string, error) {
 	remote := ""
-	configuredRemote := false
 	for _, key := range []string{"branch." + branch + ".pushRemote", "remote.pushDefault", "branch." + branch + ".remote"} {
 		if candidate, err := s.git(ctx, nil, "config", "--get", key); err == nil && candidate != "" {
 			remote = candidate
-			configuredRemote = true
 			break
 		}
 	}
@@ -260,20 +338,40 @@ func (s *ReviewScope) currentBranchProvider(ctx context.Context, branch string) 
 	if remote == "" {
 		remote = "origin"
 	}
-	remoteURLs, err := s.git(ctx, nil, "remote", "get-url", "--push", "--all", remote)
+	// Git's missing-remote diagnostics are localized. Pin this one diagnostic-
+	// bearing call to the C locale so the narrow optional-provider fallback below
+	// is deterministic across user environments.
+	remoteURLResult, err := s.Runner.Run(ctx, runner.Invocation{Executable: "git", Args: []string{"remote", "get-url", "--push", "--all", remote}, Env: []string{"LC_ALL=C"}})
 	if err != nil {
-		if !configuredRemote {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		// A branch may retain a push-remote setting after the remote has
+		// been removed. This is equivalent to having no provider remote:
+		// local base discovery must remain available. Restrict this exception
+		// to Git's expected missing-remote/no-URL diagnostics so transport,
+		// configuration, and other command failures still surface.
+		if isMissingProviderRemoteDiagnostic(remoteURLResult.Stderr) {
 			return "", errNoProviderRemote
 		}
 		return "", fmt.Errorf("read push URL for remote %q: %w", remote, err)
 	}
+	remoteURLs := strings.TrimSpace(remoteURLResult.Stdout)
 	identities := make(map[string]struct{})
+	unsupportedURL := false
 	for _, remoteURL := range strings.Fields(remoteURLs) {
 		identity, err := repositoryIdentity(remoteURL)
 		if err != nil {
-			continue // A local or unsupported-provider remote leaves local base discovery available.
+			unsupportedURL = true
+			continue
 		}
 		identities[identity] = struct{}{}
+	}
+	// Git pushes to every configured pushurl. A provider identity is therefore
+	// trustworthy only when every destination identifies that same provider;
+	// mixed local/unsupported destinations leave provider discovery unavailable.
+	if unsupportedURL && len(identities) > 0 {
+		return "", errNoProviderRemote
 	}
 	if len(identities) == 0 {
 		return "", errNoProviderRemote
@@ -287,15 +385,32 @@ func (s *ReviewScope) currentBranchProvider(ctx context.Context, branch string) 
 	return "", errors.New("unreachable provider identity")
 }
 
+func isMissingProviderRemoteDiagnostic(stderr string) bool {
+	diagnostic := strings.ToLower(strings.TrimSpace(stderr))
+	return strings.HasPrefix(diagnostic, "error: no such remote ") ||
+		strings.HasPrefix(diagnostic, "fatal: no such remote ") ||
+		strings.Contains(diagnostic, "no such url found")
+}
+
 func repositoryIdentity(remoteURL string) (string, error) {
 	value := strings.TrimSuffix(strings.TrimSpace(remoteURL), "/")
 	var host string
 	var path string
 	if parsed, err := url.Parse(value); err == nil && parsed.Scheme != "" {
+		if !isProviderURLScheme(parsed.Scheme) {
+			return "", fmt.Errorf("remote URL uses unsupported provider scheme %q", parsed.Scheme)
+		}
 		host, path = parsed.Hostname(), parsed.Path
-	} else if userHost, repositoryPath, ok := strings.Cut(value, ":"); ok {
-		host = strings.TrimPrefix(userHost, "git@")
-		path = repositoryPath
+		if port := parsed.Port(); port != "" && !isDefaultPort(parsed.Scheme, port) {
+			host = net.JoinHostPort(host, port)
+		} else if strings.Contains(host, ":") {
+			// url.Hostname removes the brackets required to delimit an IPv6
+			// literal from the following repository path. Restore them even
+			// when url.Parse normalized away a default port.
+			host = "[" + host + "]"
+		}
+	} else if scpHost, repositoryPath, ok := splitSCPRemote(value); ok {
+		host, path = scpHost, repositoryPath
 	} else {
 		return "", fmt.Errorf("remote URL does not identify a provider host")
 	}
@@ -313,6 +428,43 @@ func repositoryIdentity(remoteURL string) (string, error) {
 	return strings.ToLower(host) + "/" + strings.ToLower(parts[0]) + "/" + strings.ToLower(repository), nil
 }
 
+func splitSCPRemote(value string) (string, string, bool) {
+	hostStart := 0
+	if userSeparator := strings.LastIndex(value, "@"); userSeparator >= 0 {
+		hostStart = userSeparator + 1
+	}
+	remaining := value[hostStart:]
+	if strings.HasPrefix(remaining, "[") {
+		if separator := strings.Index(remaining, "]:"); separator >= 0 {
+			return remaining[:separator+1], remaining[separator+2:], true
+		}
+		return "", "", false
+	}
+	userHost, repositoryPath, ok := strings.Cut(value, ":")
+	if !ok {
+		return "", "", false
+	}
+	if userSeparator := strings.LastIndex(userHost, "@"); userSeparator >= 0 {
+		userHost = userHost[userSeparator+1:]
+	}
+	return userHost, repositoryPath, true
+}
+
+func isProviderURLScheme(scheme string) bool {
+	switch strings.ToLower(scheme) {
+	case "ssh", "http", "https":
+		return true
+	default:
+		return false
+	}
+}
+
+func isDefaultPort(scheme, port string) bool {
+	return (strings.EqualFold(scheme, "ssh") && port == "22") ||
+		(strings.EqualFold(scheme, "https") && port == "443") ||
+		(strings.EqualFold(scheme, "http") && port == "80")
+}
+
 func repositoryNameWithOwner(identity string) string {
 	_, nameWithOwner, _ := strings.Cut(identity, "/")
 	return nameWithOwner
@@ -326,9 +478,6 @@ func providerHost(identity string) string {
 func (s *ReviewScope) resolve(ctx context.Context, candidate string) (string, error) {
 	if _, err := s.git(ctx, nil, "rev-parse", "--verify", candidate+"^{commit}"); err == nil {
 		return candidate, nil
-	}
-	if strings.Contains(candidate, "/") {
-		return "", fmt.Errorf("reference is unavailable locally")
 	}
 	remotes, err := s.git(ctx, nil, "remote")
 	if err != nil {
@@ -415,7 +564,7 @@ func (s *ReviewScope) copyRealIndex(ctx context.Context, target string) error {
 	if s.copyIndex != nil {
 		return s.copyIndex(ctx, target)
 	}
-	index, err := s.git(ctx, nil, "rev-parse", "--git-path", "index")
+	index, err := s.git(ctx, nil, s.rootGitArgs("rev-parse", "--git-path", "index")...)
 	if err != nil {
 		return err
 	}
@@ -429,19 +578,85 @@ func (s *ReviewScope) copyRealIndex(ctx context.Context, target string) error {
 	return os.WriteFile(target, data, 0o600)
 }
 
+// clearHiddenSnapshotIndexFlags makes assume-unchanged entries visible to the
+// disposable index without changing the caller's index. git add --sparse then
+// includes materialized skip-worktree paths without staging absent paths outside
+// the sparse cone.
+func (s *ReviewScope) clearHiddenSnapshotIndexFlags(ctx context.Context) error {
+	result, err := s.Runner.Run(ctx, runner.Invocation{
+		Executable: "git",
+		Args:       s.rootGitArgs("-c", disableSplitIndexConfig, "ls-files", "-v", "-z"),
+		Env:        s.snapshotEnvironment(),
+	})
+	if err != nil {
+		return err
+	}
+	var assumeUnchanged []string
+	for _, entry := range strings.Split(result.Stdout, "\x00") {
+		marker, path, found := strings.Cut(entry, " ")
+		if !found || len(marker) != 1 || path == "" {
+			continue
+		}
+		if unicode.IsLower(rune(marker[0])) {
+			assumeUnchanged = append(assumeUnchanged, path)
+		}
+	}
+	return s.updateSnapshotIndexFlags(ctx, "--no-assume-unchanged", assumeUnchanged)
+}
+
+func (s *ReviewScope) updateSnapshotIndexFlags(ctx context.Context, flag string, paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	_, err := s.Runner.Run(ctx, runner.Invocation{
+		Executable: "git",
+		Args:       s.rootGitArgs("-c", disableSplitIndexConfig, "update-index", flag, "-z", "--stdin"),
+		Stdin:      strings.Join(paths, "\x00") + "\x00",
+		Env:        s.snapshotEnvironment(),
+	})
+	if err != nil {
+		return fmt.Errorf("clear %s: %w", flag, err)
+	}
+	return nil
+}
+
+// rootGitArgs makes snapshot preparation independent of the directory from
+// which code-converge was launched. Git's --git-path output and worktree/index
+// operations are otherwise relative to the runner's current directory.
+func (s *ReviewScope) rootGitArgs(args ...string) []string {
+	if s.Root == "" {
+		return args
+	}
+	return append([]string{"-C", s.Root}, args...)
+}
+
 func (s *ReviewScope) reviewEnvironment() ([]string, error) {
 	if s.gitWrapperDir == "" {
 		gitExecutable, err := exec.LookPath("git")
-		if err != nil {
+		if err != nil && (gitExecutable == "" || !errors.Is(err, exec.ErrDot)) {
 			return nil, fmt.Errorf("locate git for scoped review: %w", err)
+		}
+		gitExecutable, err = filepath.Abs(gitExecutable)
+		if err != nil {
+			return nil, fmt.Errorf("resolve git for scoped review: %w", err)
 		}
 		helper, err := os.Executable()
 		if err != nil {
 			return nil, fmt.Errorf("locate scoped git helper: %w", err)
 		}
 		wrapperDir := filepath.Join(s.tempDir, "bin")
+		helperDir := filepath.Join(s.tempDir, "git-exec")
+		if err := validatePathListEntry(wrapperDir); err != nil {
+			return nil, err
+		}
+		if err := validatePathListEntry(helperDir); err != nil {
+			return nil, err
+		}
 		if err := os.Mkdir(wrapperDir, 0o700); err != nil {
 			return nil, fmt.Errorf("create scoped git wrapper: %w", err)
+		}
+		if err := os.Mkdir(helperDir, 0o700); err != nil {
+			return nil, fmt.Errorf("create scoped git helper directory: %w", err)
 		}
 		wrapper := filepath.Join(wrapperDir, "git")
 		// The wrapper is a symlink to this executable, not a script written to the
@@ -454,10 +669,11 @@ func (s *ReviewScope) reviewEnvironment() ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := linkGitHelpers(gitExecPath, wrapperDir); err != nil {
+		if err := linkGitHelpers(gitExecPath, helperDir); err != nil {
 			return nil, err
 		}
 		s.gitWrapperDir = wrapperDir
+		s.gitHelperDir = helperDir
 		configuration, err := json.Marshal(s.scopedGitConfiguration(gitExecutable))
 		if err != nil {
 			return nil, fmt.Errorf("encode scoped git configuration: %w", err)
@@ -466,6 +682,9 @@ func (s *ReviewScope) reviewEnvironment() ([]string, error) {
 			return nil, fmt.Errorf("write scoped git configuration: %w", err)
 		}
 		if err := os.Chmod(wrapperDir, 0o700); err != nil {
+			return nil, err
+		}
+		if err := os.Chmod(helperDir, 0o700); err != nil {
 			return nil, err
 		}
 		return s.scopedGitEnvironment(), nil
@@ -485,22 +704,28 @@ func gitExecutablePath(gitExecutable string) (string, error) {
 	return path, nil
 }
 
-// linkGitHelpers makes the scoped directory a complete GIT_EXEC_PATH. The
-// wrapper sets that value only inside the real Git child process, after it has
-// loaded its sidecar configuration; Codex never has to transport it through a
-// shell-environment policy.
-func linkGitHelpers(gitExecPath, wrapperDir string) error {
+// linkGitHelpers makes helperDir a complete GIT_EXEC_PATH. It must remain
+// distinct from the PATH directory, which exposes only the scoped git wrapper:
+// otherwise a direct git-* command would bypass review-index selection.
+func linkGitHelpers(gitExecPath, helperDir string) error {
 	entries, err := os.ReadDir(gitExecPath)
 	if err != nil {
 		return fmt.Errorf("read git exec path for scoped review: %w", err)
 	}
 	for _, entry := range entries {
-		if entry.Name() == "git" {
+		if entry.Name() == "git" || entry.Name() == scopedGitConfigurationFile {
 			continue
 		}
-		if err := os.Symlink(filepath.Join(gitExecPath, entry.Name()), filepath.Join(wrapperDir, entry.Name())); err != nil {
+		if err := os.Symlink(filepath.Join(gitExecPath, entry.Name()), filepath.Join(helperDir, entry.Name())); err != nil {
 			return fmt.Errorf("link git helper %q for scoped review: %w", entry.Name(), err)
 		}
+	}
+	return nil
+}
+
+func validatePathListEntry(path string) error {
+	if strings.ContainsRune(path, os.PathListSeparator) {
+		return fmt.Errorf("create scoped git wrapper: temporary path %q contains the PATH list separator %q", path, os.PathListSeparator)
 	}
 	return nil
 }
@@ -517,6 +742,7 @@ func (s *ReviewScope) scopedGitConfiguration(gitExecutable string) scopedGitConf
 		Root:       reviewRoot,
 		Index:      filepath.Join(s.tempDir, "index"),
 		WrapperDir: s.gitWrapperDir,
+		HelperDir:  s.gitHelperDir,
 	}
 }
 
@@ -561,9 +787,9 @@ func RunScopedGitWrapper(args []string) int {
 		return 125
 	}
 	if !gitCreatesRepository(args, configuration.Executable, workingDirectory) && gitTargetsReviewRoot(args, configuration.Executable, configuration.Root) {
-		return runScopedGit(configuration.Executable, args, configuration.Index, configuration.WrapperDir)
+		return runScopedGit(configuration.Executable, args, configuration.Index, configuration.HelperDir)
 	}
-	return runScopedGit(configuration.Executable, args, "", configuration.WrapperDir)
+	return runScopedGit(configuration.Executable, args, "", configuration.HelperDir)
 }
 
 func scopedGitConfigurationForInvocation(argv0 string) (scopedGitConfiguration, bool) {
@@ -583,7 +809,7 @@ func scopedGitConfigurationForInvocation(argv0 string) (scopedGitConfiguration, 
 		return scopedGitConfiguration{}, false
 	}
 	var configuration scopedGitConfiguration
-	if err := json.Unmarshal(data, &configuration); err != nil || configuration.Executable == "" || configuration.Root == "" || configuration.Index == "" || configuration.WrapperDir != filepath.Dir(wrapper) {
+	if err := json.Unmarshal(data, &configuration); err != nil || configuration.Executable == "" || configuration.Root == "" || configuration.Index == "" || configuration.WrapperDir != filepath.Dir(wrapper) || configuration.HelperDir == "" {
 		return scopedGitConfiguration{}, false
 	}
 	return configuration, true
@@ -601,7 +827,15 @@ func runScopedGit(gitExecutable string, args []string, indexPath, wrapperDir str
 		defer os.Remove(commandIndex)
 		defer os.Remove(commandIndex + ".lock")
 	}
-	command := exec.Command(gitExecutable, args...)
+	commandArgs := args
+	if indexPath != "" {
+		// A private index must never participate in split-index maintenance. Git
+		// stores sharedindex.* beside the real repository index even when the
+		// alternate index is elsewhere; expiry could otherwise remove the shared
+		// index used by ordinary commands.
+		commandArgs = privateIndexGitArgs(args)
+	}
+	command := exec.Command(gitExecutable, commandArgs...)
 	command.Stdin, command.Stdout, command.Stderr = os.Stdin, os.Stdout, os.Stderr
 	command.Env = scopedGitProcessEnvironment(commandIndex, wrapperDir)
 	if err := command.Run(); err != nil {
@@ -715,6 +949,12 @@ func gitCommandCreatesRepository(prefix []string, subcommand string, remainder [
 		}
 		return false
 	}
+	// Git resolves built-ins before aliases. Checking this before consulting
+	// alias.<subcommand> ensures a user alias named after a built-in cannot
+	// cause the reviewed repository to lose its private snapshot.
+	if gitCommandIsBuiltIn(gitExecutable, directory, subcommand) {
+		return false
+	}
 	if gitExecutable == "" || visitedAliases[subcommand] {
 		return false
 	}
@@ -732,25 +972,107 @@ func gitCommandCreatesRepository(prefix []string, subcommand string, remainder [
 		// rather than risk initializing another repository with the review index.
 		return true
 	}
-	expandedArgs = append(append([]string{}, prefix...), expandedArgs...)
-	expandedArgs = append(expandedArgs, remainder...)
 	expandedPrefix, expandedSubcommand, expandedRemainder, ok := splitGitGlobalOptions(expandedArgs)
 	if !ok {
 		return true
 	}
+	// A regular alias may select a different repository before dispatching to
+	// its command. The outer target check cannot see that expansion, so retain
+	// the review index only when the expansion is target-neutral.
+	if gitPrefixSelectsRepository(expandedPrefix) {
+		return true
+	}
+	expandedPrefix = append(append([]string{}, prefix...), expandedPrefix...)
+	expandedRemainder = append(expandedRemainder, remainder...)
 	return gitCommandCreatesRepository(expandedPrefix, expandedSubcommand, expandedRemainder, gitExecutable, directory, visitedAliases)
 }
 
-func shellAliasCreatesRepository(expansion string) bool {
-	fields := strings.Fields(expansion)
-	for index, field := range fields {
-		if field != "git" || index+1 == len(fields) {
-			continue
-		}
-		if fields[index+1] == "clone" {
+func gitCommandIsBuiltIn(gitExecutable, directory, subcommand string) bool {
+	if gitExecutable == "" {
+		return false
+	}
+	command := exec.Command(gitExecutable, "--list-cmds=builtins")
+	command.Dir = directory
+	command.Env = scopedGitProcessEnvironment("", "")
+	output, err := command.Output()
+	if err != nil {
+		// --list-cmds is unavailable in older Git versions. Preserve command
+		// precedence for the long-standing built-ins that matter to scoped
+		// review rather than treating their ignored aliases as executable.
+		return legacyGitBuiltInCommands[subcommand]
+	}
+	for _, command := range strings.Fields(string(output)) {
+		if command == subcommand {
 			return true
 		}
-		if fields[index+1] == "worktree" && index+2 < len(fields) && fields[index+2] == "add" {
+	}
+	return false
+}
+
+var legacyGitBuiltInCommands = map[string]bool{
+	"add": true, "am": true, "annotate": true, "apply": true, "archive": true,
+	"bisect": true, "blame": true, "branch": true, "bundle": true,
+	"cat-file": true, "check-attr": true, "check-ignore": true, "check-ref-format": true,
+	"checkout": true, "checkout-index": true, "cherry": true, "cherry-pick": true,
+	"clean": true, "clone": true, "commit": true, "commit-tree": true, "config": true,
+	"count-objects": true, "describe": true, "diff": true, "diff-files": true,
+	"diff-index": true, "diff-tree": true, "fast-export": true, "fast-import": true,
+	"fetch": true, "fetch-pack": true, "fmt-merge-msg": true, "for-each-ref": true,
+	"format-patch": true, "fsck": true, "gc": true, "get-tar-commit-id": true,
+	"grep": true, "hash-object": true, "help": true, "index-pack": true, "init": true,
+	"init-db": true, "interpret-trailers": true, "log": true, "ls-files": true,
+	"ls-remote": true, "ls-tree": true, "mailinfo": true, "mailsplit": true,
+	"merge": true, "merge-base": true, "merge-file": true, "merge-index": true,
+	"merge-ours": true, "merge-tree": true, "mktag": true, "mktree": true, "mv": true,
+	"name-rev": true, "notes": true, "pack-objects": true, "pack-refs": true,
+	"patch-id": true, "prune": true, "pull": true, "push": true, "read-tree": true,
+	"receive-pack": true, "reflog": true, "remote": true, "repack": true, "replace": true,
+	"request-pull": true, "reset": true, "rev-list": true, "rev-parse": true,
+	"revert": true, "rm": true, "send-pack": true, "shortlog": true, "show": true,
+	"show-branch": true, "show-index": true, "show-ref": true, "status": true,
+	"stripspace": true, "symbolic-ref": true, "tag": true, "unpack-objects": true,
+	"update-index": true, "update-ref": true, "update-server-info": true,
+	"upload-archive": true, "upload-pack": true, "var": true, "verify-commit": true,
+	"verify-pack": true, "verify-tag": true, "version": true, "whatchanged": true,
+	"worktree": true, "write-tree": true,
+}
+
+func shellAliasCreatesRepository(expansion string) bool {
+	command := strings.TrimSpace(strings.TrimPrefix(expansion, "!"))
+	// Shell aliases are arbitrary programs. Only a plain Git invocation without
+	// shell syntax can be classified safely; everything else must run without
+	// the disposable review index.
+	if command == "" || strings.ContainsAny(command, "|&;<>($`\\\"'*?[]{}~\r\n") {
+		return true
+	}
+	fields := strings.Fields(command)
+	if len(fields) < 2 || filepath.Base(fields[0]) != "git" {
+		return true
+	}
+	prefix, subcommand, _, ok := splitGitGlobalOptions(fields[1:])
+	if !ok {
+		return true
+	}
+	// A target-selection option could redirect an absolute Git descendant to
+	// another repository. Resolving shell syntax and relative paths here would
+	// be unreliable, so withhold the review index instead.
+	if gitPrefixSelectsRepository(prefix) {
+		return true
+	}
+	// Any subcommand that can create a repository, mutate it, or dispatch to
+	// another alias is conservatively treated as unclassifiable. The reviewed
+	// index is retained only for known read-only commands.
+	switch subcommand {
+	case "status", "diff", "log", "show", "grep", "ls-files", "ls-tree", "rev-parse", "describe", "cat-file", "for-each-ref", "name-rev", "shortlog", "var", "check-ignore", "count-objects", "fsck", "help", "version":
+		return false
+	default:
+		return true
+	}
+}
+
+func gitPrefixSelectsRepository(prefix []string) bool {
+	for _, argument := range prefix {
+		if argument == "-C" || strings.HasPrefix(argument, "-C") && len(argument) > 2 || argument == "--git-dir" || argument == "--work-tree" || strings.HasPrefix(argument, "--git-dir=") || strings.HasPrefix(argument, "--work-tree=") {
 			return true
 		}
 	}
@@ -776,14 +1098,32 @@ func splitGitAliasArguments(input string) ([]string, bool) {
 	var argument strings.Builder
 	var quote rune
 	started := false
-	for _, character := range input {
+	characters := []rune(input)
+	for index := 0; index < len(characters); index++ {
+		character := characters[index]
 		switch {
 		case quote != 0:
 			if character == quote {
 				quote = 0
 				continue
 			}
+			if character == '\\' && quote == '"' {
+				if index+1 == len(characters) {
+					return nil, false
+				}
+				index++
+				argument.WriteRune(characters[index])
+				started = true
+				continue
+			}
 			argument.WriteRune(character)
+			started = true
+		case character == '\\':
+			if index+1 == len(characters) {
+				return nil, false
+			}
+			index++
+			argument.WriteRune(characters[index])
 			started = true
 		case character == '\'' || character == '"':
 			quote = character
@@ -850,9 +1190,37 @@ func hasGitOptionValue(argument string) bool {
 }
 
 func (s *ReviewScope) git(ctx context.Context, env []string, args ...string) (string, error) {
+	if reviewIndexEnvironment(env) {
+		args = append([]string{"-c", disableSplitIndexConfig}, args...)
+	}
 	result, err := s.Runner.Run(ctx, runner.Invocation{Executable: "git", Args: args, Env: env})
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(result.Stdout), nil
+}
+
+func reviewIndexEnvironment(environment []string) bool {
+	for _, value := range environment {
+		if strings.HasPrefix(value, "GIT_INDEX_FILE=") {
+			return true
+		}
+	}
+	return false
+}
+
+// privateIndexGitArgs places the disabling configuration after caller-provided
+// global options, so an explicit -c core.splitIndex=true cannot re-enable
+// split-index maintenance for a disposable index.
+func privateIndexGitArgs(args []string) []string {
+	prefix, subcommand, remainder, ok := splitGitGlobalOptions(args)
+	if !ok {
+		return append([]string{"-c", disableSplitIndexConfig}, args...)
+	}
+	result := append([]string{}, prefix...)
+	result = append(result, "-c", disableSplitIndexConfig)
+	if subcommand != "" {
+		result = append(result, subcommand)
+	}
+	return append(result, remainder...)
 }

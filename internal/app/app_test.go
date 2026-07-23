@@ -18,6 +18,22 @@ import (
 	"github.com/dapi/code-converge/internal/workflow"
 )
 
+func TestMain(m *testing.M) {
+	clearGitRepositoryEnvironment()
+	os.Exit(m.Run())
+}
+
+func clearGitRepositoryEnvironment() {
+	for _, name := range []string{
+		"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+		"GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+		"GIT_NAMESPACE", "GIT_CEILING_DIRECTORIES",
+		"GIT_DISCOVERY_ACROSS_FILESYSTEM", "GIT_IMPLICIT_WORK_TREE",
+	} {
+		_ = os.Unsetenv(name)
+	}
+}
+
 func testRepo(t *testing.T) (string, string) {
 	t.Helper()
 	root := t.TempDir()
@@ -193,11 +209,11 @@ func (f *appFakeRunner) Run(_ context.Context, invocation runner.Invocation) (ru
 			return runner.Result{Stdout: "refs/remotes/origin/main"}, nil
 		case strings.HasPrefix(args, "rev-parse --verify "):
 			return runner.Result{Stdout: "0123456789012345678901234567890123456789"}, nil
-		case args == "rev-parse --git-path index":
+		case strings.HasSuffix(args, "rev-parse --git-path index"):
 			return runner.Result{Stdout: ".git/index"}, nil
 		case strings.HasPrefix(args, "merge-base "):
 			return runner.Result{Stdout: "0123456789012345678901234567890123456789"}, nil
-		case strings.HasPrefix(args, "read-tree ") || args == "add -A":
+		case strings.HasPrefix(args, "read-tree ") || strings.HasSuffix(args, "-c core.splitIndex=false ls-files -v -z") || strings.HasSuffix(args, "add --sparse -A"):
 			return runner.Result{}, nil
 		}
 		return f.status, f.statusErr
