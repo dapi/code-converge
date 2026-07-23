@@ -6,6 +6,8 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-23
+
 ### Added
 
 - Added conventional `-h` and `--help` aliases for the root command.
