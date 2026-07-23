@@ -6,7 +6,7 @@ purpose: "Execution plan for the clean-break rename to code-converge across sour
 derived_from:
   - brief.md
   - design.md
-status: active
+status: archived
 audience: humans_and_agents
 must_not_define:
   - ft_007_scope

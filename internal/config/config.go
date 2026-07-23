@@ -24,24 +24,27 @@ type OptionalString struct {
 }
 
 type Overrides struct {
-	LogFormat          OptionalString
-	Heartbeat          OptionalString
-	Color              OptionalString
-	Mode               OptionalString
-	MaxCycles          OptionalString
-	MaxCIRecoveries    OptionalString
-	ReviewModel        OptionalString
-	ReviewEffort       OptionalString
-	FixModel           OptionalString
-	FixEffort          OptionalString
-	FixPromptPath      OptionalString
-	FinalizeModel      OptionalString
-	FinalizeEffort     OptionalString
-	FinalizePromptPath OptionalString
-	CIFixModel         OptionalString
-	CIFixEffort        OptionalString
-	CIFixPromptPath    OptionalString
-	ReviewBase         OptionalString
+	LogFormat           OptionalString
+	Heartbeat           OptionalString
+	Color               OptionalString
+	Mode                OptionalString
+	MaxCycles           OptionalString
+	MaxCIRecoveries     OptionalString
+	ReviewModel         OptionalString
+	ReviewEffort        OptionalString
+	FixModel            OptionalString
+	FixEffort           OptionalString
+	FixPromptPath       OptionalString
+	FinalizeModel       OptionalString
+	FinalizeEffort      OptionalString
+	FinalizePromptPath  OptionalString
+	CIFixModel          OptionalString
+	CIFixEffort         OptionalString
+	CIFixPromptPath     OptionalString
+	ReviewBase          OptionalString
+	SessionLogDir       OptionalString
+	SessionLogRetention OptionalString
+	NoSessionLog        bool
 }
 
 type Setting struct {
@@ -56,24 +59,27 @@ type Setting struct {
 type Config struct {
 	Root string
 
-	LogFormat       string
-	Heartbeat       time.Duration
-	Color           string
-	Mode            string
-	MaxCycles       int
-	MaxCIRecoveries int
-	ReviewModel     string
-	ReviewEffort    string
-	FixModel        string
-	FixEffort       string
-	FixPrompt       string
-	FinalizeModel   string
-	FinalizeEffort  string
-	FinalizePrompt  string
-	CIFixModel      string
-	CIFixEffort     string
-	CIFixPrompt     string
-	ReviewBase      string
+	LogFormat           string
+	Heartbeat           time.Duration
+	Color               string
+	Mode                string
+	MaxCycles           int
+	MaxCIRecoveries     int
+	ReviewModel         string
+	ReviewEffort        string
+	FixModel            string
+	FixEffort           string
+	FixPrompt           string
+	FinalizeModel       string
+	FinalizeEffort      string
+	FinalizePrompt      string
+	CIFixModel          string
+	CIFixEffort         string
+	CIFixPrompt         string
+	ReviewBase          string
+	SessionLogDir       string
+	SessionLogRetention time.Duration
+	NoSessionLog        bool
 
 	Settings []Setting
 }
@@ -131,7 +137,7 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 	projectDir := filepath.Join(root, ".code-converge")
 	userDir := filepath.Join(home, ".code-converge")
 	logFormat, logFormatSetting, err := resolve(spec{
-		name: "log-format", file: "log-format", env: "CODE_CONVERGE_LOG_FORMAT", def: "kv", builtIn: "kv", defSource: SourceDefault, override: overrides.LogFormat,
+		name: "log-format", file: "log-format", env: "CODE_CONVERGE_LOG_FORMAT", def: "human", builtIn: "human", defSource: SourceDefault, override: overrides.LogFormat,
 	}, cwd, userDir, projectDir)
 	if err != nil {
 		return Config{}, err
@@ -188,6 +194,8 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 		{name: "ci-fix-reasoning-effort", file: "ci-fix-reasoning-effort", env: "CODE_CONVERGE_CI_FIX_REASONING_EFFORT", def: profile.ciFixEffort, builtIn: fast.ciFixEffort, defSource: profileSource, override: overrides.CIFixEffort},
 		{name: "ci-fix-prompt", file: "fix-ci.md", env: "CODE_CONVERGE_CI_FIX_PROMPT_FILE", def: "Исправь CI", builtIn: "Исправь CI", defSource: SourceDefault, override: overrides.CIFixPromptPath, promptFile: true},
 		{name: "review-base", file: "review-base", env: "CODE_CONVERGE_REVIEW_BASE", def: "", builtIn: "", defSource: SourceDefault, override: overrides.ReviewBase},
+		{name: "session-log-dir", file: "session-log-dir", env: "CODE_CONVERGE_SESSION_LOG_DIR", def: filepath.Join(home, ".code-converge", "session-logs"), builtIn: filepath.Join(home, ".code-converge", "session-logs"), defSource: SourceDefault, override: overrides.SessionLogDir},
+		{name: "session-log-retention", file: "session-log-retention", env: "CODE_CONVERGE_SESSION_LOG_RETENTION", def: "24h", builtIn: "24h", defSource: SourceDefault, override: overrides.SessionLogRetention},
 	}
 
 	values := make(map[string]string, len(specs))
@@ -214,6 +222,23 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	sessionLogDir, err := sessionLogPath(values["session-log-dir"], home)
+	if err != nil {
+		return Config{}, err
+	}
+	sessionLogRetention, err := sessionLogRetention(values["session-log-retention"])
+	if err != nil {
+		return Config{}, err
+	}
+	for index := range settings {
+		switch settings[index].Name {
+		case "session-log-dir":
+			settings[index].Value = sessionLogDir
+			settings[index].DisplayValue = sessionLogDir
+			settings[index].Default = filepath.Join(home, ".code-converge", "session-logs")
+			settings[index].DisplayDefault = settings[index].Default
+		}
+	}
 	for _, name := range []string{"review-model", "review-reasoning-effort", "fix-model", "fix-reasoning-effort", "finalize-model", "finalize-reasoning-effort", "ci-fix-model", "ci-fix-reasoning-effort"} {
 		if strings.TrimSpace(values[name]) == "" {
 			return Config{}, fmt.Errorf("%s must not be empty", name)
@@ -227,13 +252,37 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 		FixModel: values["fix-model"], FixEffort: values["fix-reasoning-effort"], FixPrompt: values["fix-prompt"],
 		FinalizeModel: values["finalize-model"], FinalizeEffort: values["finalize-reasoning-effort"], FinalizePrompt: values["finalize-prompt"],
 		CIFixModel: values["ci-fix-model"], CIFixEffort: values["ci-fix-reasoning-effort"], CIFixPrompt: values["ci-fix-prompt"], Settings: settings,
-		ReviewBase: values["review-base"],
+		ReviewBase: values["review-base"], SessionLogDir: sessionLogDir, SessionLogRetention: sessionLogRetention, NoSessionLog: overrides.NoSessionLog,
 	}, nil
+}
+
+func sessionLogPath(value, home string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("session-log-dir must not be empty")
+	}
+	if value == "~" {
+		value = home
+	} else if strings.HasPrefix(value, "~/") || strings.HasPrefix(value, `~\`) {
+		value = filepath.Join(home, value[2:])
+	}
+	if !filepath.IsAbs(value) {
+		return "", fmt.Errorf("session-log-dir must be an absolute path")
+	}
+	return filepath.Clean(value), nil
+}
+
+func sessionLogRetention(value string) (time.Duration, error) {
+	duration, err := time.ParseDuration(strings.TrimSpace(value))
+	if err != nil || duration < time.Second {
+		return 0, fmt.Errorf("session-log-retention must be a duration of at least 1s")
+	}
+	return duration, nil
 }
 
 // ResolveLogFormat resolves only the presentation format so startup failures in
 // unrelated settings can use the requested renderer. A format-resolution error
-// intentionally leaves callers on the legacy kv fallback.
+// intentionally leaves callers on the built-in human fallback.
 func ResolveLogFormat(cwd, home string, override OptionalString) (string, error) {
 	root, err := FindGitRoot(cwd)
 	if err != nil {
@@ -246,7 +295,7 @@ func ResolveLogFormat(cwd, home string, override OptionalString) (string, error)
 		}
 	}
 	value, _, err := resolve(spec{
-		name: "log-format", file: "log-format", env: "CODE_CONVERGE_LOG_FORMAT", def: "kv", builtIn: "kv", defSource: SourceDefault, override: override,
+		name: "log-format", file: "log-format", env: "CODE_CONVERGE_LOG_FORMAT", def: "human", builtIn: "human", defSource: SourceDefault, override: override,
 	}, cwd, filepath.Join(home, ".code-converge"), filepath.Join(root, ".code-converge"))
 	if err != nil {
 		return "", err

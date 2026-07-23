@@ -56,7 +56,7 @@ The project needs one bounded local workflow that drives this loop to an explici
 
 ### In Scope
 
-- Invoke the configured local Codex review command and safely classify its ordinary report as clean, findings, or failure.
+- Invoke the configured local Codex review command with a strict final-response schema and safely classify only that response file as clean, findings, or failure.
 - Normalize finding priorities into the public severity buckets and report complete counters for every classified review.
 - Run bounded review/fix cycles, including the mandatory verification review after the final permitted fix.
 - Finalize only after a clean review and interpret a constrained finalization result, including commit, push, change-request, and CI step outcomes.
@@ -96,7 +96,7 @@ These are contract-conformance targets for the complete utility. Adoption, time 
 
 ## Risks And Open Questions
 
-- `RISK-01` Ordinary Codex review prose may change or contain ambiguous language; unsafe classification could produce a false clean result.
+- `RISK-01` Resolved by FT-022: review classification requires the exact schema-valid final-response file and never infers clean from Codex terminal prose.
 - `RISK-02` Finalization delegates material Git, hosting, and CI actions to an agent; a process exit alone does not prove that required external outcomes occurred.
 - `RISK-03` The default models are not available to every Codex account, which can block first-run success unless configuration and diagnostics are clear.
 - `RISK-04` Repeated review and CI-recovery loops can consume substantial time and model budget even when correctly bounded.

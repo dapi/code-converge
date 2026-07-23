@@ -5,11 +5,16 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/dapi/code-converge/internal/terminal"
+	"github.com/mattn/go-runewidth"
+	"github.com/rivo/uniseg"
 )
 
 var keyPattern = regexp.MustCompile(`^[a-z0-9_]+$`)
@@ -32,14 +37,55 @@ type Logger struct {
 	Interactive bool
 	ColorDepth  int // 0=none, 1=basic, 2=ANSI-256, 3=true color
 	Tick        TickFactory
+	// TerminalWidth returns the current interactive stdout width in cells. It is
+	// used only for transient human liveness frames.
+	TerminalWidth func() (int, error)
+	View          *terminal.View
+	// HumanMaxCycles and HumanMaxCIRecoveries provide the configured budgets for
+	// operator-facing progress only. They never affect workflow behavior or kv.
+	HumanMaxCycles       int
+	HumanMaxCIRecoveries int
 
-	mu        sync.Mutex
-	transient bool
+	mu             sync.Mutex
+	transient      bool
+	transientCells int
+}
+
+// StageContext supplies the facts needed by a liveness line. It deliberately
+// mirrors event fields so the permanent and transient human output agree.
+type StageContext struct {
+	Stage           string
+	Model           string
+	ReasoningEffort string
+	ReviewPhase     int
+	Cycle           int
 }
 
 func (l *Logger) Emit(eventName string, fields ...Field) error {
 	if err := validate(eventName, fields); err != nil {
 		return err
+	}
+	viewRecorded := false
+	// The terminal must be restored before the terminal record is written; the
+	// alternate screen is discarded on restoration.
+	if eventName == "run_completed" && l.View != nil {
+		if err := l.View.Stop(); err != nil {
+			return fmt.Errorf("restore interactive view: %w", err)
+		}
+	}
+	if l.View != nil && l.normalizedFormat() == "human" && l.Interactive && eventName == "stage_started" {
+		line, err := renderHuman(eventName, fields, l.HumanMaxCycles, l.HumanMaxCIRecoveries)
+		if err != nil {
+			return err
+		}
+		line = l.humanPrefix(l.eventAttempt(fields), fieldValue(fields, "model"), fieldValue(fields, "reasoning_effort")) + line
+		if err := l.View.AppendWorkflow(line); err != nil {
+			return fmt.Errorf("render interactive view: %w", err)
+		}
+		viewRecorded = true
+		if l.View.Active() {
+			return nil
+		}
 	}
 	line, err := l.render(eventName, fields)
 	if err != nil || line == "" {
@@ -47,6 +93,16 @@ func (l *Logger) Emit(eventName string, fields ...Field) error {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.View != nil {
+		if !viewRecorded {
+			if err := l.View.AppendWorkflow(line); err != nil {
+				return fmt.Errorf("render interactive view: %w", err)
+			}
+		}
+		if l.View.Active() {
+			return nil
+		}
+	}
 	if err := l.clearLocked(); err != nil {
 		return err
 	}
@@ -60,8 +116,52 @@ func (l *Logger) Diagnostic(message string, err error) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	_ = l.clearLocked()
+	if l.View != nil && l.View.Active() {
+		_ = l.View.AppendWorkflow(terminal.Sanitize([]byte("code-converge: " + message + ": " + err.Error())))
+		return
+	}
+	if l.clearLocked() != nil {
+		return
+	}
 	fmt.Fprintf(l.Err, "code-converge: %s: %v\n", message, err)
+}
+
+// StartAgent marks a new Codex process as the only active pane stream.
+func (l *Logger) StartAgent(identity string) error {
+	if l.View != nil {
+		return l.View.StartAgent(identity)
+	}
+	return nil
+}
+
+// AgentOutput accepts runner output only for the interactive pane. It never
+// forwards raw bytes into the workflow's stdout event stream.
+func (l *Logger) AgentOutput(source string, data []byte) {
+	if l.View != nil {
+		_ = l.View.AppendAgent(source, data)
+	}
+}
+
+func (l *Logger) CompleteAgent(state string) error {
+	if l.View != nil {
+		return l.View.CompleteAgent(state)
+	}
+	return nil
+}
+
+// SessionLog writes the one human-only handoff line for a successfully created
+// private diagnostic session. It is intentionally outside the kv event schema.
+func (l *Logger) SessionLog(path string) error {
+	if path == "" || l.normalizedFormat() != "human" {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if err := l.clearLocked(); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(l.Out, "%sSession log: %s\n", l.now().Format("15:04:05 "), path)
+	return err
 }
 
 type Liveness struct {
@@ -71,7 +171,7 @@ type Liveness struct {
 	once sync.Once
 }
 
-func (l *Logger) StartLiveness(ctx context.Context, stage string, started time.Time, cancel context.CancelFunc) *Liveness {
+func (l *Logger) StartLiveness(ctx context.Context, stage StageContext, started time.Time, cancel context.CancelFunc) *Liveness {
 	live := &Liveness{stop: make(chan struct{}), done: make(chan struct{}), err: make(chan error, 1)}
 	if l.normalizedFormat() != "human" || (l.Heartbeat == 0 && !l.Interactive) {
 		close(live.done)
@@ -92,7 +192,7 @@ func (live *Liveness) Stop() error {
 	}
 }
 
-func (l *Logger) runLiveness(ctx context.Context, live *Liveness, stage string, started time.Time, cancel context.CancelFunc) {
+func (l *Logger) runLiveness(ctx context.Context, live *Liveness, stage StageContext, started time.Time, cancel context.CancelFunc) {
 	defer close(live.done)
 	select {
 	case <-ctx.Done():
@@ -138,48 +238,165 @@ func (l *Logger) runLiveness(ctx context.Context, live *Liveness, stage string, 
 	}
 }
 
-func (l *Logger) writeHeartbeat(stage string, elapsed time.Duration) error {
-	label := map[string]string{"review": "Review", "fix-findings": "Fixing findings", "finalize": "Finalization", "fix-ci": "CI fix"}[stage]
+func (l *Logger) writeHeartbeat(stage StageContext, elapsed time.Duration) error {
+	label := l.livenessLabel(stage, false)
 	if label == "" {
-		return fmt.Errorf("unknown liveness stage %q", stage)
+		return fmt.Errorf("unknown liveness stage %q", stage.Stage)
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	_, err := fmt.Fprintf(l.Out, "%s still running (%s)\n", label, HumanDuration(elapsed))
+	line := fmt.Sprintf("%s%s still running (%s)", l.humanPrefix(l.stageAttempt(stage), stage.Model, stage.ReasoningEffort), label, HumanDuration(elapsed))
+	if l.View != nil {
+		if err := l.View.AppendWorkflow(line); err != nil {
+			return fmt.Errorf("render interactive view: %w", err)
+		}
+		if l.View.Active() {
+			return nil
+		}
+	}
+	_, err := fmt.Fprintln(l.Out, line)
 	return err
 }
 
-func (l *Logger) writeTransient(stage string, elapsed time.Duration, frame int) error {
-	label := map[string]string{"review": "Reviewing", "fix-findings": "Fixing findings", "finalize": "Finalizing", "fix-ci": "Fixing CI"}[stage]
+func (l *Logger) writeTransient(stage StageContext, elapsed time.Duration, frame int) error {
+	label := l.livenessLabel(stage, true)
 	if label == "" {
-		return fmt.Errorf("unknown liveness stage %q", stage)
+		return fmt.Errorf("unknown liveness stage %q", stage.Stage)
 	}
 	seconds := int64(elapsed / time.Second)
 	if seconds < 0 {
 		seconds = 0
 	}
-	line := fmt.Sprintf("%s... %s", label, compoundSeconds(seconds))
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	width, err := l.terminalWidthLocked()
+	if err != nil {
+		return err
+	}
+	line, cells := l.transientLineLocked(stage, label, compoundSeconds(seconds), width-1)
+	if cells == 0 {
+		return fmt.Errorf("liveness line does not fit terminal width %d", width)
+	}
 	if l.ColorDepth > 0 {
 		line = shimmer(line, frame, l.ColorDepth)
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	if l.View != nil {
+		l.View.SetTransientClearer(l.clearPrimaryTransient)
+		consumed, err := l.View.WriteTransient(func() error {
+			if err := l.clearLocked(); err != nil {
+				return err
+			}
+			if _, err := io.WriteString(l.Out, "\r\x1b[2K"+line); err != nil {
+				return err
+			}
+			l.transient = true
+			l.transientCells = cells
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("render interactive view: %w", err)
+		}
+		if consumed {
+			return nil
+		}
+		return nil
+	}
+	if err := l.clearLocked(); err != nil {
+		return err
+	}
 	if _, err := io.WriteString(l.Out, "\r\x1b[2K"+line); err != nil {
 		return err
 	}
 	l.transient = true
+	l.transientCells = cells
 	return nil
+}
+
+func (l *Logger) clearPrimaryTransient() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.clearLocked()
 }
 
 func (l *Logger) clearLocked() error {
 	if !l.transient {
 		return nil
 	}
-	_, err := io.WriteString(l.Out, "\r\x1b[2K")
+	width, err := l.terminalWidthLocked()
+	if err != nil {
+		return err
+	}
+	rows := (l.transientCells + width - 1) / width
+	if rows < 1 {
+		return fmt.Errorf("invalid transient footprint %d cells", l.transientCells)
+	}
+	var output strings.Builder
+	output.WriteString("\r\x1b[2K")
+	for row := 1; row < rows; row++ {
+		output.WriteString("\x1b[1A\r\x1b[2K")
+	}
+	_, err = io.WriteString(l.Out, output.String())
 	if err == nil {
 		l.transient = false
+		l.transientCells = 0
 	}
 	return err
+}
+
+func (l *Logger) transientLineLocked(stage StageContext, label, elapsed string, limit int) (string, int) {
+	if limit < 1 {
+		return "", 0
+	}
+	status := label + "... " + elapsed
+	statusCells := runewidth.StringWidth(status)
+	if statusCells > limit {
+		// The context is already absent at this point. Retain the timer and as
+		// much of the stage label as the terminal can represent.
+		status = label + " " + elapsed
+		statusCells = runewidth.StringWidth(status)
+		if statusCells > limit {
+			elapsedCells := runewidth.StringWidth(elapsed)
+			if elapsedCells >= limit {
+				return truncateCells(elapsed, limit)
+			}
+			label, _ = truncateCells(label, limit-elapsedCells-1)
+			status = label + " " + elapsed
+			statusCells = runewidth.StringWidth(status)
+		}
+	}
+	context, _ := truncateCells(l.humanPrefix(l.stageAttempt(stage), stage.Model, stage.ReasoningEffort), limit-statusCells)
+	return context + status, runewidth.StringWidth(context) + statusCells
+}
+
+func (l *Logger) terminalWidthLocked() (int, error) {
+	if l.TerminalWidth == nil {
+		return 0, fmt.Errorf("interactive terminal width is unavailable")
+	}
+	width, err := l.TerminalWidth()
+	if err != nil {
+		return 0, fmt.Errorf("terminal width: %w", err)
+	}
+	if width < 2 {
+		return 0, fmt.Errorf("invalid terminal width %d", width)
+	}
+	return width, nil
+}
+
+func truncateCells(value string, limit int) (string, int) {
+	if limit < 1 {
+		return "", 0
+	}
+	width, end := 0, 0
+	graphemes := uniseg.NewGraphemes(value)
+	for graphemes.Next() {
+		cells := runewidth.StringWidth(graphemes.Str())
+		if width+cells > limit {
+			break
+		}
+		width += cells
+		_, end = graphemes.Positions()
+	}
+	return value[:end], width
 }
 
 func (l *Logger) ticker(interval time.Duration) (<-chan time.Time, func()) {
@@ -206,7 +423,14 @@ func (l *Logger) normalizedFormat() string {
 
 func (l *Logger) render(eventName string, fields []Field) (string, error) {
 	if l.normalizedFormat() == "human" {
-		return renderHuman(eventName, fields)
+		if l.Interactive && eventName == "stage_started" && (l.View == nil || l.View.Active()) {
+			return "", nil
+		}
+		line, err := renderHuman(eventName, fields, l.HumanMaxCycles, l.HumanMaxCIRecoveries)
+		if line == "" || err != nil {
+			return line, err
+		}
+		return l.humanPrefix(l.eventAttempt(fields), fieldValue(fields, "model"), fieldValue(fields, "reasoning_effort")) + line, nil
 	}
 	all := append([]Field{{Key: "ts", Value: l.now().UTC().Format(time.RFC3339)}, {Key: "event", Value: eventName}}, fields...)
 	parts := make([]string, 0, len(all))
@@ -216,7 +440,7 @@ func (l *Logger) render(eventName string, fields []Field) (string, error) {
 	return strings.Join(parts, " "), nil
 }
 
-func renderHuman(eventName string, fields []Field) (string, error) {
+func renderHuman(eventName string, fields []Field, maxCycles, maxCIRecoveries int) (string, error) {
 	values := make(map[string]string, len(fields))
 	for _, field := range fields {
 		values[field.Key] = field.Value
@@ -239,22 +463,22 @@ func renderHuman(eventName string, fields []Field) (string, error) {
 				if err != nil || phase < 2 {
 					return "", fmt.Errorf("invalid review_phase %q", values["review_phase"])
 				}
-				return fmt.Sprintf("Review attempt %s started after CI fix %d", values["cycle"], phase-1), nil
+				return fmt.Sprintf("Review started (phase %d after CI recovery %d)", phase, phase-1), nil
 			}
-			return fmt.Sprintf("Review attempt %s started", values["cycle"]), nil
+			return "Review started", nil
 		case "fix-findings":
-			return fmt.Sprintf("Fixing findings from review attempt %s...", values["cycle"]), nil
+			return "Fixing findings", nil
 		case "finalize":
-			return "Finalizing...", nil
+			return "Finalizing", nil
 		case "fix-ci":
-			return "Fixing CI...", nil
+			return "CI recovery", nil
 		}
 	case "review_completed":
 		d, err := duration("duration_ms")
 		if err != nil {
 			return "", err
 		}
-		prefix := fmt.Sprintf("Review attempt %s", values["cycle"])
+		prefix := "Review"
 		switch values["status"] {
 		case "clean":
 			return fmt.Sprintf("%s: clean (%s)", prefix, d), nil
@@ -293,9 +517,9 @@ func renderHuman(eventName string, fields []Field) (string, error) {
 		case "fix-ci":
 			switch values["status"] {
 			case "success":
-				return fmt.Sprintf("CI fixed (%s)", d), nil
+				return fmt.Sprintf("CI recovery fixed (%s)", d), nil
 			case "failed":
-				return fmt.Sprintf("Fixing CI failed (%s)", d), nil
+				return fmt.Sprintf("CI recovery failed (%s)", d), nil
 			}
 		case "finalize":
 			switch values["verdict"] {
@@ -329,7 +553,27 @@ func renderHuman(eventName string, fields []Field) (string, error) {
 		case "success":
 			return fmt.Sprintf("Done (%s)", d), nil
 		case "findings_remaining":
-			return fmt.Sprintf("Stopped: review findings remain (%s, exit 1)", d), nil
+			switch values["checkpoint_status"] {
+			case "committed_local":
+				branch, err := url.QueryUnescape(values["checkpoint_branch"])
+				if err != nil {
+					return "", fmt.Errorf("decode checkpoint_branch: %w", err)
+				}
+				return fmt.Sprintf("Stopped: fix budget exhausted; finalization was not reached; checkpoint committed locally on %s at %s and not pushed (%s, exit 1)", branch, values["checkpoint_commit"], d), nil
+			case "no_changes":
+				return fmt.Sprintf("Stopped: fix budget exhausted; finalization was not reached; no checkpoint was needed (%s, exit 1)", d), nil
+			case "not_attempted":
+				switch values["checkpoint_reason"] {
+				case "pre_existing_changes":
+					return fmt.Sprintf("Stopped: fix budget exhausted; finalization was not reached; checkpoint was skipped because the worktree had pre-existing changes (%s, exit 1)", d), nil
+				case "fix_budget_exhausted":
+					return fmt.Sprintf("Stopped: fix budget exhausted; finalization was not reached; checkpoint was not attempted because no fix ran (%s, exit 1)", d), nil
+				default:
+					return fmt.Sprintf("Stopped: fix budget exhausted; finalization was not reached; checkpoint was not attempted (%s, exit 1)", d), nil
+				}
+			default:
+				return fmt.Sprintf("Stopped: review findings remain (%s, exit 1)", d), nil
+			}
 		case "operational_failure":
 			return fmt.Sprintf("Failed due to an operational error (%s, exit 2)", d), nil
 		case "ci_failure":
@@ -337,6 +581,69 @@ func renderHuman(eventName string, fields []Field) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("unsupported human event %s with fields %#v", eventName, fields)
+}
+
+func (l *Logger) humanPrefix(attempt, model, effort string) string {
+	prefix := l.now().Format("15:04:05") + " "
+	if attempt != "" {
+		prefix += "[" + attempt + "] "
+	}
+	if model != "" && effort != "" {
+		prefix += "[" + model + "/" + effort + "] "
+	}
+	return prefix
+}
+
+func (l *Logger) eventAttempt(fields []Field) string {
+	stage := fieldValue(fields, "stage")
+	switch stage {
+	case "review", "fix-findings":
+		if cycle := fieldValue(fields, "cycle"); cycle != "" {
+			return fmt.Sprintf("%s/%d", cycle, l.HumanMaxCycles)
+		}
+	case "fix-ci":
+		if phase := fieldValue(fields, "review_phase"); phase != "" {
+			return fmt.Sprintf("%s/%d", phase, l.HumanMaxCIRecoveries)
+		}
+	}
+	return ""
+}
+
+func (l *Logger) livenessLabel(stage StageContext, transient bool) string {
+	labels := map[string][2]string{
+		"review":       {"Reviewing", "Review"},
+		"fix-findings": {"Fixing findings", "Fixing findings"},
+		"finalize":     {"Finalizing", "Finalization"},
+		"fix-ci":       {"CI recovery", "CI recovery"},
+	}
+	label, ok := labels[stage.Stage]
+	if !ok {
+		return ""
+	}
+	if transient {
+		return label[0]
+	}
+	return label[1]
+}
+
+func (l *Logger) stageAttempt(stage StageContext) string {
+	switch stage.Stage {
+	case "review", "fix-findings":
+		return fmt.Sprintf("%d/%d", stage.Cycle, l.HumanMaxCycles)
+	case "fix-ci":
+		return fmt.Sprintf("%d/%d", stage.ReviewPhase, l.HumanMaxCIRecoveries)
+	default:
+		return ""
+	}
+}
+
+func fieldValue(fields []Field, key string) string {
+	for _, field := range fields {
+		if field.Key == key {
+			return field.Value
+		}
+	}
+	return ""
 }
 
 func validate(eventName string, fields []Field) error {
@@ -389,18 +696,14 @@ func shimmer(text string, frame, depth int) string {
 	if len(runes) == 0 {
 		return text
 	}
-	stops := [][3]int{{255, 107, 138}, {192, 132, 252}, {96, 165, 250}}
+	center := shimmerHighlightCenter(len(runes), frame)
 	var out strings.Builder
 	for i, r := range runes {
-		position := float64((i+frame)%len(runes)) / float64(max(1, len(runes)-1))
-		scaled := position * 2
-		segment := int(math.Min(1, math.Floor(scaled)))
-		fraction := scaled - float64(segment)
-		from, to := stops[segment], stops[segment+1]
-		rgb := [3]int{}
-		for channel := range rgb {
-			rgb[channel] = int(math.Round(float64(from[channel]) + (float64(to[channel])-float64(from[channel]))*fraction))
+		distance := i - center
+		if distance < 0 {
+			distance = -distance
 		}
+		rgb := shimmerColor(distance)
 		switch depth {
 		case 3:
 			fmt.Fprintf(&out, "\x1b[38;2;%d;%d;%dm%c", rgb[0], rgb[1], rgb[2], r)
@@ -409,7 +712,7 @@ func shimmer(text string, frame, depth int) string {
 			fmt.Fprintf(&out, "\x1b[38;5;%dm%c", index, r)
 		default:
 			code := 35
-			if (i+frame)%2 == 1 {
+			if distance < 2 {
 				code = 36
 			}
 			fmt.Fprintf(&out, "\x1b[%dm%c", code, r)
@@ -417,4 +720,29 @@ func shimmer(text string, frame, depth int) string {
 	}
 	out.WriteString("\x1b[0m")
 	return out.String()
+}
+
+func shimmerHighlightCenter(length, frame int) int {
+	travel := length + 8
+	cycle := travel * 2
+	center := (frame / 2) % cycle
+	if center >= travel {
+		center = cycle - center
+	}
+	return center - 4
+}
+
+func shimmerColor(distance int) [3]int {
+	switch distance {
+	case 0:
+		return [3]int{255, 255, 255}
+	case 1:
+		return [3]int{234, 218, 255}
+	case 2:
+		return [3]int{207, 181, 250}
+	case 3:
+		return [3]int{177, 143, 230}
+	default:
+		return [3]int{147, 112, 196}
+	}
 }

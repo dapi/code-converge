@@ -293,6 +293,25 @@ The reasoning bounds this feature to review-input selection, separates issue fac
 - **Changes:** accept both documented `--attr-source` forms and the `--list-cmds=<group>` probe while retaining unknown/malformed-option rejection. Added parser coverage and real PATH-only wrapper assertions for each accepted form.
 - **Verification:** `GOCACHE=/private/tmp/code-converge-global-options.XXXXXX go test ./internal/repository`, `GOCACHE=/private/tmp/code-converge-options-test.XXXXXX go test ./...`, `GOCACHE=/private/tmp/code-converge-options-vet.XXXXXX go vet ./...`, `make docs-lint`, `gofmt -d` for modified Go files and `git diff --check` pass. Required CI and independent final review remain high-risk gates.
 - **Human gate:** no; this restores supported Git invocation behavior without widening the parser to unknown options or changing the public contract.
+### 2026-07-23 Original-delivery closure and evidence-convergence review
+
+### 2026-07-23 Cycle 1 — closure and evidence-convergence review
+
+- **Review scope:** issue #16, merged PR #19 and its required CI, every FT-016 artifact, the feature-package index, root README, and the directly dependent domain/architecture owners.
+- **Critical:** none.
+- **Important:** `IMP-03` `brief.md` still declared `delivery_status: planned` and `implementation-plan.md` remained active despite recorded passing checks and a merged PR; this violated the Feature Flow terminal-state contract. `IMP-04` `memory-bank/features/README.md` still described FT-016 as blocked at `HG-01`, although `DL-03`, the feature index and the design/plan all showed that the gate was closed. `IMP-05` required design-verification analyses said `planned` while their canonical `CHK-*`/`EVID-*` carriers were recorded as pass; `EVID-05` did not identify the final PR head's required Verify run.
+- **FPF closures:** none. These are direct state and traceability corrections; no unresolved product, architecture or contract choice remained.
+- **Changes:** marked the brief `done`; archived the plan; corrected the package index and feature index; changed design-verification results to their canonical evidence carriers; and linked `EVID-05` to the successful Verify run for PR #19's final head commit.
+- **Human gate:** no.
+
+### 2026-07-23 Cycle 2 — post-correction convergence review
+
+- **Review scope:** corrected FT-016 package, issue #16, PR #19 status/required CI, root README, directly dependent domain/architecture owners, and `REQ` → solution → plan → `CHK`/`EVID` traceability.
+- **Critical:** none.
+- **Important:** none. The package now has one terminal lifecycle state, its archived plan and evidence state agree with the merged delivery, and the public/base-resolution contract agrees across all canonical owners.
+- **FPF closures:** none; no blocking open question or material ambiguity was found.
+- **Changes:** none; stopped review-improve early because no critical or important finding remained.
+- **Human gate:** no.
 
 ## Human Gate
 

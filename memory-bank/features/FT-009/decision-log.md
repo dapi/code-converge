@@ -91,8 +91,8 @@ Each material question uses the canonical reasoning cycle: frame the bounded cla
 - **Question:** What exact visual/fallback and duration rules close the issue's implementation ambiguities?
 - **Facts:** Issue #9 requires a continuous full-line Codex-style shimmer, one-second timer updates, respect for `NO_COLOR`, no non-TTY ANSI, second/compound durations and no milliseconds. It provides no canonical palette.
 - **Alternatives:** configurable theme/frame rate; fixed true-color-only theme; fixed tiered palette with a no-color fallback.
-- **FPF reasoning:** A configurable theme expands the public contract without operator-outcome evidence. True-color-only violates graceful fallback. A fixed 10 fps three-stop gradient is sufficient for continuous motion, bounded in CPU, and can degrade conservatively by terminal capability. Duration rules choose the minimum precision demonstrated by issue examples while eliminating milliseconds.
-- **Result:** fixed palette/frame/fallback and rounding rules in `SD-04`–`SD-06`; only `auto|never` color policy is public.
+- **FPF reasoning:** A configurable theme expands the public contract without operator-outcome evidence. True-color-only violates graceful fallback. The fixed 10 fps treatment can degrade conservatively by terminal capability; operator feedback showed that a wrapping gradient has a visible seam, so the selected treatment is a returning highlight instead. Duration rules choose the minimum precision demonstrated by issue examples while eliminating milliseconds.
+- **Result:** fixed palette/frame/fallback and rounding rules in `SD-04`–`SD-06`; only `auto|never` color policy is public. Operator feedback later replaced the wrapping gradient with a returning soft highlight, preserving the same refresh rate and fallback policy while avoiding a visible cycle seam.
 - **Confidence:** medium. The aesthetic values are an engineering selection constrained by the issue, not a user-validated brand fact; they are isolated and reversible without changing workflow semantics.
 
 ### `DL-08` — C4/ADR and artifact routing
@@ -124,6 +124,22 @@ Each material question uses the canonical reasoning cycle: frame the bounded cla
 - **FPF reasoning:** A partial guess violates the single-resolver contract; suppressing existing records breaks compatibility. The third option preserves known behavior and switches only when the setting becomes an assured fact.
 - **Result:** pre-resolution failures retain legacy kv records; post-resolution failures use the selected renderer.
 - **Confidence:** high.
+
+### `DL-11` — Human-readable default
+
+- **Status:** resolved by the user; promoted to `brief.md`, `design.md` and the root README.
+- **Question:** Should `human` remain opt-in or become the built-in log format?
+- **Facts:** The delivered `kv` stream remains available through the existing explicit setting. The user requested `human` as the default for normal operation.
+- **Result:** `human` is the built-in default; `kv` remains an explicit deterministic compatibility mode. Invalid/unresolvable startup format falls back to the built-in human renderer.
+- **Confidence:** high; direct product decision.
+
+### `DL-12` — Human-line context and ordering
+
+- **Status:** resolved by the user; promoted to `brief.md`, `design.md` and the root README.
+- **Question:** What minimum context must an operator see on each human progress line?
+- **Facts:** The user found the initial human output too sparse and explicitly requested a timestamp on every line, the exact bracket form `[gpt-5.6-sol/high]`, no visual separator between context and message, and visible real attempt budgets. The user then rejected `fixes n/max` as semantically misleading during review, selected compact `[attempt/max]`, and placed it before the model. They also approved liveness as the sole interactive stage-start indicator.
+- **Result:** Every human permanent and liveness line begins with local `HH:MM:SS`; retryable stage lines continue with `[attempt/max] [model/reasoning-effort]` and a single space before the message. Review/fix use cycle/max-cycles; CI recovery uses phase/max-ci-recoveries. Interactive human output omits permanent stage-start lines in favour of liveness; non-TTY retains them. The run terminal line retains the timestamp but no stage context.
+- **Confidence:** high; direct product decision.
 
 ## Review-Improve Cycles
 

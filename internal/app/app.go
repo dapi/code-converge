@@ -14,9 +14,12 @@ import (
 	"github.com/dapi/code-converge/internal/event"
 	"github.com/dapi/code-converge/internal/repository"
 	"github.com/dapi/code-converge/internal/runner"
+	"github.com/dapi/code-converge/internal/session"
+	"github.com/dapi/code-converge/internal/terminal"
 	selfupdate "github.com/dapi/code-converge/internal/update"
 	"github.com/dapi/code-converge/internal/version"
 	"github.com/dapi/code-converge/internal/workflow"
+	"golang.org/x/term"
 )
 
 type optionalFlag struct{ target *config.OptionalString }
@@ -34,15 +37,17 @@ func (f optionalFlag) Set(value string) error {
 }
 
 type App struct {
-	Stdout     io.Writer
-	Stderr     io.Writer
-	Cwd        string
-	Home       string
-	Runner     runner.Runner
-	Now        func() time.Time
-	IsTerminal func(io.Writer) bool
-	LookupEnv  func(string) (string, bool)
-	Updater    selfupdate.Runner
+	Stdout        io.Writer
+	Stderr        io.Writer
+	Stdin         *os.File
+	Cwd           string
+	Home          string
+	Runner        runner.Runner
+	Now           func() time.Time
+	IsTerminal    func(io.Writer) bool
+	TerminalWidth func(io.Writer) (int, error)
+	LookupEnv     func(string) (string, bool)
+	Updater       selfupdate.Runner
 }
 
 func (a App) Run(ctx context.Context, args []string) int {
@@ -52,6 +57,10 @@ func (a App) Run(ctx context.Context, args []string) int {
 	}
 	if stderr == nil {
 		stderr = os.Stderr
+	}
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		rootUsage(stdout)
+		return workflow.ExitSuccess
 	}
 	if len(args) == 1 && args[0] == "--version" {
 		fmt.Fprintf(stdout, "code-converge v%s\n", version.Version)
@@ -101,6 +110,9 @@ func (a App) Run(ctx context.Context, args []string) int {
 	bind(flags, "ci-fix-reasoning-effort", &overrides.CIFixEffort)
 	bind(flags, "ci-fix-prompt-file", &overrides.CIFixPromptPath)
 	bind(flags, "review-base", &overrides.ReviewBase)
+	bind(flags, "session-log-dir", &overrides.SessionLogDir)
+	bind(flags, "session-log-retention", &overrides.SessionLogRetention)
+	flags.BoolVar(&overrides.NoSessionLog, "no-session-log", false, "disable diagnostic session logging")
 
 	if len(args) > 0 && args[0] == "config" {
 		args = append(append([]string{}, args[1:]...), "config")
@@ -108,7 +120,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 	if err := flags.Parse(args); err != nil {
 		fmt.Fprintf(stderr, "code-converge: %v\n", err)
 		if !configCommand {
-			logger := event.Logger{Out: stdout, Err: stderr, Now: a.Now, Format: "kv"}
+			logger := event.Logger{Out: stdout, Err: stderr, Now: a.Now, Format: "human"}
 			started := time.Now()
 			_ = logger.Emit("run_started")
 			_ = logger.Emit("run_completed", event.F("status", "operational_failure"), event.F("exit_code", "2"), event.F("total_duration_ms", fmt.Sprint(time.Since(started).Milliseconds())))
@@ -120,7 +132,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 		return workflow.ExitOperational
 	}
 
-	startupFormat := "kv"
+	startupFormat := "human"
 	if resolved, resolveErr := config.ResolveLogFormat(cwd, a.Home, overrides.LogFormat); resolveErr == nil {
 		startupFormat = resolved
 	}
@@ -146,15 +158,62 @@ func (a App) Run(ctx context.Context, args []string) int {
 	if processRunner == nil {
 		processRunner = runner.Exec{Executable: "codex", Dir: cwd}
 	}
-	reviewScope := &repository.ReviewScope{Runner: processRunner, Base: cfg.ReviewBase, Root: cfg.Root}
-	defer reviewScope.Close()
-	agent := codex.Adapter{Runner: processRunner, Config: cfg, ReviewScope: reviewScope}
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+	var view *terminal.View
+	stdin := a.Stdin
+	if stdin == nil {
+		stdin = os.Stdin
+	}
+	lookup := a.LookupEnv
+	if lookup == nil {
+		lookup = os.LookupEnv
+	}
+	termName, _ := lookup("TERM")
+	if cfg.LogFormat == "human" && terminal.IsTerminalWriter(stdout) && termName != "" && termName != "dumb" {
+		candidate := terminal.New(stdout, stdin)
+		candidate.Interrupt = cancelRun
+		if candidate.Eligible() && candidate.Start() == nil {
+			view = candidate
+			defer view.Stop()
+		}
+	}
 	logger := event.Logger{
 		Out: stdout, Err: stderr, Now: a.Now, Format: cfg.LogFormat, Heartbeat: cfg.Heartbeat,
-		Interactive: a.isTerminal(stdout), ColorDepth: a.colorDepth(cfg, stdout),
+		Interactive: a.isTerminal(stdout), ColorDepth: a.colorDepth(cfg, stdout), View: view,
 	}
+	if logger.Interactive && cfg.LogFormat == "human" && cfg.Heartbeat == 0 {
+		logger.TerminalWidth = func() (int, error) { return a.terminalWidth(stdout) }
+	}
+	if !cfg.NoSessionLog {
+		writer, sessionErr := session.Start(session.Config{
+			Dir: cfg.SessionLogDir, Retention: cfg.SessionLogRetention, Now: a.Now,
+			Diagnostic: logger.Diagnostic,
+		})
+		if sessionErr != nil {
+			logger.Diagnostic("session log", sessionErr)
+		}
+		if writer != nil {
+			defer writer.Close()
+			processRunner = session.Wrap(processRunner, writer)
+			if err := logger.SessionLog(writer.Path()); err != nil {
+				logger.Diagnostic("write session log path", err)
+			}
+		}
+	}
+	reviewScope := &repository.ReviewScope{Runner: processRunner, Base: cfg.ReviewBase, Root: cfg.Root}
+	defer reviewScope.Close()
+	var agentOutput func(string, []byte)
+	if view != nil {
+		agentOutput = logger.AgentOutput
+	}
+	agent := codex.Adapter{Runner: processRunner, Config: cfg, ReviewScope: reviewScope, Output: agentOutput}
 	w := workflow.Workflow{Config: cfg, Agent: agent, Repository: repository.Status{Runner: processRunner}, Log: &logger, Err: stderr, Now: a.Now}
-	return w.Run(ctx)
+	return w.Run(runCtx)
+}
+
+func rootUsage(out io.Writer) {
+	fmt.Fprintln(out, "usage: code-converge [flags] [config]")
 }
 
 func updateArgs(args []string) (bool, error) {
@@ -175,8 +234,22 @@ func (a App) isTerminal(out io.Writer) bool {
 	if !ok {
 		return false
 	}
-	info, err := file.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(int(file.Fd()))
+}
+
+func (a App) terminalWidth(out io.Writer) (int, error) {
+	if a.TerminalWidth != nil {
+		return a.TerminalWidth(out)
+	}
+	file, ok := out.(*os.File)
+	if !ok {
+		return 0, fmt.Errorf("stdout is not a file")
+	}
+	width, _, err := term.GetSize(int(file.Fd()))
+	if err != nil {
+		return 0, err
+	}
+	return width, nil
 }
 
 func (a App) colorDepth(cfg config.Config, out io.Writer) int {

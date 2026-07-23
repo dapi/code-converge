@@ -4,6 +4,14 @@
 
 `code-converge` supports [Codex](https://github.com/openai/codex) as its only agent. The command is intended to be run from the repository that should be reviewed.
 
+## Root help
+
+`code-converge -h` and `code-converge --help` are equivalent, write the following usage line to stdout, and exit `0` without loading configuration or starting an update or review workflow:
+
+```text
+usage: code-converge [flags] [config]
+```
+
 ## Workflow
 
 ```mermaid
@@ -13,8 +21,9 @@ flowchart TD
     C -- yes --> E{Fix budget remains?}
     E -- yes --> D[Fix findings]
     E -- no --> X1[Exit 1]
-    D --> B
-    C -- no --> N{Repository changes?}
+    D --> K["Commit local checkpoint when fixes changed the clean worktree"]
+    K --> B
+    C -- no --> N{Unfinalized changes or local checkpoint?}
     N -- no --> X0[Exit 0: no-op]
     N -- yes --> F[Commit, push, create change request if needed, check applicable CI]
     F --> G{Result}
@@ -49,14 +58,14 @@ flowchart TD
         ╔═══════════════════╗     ◄──────────────────────────────┐
         ║   REVIEW STAGE    ║                                   │
         ║                   ║                                   │
-        ║ codex review      ║                                   │
-        ║ --base + snapshot ║                                   │
+        ║ codex exec        ║                                   │
+        ║ schema + snapshot ║                                   │
         ╚════════╤══════════╝                                   │
                  │                                              │
                  ▼                                              │
         ┌────────────────┐                                      │
-        │  Parse review  │                                      │
-        │  report text   │                                      │
+        │ Read strict JSON│                                      │
+        │ final file only │                                      │
         └───────┬────────┘                                      │
                 │                                               │
        ┌────────┴────────┐                                      │
@@ -91,9 +100,9 @@ flowchart TD
        │
        ▼
   ┌──────────────────────┐
-  │ Check Git status     │
-  │ staged / unstaged /  │
-  │ untracked changes?   │
+  │ Check Git status and │
+  │ run-local checkpoint │
+  │ state                │
   └───────┬─────────┬────┘
           │ yes     │ no
           ▼         └────────► run_completed success, exit 0
@@ -151,7 +160,7 @@ flowchart TD
 
 Key points:
 
-- **Review** — resolves the intended pull-request base and runs one `codex review --base` against a private merge-base-to-worktree snapshot, including committed, staged, unstaged and untracked changes. It accepts existing plain-text reports and the strictly validated structured report format emitted by supported Codex CLI versions.
+- **Review** — resolves the intended pull-request base and runs one schema-constrained `codex exec` against a private merge-base-to-worktree snapshot, including committed, staged, unstaged and untracked changes. Only the final-message file is classified; terminal stdout/stderr are not review data.
 - **Fix** — `codex exec -`, stdin = fix-prompt + full review report. The stateless remediation session receives the findings it must address.
 - **Finalize** — `codex exec --output-schema`, strict JSON verdict with hard validation.
 - **CI recovery** — on `CI_FAILED`, fixes CI, resets the fix cycle, and restarts from Review.
@@ -160,29 +169,29 @@ Key points:
 
 ### 1. Review
 
-`code-converge` runs the normal non-interactive `codex review` command in the current directory. By default it resolves one review base in this order: an explicit review-base setting, the base of one open pull request for the current branch and its configured push/provider repository (or `origin` when Git's usual push-remote settings are absent), `branch.<current>.gh-merge-base`, then exactly one remote default-branch ref. Provider discovery verifies the PR head repository and branch against the current branch's provider identity, resolves the PR base branch against one remote-tracking ref and compares its commit SHA with the provider's advertised base SHA; an unverifiable head or stale base fails with an actionable diagnostic. The resolved base SHA is pinned for every review in the run. Code-Converge computes the merge-base and prepares a private Git index from that tree plus the current worktree; this includes committed, staged, unstaged and untracked changes without modifying the real index or worktree. A review-only Git helper applies that index only after confirming that a Git command targets the reviewed repository, while absolute Git paths and commands targeting another repository retain their normal index. Code-Converge forces its wrapper-first `PATH` through the per-review Codex shell policy and disables login-shell startup for that review, so profile initialization cannot reorder `PATH` and bypass the helper. The helper reads its private configuration from a sidecar file, so an `include_only` policy that allows `PATH` needs no extra helper variables. Ambiguous, missing or stale candidates fail with a diagnostic before Codex starts. Provider discovery through `gh` is optional; unavailable `gh` or authentication falls through to local Git sources. No implicit fetch, PR mutation or other remote mutation occurs.
+`code-converge` runs non-interactive `codex exec --output-schema <schema> --output-last-message <message> -` in the current directory. By default it resolves one review base in this order: an explicit review-base setting, the base of one open pull request for the current branch and its configured push/provider repository (or `origin` when Git's usual push-remote settings are absent), `branch.<current>.gh-merge-base`, then exactly one remote default-branch ref. Provider discovery verifies the PR head repository and branch against the current branch's provider identity, resolves the PR base branch against one remote-tracking ref and compares its commit SHA with the provider's advertised base SHA; an unverifiable head or stale base fails with an actionable diagnostic. The resolved base SHA is pinned for every review in the run. Code-Converge computes the merge-base and prepares a private Git index from that tree plus the current worktree; this includes committed, staged, unstaged and untracked changes without modifying the real index or worktree. A review-only Git helper applies that index only after confirming that a Git command targets the reviewed repository, while absolute Git paths, repository-creation commands, and commands targeting another repository retain their normal index. Code-Converge forces its wrapper-first `PATH` through the per-review Codex shell policy and disables login-shell startup for that review, so profile initialization cannot reorder `PATH` and bypass the helper. The helper reads its private configuration from a sidecar file, so an `include_only` policy that allows `PATH` needs no extra helper variables; `GIT_INDEX_FILE` is not exported to Codex. The review instruction compares `git diff --cached` from the computed merge base through the scoped helper. Ambiguous, missing or stale candidates fail with a diagnostic before Codex starts. Provider discovery through `gh` is optional; unavailable `gh` or authentication falls through to local Git sources. No implicit fetch, PR mutation or other remote mutation occurs.
 
 `--review-base <ref>`, `CODE_CONVERGE_REVIEW_BASE` and `.code-converge/review-base` explicitly select the base using the normal configuration precedence. A branch already merged into the selected base has no committed delta but still reviews worktree changes; a fully clean run follows the existing clean/no-change path. It uses the model and reasoning effort resolved from the selected mode and any explicit stage overrides.
 
-The review adapter reads the ordinary Codex review report and distinguishes findings from an explicitly clean review. It accepts the existing plain-text forms and a strict structured JSON object with exactly `findings`, `overall_correctness`, `overall_explanation`, and `overall_confidence_score`. Structured findings require the observed `title`, `body`, `confidence_score`, numeric `priority`, and `code_location` shape. It does not require a caller-supplied output schema. A non-zero command exit, malformed/incomplete/unknown structured data, or a report that cannot otherwise be classified safely is an operational failure and exits with code `2`; ambiguous output is never treated as a clean review.
+The review adapter supplies a strict JSON Schema and, after a zero Codex exit, reads only the file named by `--output-last-message`. The response must contain exactly `findings`, `overall_correctness`, `overall_explanation`, and `overall_confidence_score`; every finding must contain `title`, `body`, `confidence_score`, numeric `priority`, and `code_location` in the documented nested shape. An empty `findings` array is the only clean result. Plain text, terminal stdout/stderr, duplicate or unknown fields, invalid priorities, missing/empty/malformed files, and non-zero command exits cannot be classified as clean and produce operational exit `2`. Codex compatibility is capability-based: the configured CLI must support `exec`, `--output-schema`, and `--output-last-message`; unsupported invocations fail closed without falling back to terminal parsing.
 
-For metrics, Codex priorities are normalized as follows: `P0` → `critical`, `P1` → `high`, `P2` → `medium`, and `P3` → `low`. A bracketed numeric priority outside that range is counted as `unknown`; other bracket labels are not findings and make a findings report unclassifiable. `findings_total` must equal the sum of all five counters.
+For metrics, schema priorities are normalized as follows: `0` (`P0`) → `critical`, `1` (`P1`) → `high`, `2` (`P2`) → `medium`, and `3` (`P3`) → `low`. Any other priority makes the response invalid. The public `unknown` counter remains present for event-schema compatibility and is zero for accepted structured responses. `findings_total` must equal the sum of all five counters.
 
 ### 2. Fix findings
 
-When the review has findings, `code-converge` starts a fresh Codex session with the configured fix-findings prompt followed by the complete classified review report. This gives the stateless remediation session the findings it must address without forwarding the report to workflow stdout. By default, the prompt is:
+When the review has findings, `code-converge` detects whether the Git worktree is clean before considering an automatic checkpoint, then starts a fresh Codex session with the configured fix-findings prompt followed by the complete classified review report. This preserves remediation for the documented staged, unstaged and untracked review scope. A dirty baseline safely skips checkpointing so it cannot capture pre-existing user work. By default, the prompt is:
 
 ```text
 fix findings
 ```
 
-The default `fast` profile uses `gpt-5.6-luna` with reasoning effort `medium`. After a successful agent run, the workflow returns to **Review**.
+The default `fast` profile uses `gpt-5.6-luna` with reasoning effort `medium`. Before and after the agent runs, `code-converge` records `HEAD` and checks Git status. If the fix changed an initially clean worktree, it stages the changes and creates one local commit with the stable message `chore: checkpoint review fixes`; it never pushes this checkpoint. A commit made directly by the agent is also detected as a local checkpoint, even when the worktree is clean, so a later clean review still reaches finalization. A dirty pre-fix worktree continues through remediation but skips the automatic checkpoint and reports that reason if the budget is later exhausted. A no-change fix attempts no empty commit. A status, `HEAD`, staging, commit, branch, or commit-ID failure is operational (exit `2`) and the workflow does not start another review. After a successful checkpoint decision or skip, the workflow returns to **Review**.
 
-`max-cycles` is the maximum number of fix-findings attempts in one review phase; its built-in default is `10` and it must be non-negative. The initial review does not consume this budget. After the final allowed fix attempt, `code-converge` always performs one verification review. If that review still has findings, `code-converge` reports that the limit has been reached and exits with code `1`. A failed fix-findings command is an operational failure and exits with code `2`.
+`max-cycles` is the maximum number of fix-findings attempts in one review phase; its built-in default is `10` and it must be non-negative. The initial review does not consume this budget. After the final allowed fix attempt, `code-converge` always performs one verification review. If that review still has findings, `code-converge` reports that the limit has been reached, that clean-review finalization was not reached, and the latest local checkpoint state before exiting with code `1`. A failed fix-findings command is an operational failure and exits with code `2`.
 
 ### 3. Commit, push, create a change request, and check CI
 
-Once a review returns no findings, `code-converge` checks Git status for staged, unstaged and untracked changes. If there are none, it completes successfully as a no-op without starting finalization or attempting an empty commit. If changes exist, it asks Codex to finalize them. The default prompt is:
+Once a review returns no findings, `code-converge` checks Git status for staged, unstaged and untracked changes. If there are none and this run created no local checkpoints, it completes successfully as a no-op without starting finalization or attempting an empty commit. If changes exist, or this run created a local checkpoint, it asks Codex to finalize them. In the latter case the finalizer is told not to create an empty commit; it still pushes the current branch, creates a change request if needed, and verifies CI. The default prompt is:
 
 ```text
 commit, push, create PR, ensure CI is green
@@ -215,13 +224,13 @@ If the agent completes successfully, the entire workflow begins again with a new
 | Code | Meaning |
 | --- | --- |
 | `0` | The review is clean and either no staged, unstaged or untracked changes exist, or changes are committed and pushed; a change request exists if needed; required CI is green or CI is not applicable. `update` also returns `0` when the installed version is current or the user declines the update. |
-| `1` | Review findings remain after the configured maximum number of fix-findings attempts. |
+| `1` | Review findings remain after the configured maximum number of fix-findings attempts. The terminal record states that finalization was not reached and gives the latest local checkpoint outcome. |
 | `2` | An operational/configuration failure occurred, review output was ambiguous, fix-findings failed, or finalization failed for a reason other than red CI. `update` uses it for unsupported hosts, invalid release metadata, download/checksum failures, or replacement/permission failures. |
 | `3` | The CI-fix stage failed or the maximum number of CI-recovery attempts was exhausted. |
 
 ## Logging and metrics
 
-During a workflow run, `code-converge` writes operational progress to standard output in one explicitly selected format: `kv` or `human`. The default is `kv` for compatibility. TTY detection never selects the semantic format. Raw Codex stdout is captured by the adapter and is not forwarded to workflow stdout; diagnostics and error details go to stderr.
+During a workflow run, `code-converge` writes operational progress to standard output in one deterministically selected format: `human` or `kv`. The built-in default is `human`; select `kv` explicitly for machine-readable automation. TTY detection never selects the semantic format. Raw Codex stdout and stderr are captured by the process boundary and are never review-result data or workflow stdout; stderr may enrich the diagnostic for a failed Codex process. Unless disabled, private diagnostic session records capture those invocation details locally; they are not event-stream records.
 
 ### Structured `kv` format
 
@@ -238,11 +247,11 @@ The required event catalog is:
 | Event | Required event-specific fields |
 | --- | --- |
 | `run_started` | No fields beyond `ts` and `event`. |
-| `stage_started` | `stage`, `model`, `reasoning_effort`; also `review_phase` and `cycle` for `review` and `fix-findings`. |
+| `stage_started` | `stage`, `model`, `reasoning_effort`; also `review_phase` and `cycle` for `review` and `fix-findings`, and `review_phase` for `fix-ci`. |
 | `review_completed` | `stage=review`, `model`, `reasoning_effort`, `review_phase`, `cycle`, `status=clean\|findings\|failed`, and `duration_ms`. A classified result (`clean` or `findings`) also requires all findings counters plus `review_scope=branch_and_worktree`, `review_base` (resolved commit SHA), `review_merge_base` and `review_base_source=explicit\|open_pr\|branch_merge_base\|remote_default`; on command or classification failure these fields and counters are omitted. This is the review stage's sole completion record. |
-| `stage_completed` | `stage=fix-findings\|finalize\|fix-ci`, `model`, `reasoning_effort`, `status=success\|failed`, and `duration_ms`. A successfully parsed finalization response also requires `verdict=SUCCESS\|CI_FAILED\|FAILED`; an invocation or parsing failure uses `status=failed` and omits `verdict`. |
+| `stage_completed` | `stage=fix-findings\|finalize\|fix-ci`, `model`, `reasoning_effort`, `status=success\|failed`, and `duration_ms`; `fix-findings` also has `review_phase` and `cycle`, while `fix-ci` has `review_phase`. A successfully parsed finalization response also requires `verdict=SUCCESS\|CI_FAILED\|FAILED`; an invocation or parsing failure uses `status=failed` and omits `verdict`. |
 | `step_completed` | `stage=finalize`, `model`, `reasoning_effort`, `step=commit\|push\|change_request\|ci`, and `status=success\|skipped\|failed\|unknown`. Each finalization attempt emits one record for every listed step; a step that is inapplicable or not reached is `skipped`, while an outcome that cannot be established is `unknown`. |
-| `run_completed` | `status=success\|findings_remaining\|operational_failure\|ci_failure`, `exit_code`, and `total_duration_ms`. |
+| `run_completed` | `status=success\|findings_remaining\|operational_failure\|ci_failure`, `exit_code`, and `total_duration_ms`. For `findings_remaining`, also `checkpoint_status=committed_local\|no_changes\|not_attempted`; `committed_local` additionally requires percent-encoded `checkpoint_branch` and `checkpoint_commit`, while `not_attempted` requires `checkpoint_reason=fix_budget_exhausted\|pre_existing_changes`. |
 
 For example:
 
@@ -268,43 +277,53 @@ This makes the trend across cycles directly measurable without requiring it to b
 
 ### Human format
 
-Select `--log-format=human` for concise operator output. Human lines omit timestamps, model settings, raw event keys, zero-valued severity buckets, and the redundant `run_started` record. Durations below one minute use seconds rounded to a tenth with a trailing `.0` removed; longer durations use rounded whole seconds in compact `h m s` form.
+Human is the built-in format for concise operator output. Every permanent line starts with local `HH:MM:SS`; retryable stage lines then include `[attempt/max] [model/reasoning-effort]` with no separator before the message. The overall terminal line has no attempt or model because it does not belong to a single stage. Human lines omit raw event keys, zero-valued severity buckets, and the redundant `run_started` record. Durations below one minute use seconds rounded to a tenth with a trailing `.0` removed; longer durations use rounded whole seconds in compact `h m s` form. Select `--log-format=kv` when an integration requires the machine-readable event stream.
+
+When diagnostic session logging is enabled and its record directory has been created, human output first writes exactly one permanent path handoff such as `22:14:05 Session log: /Users/me/.code-converge/session-logs/session-...`. It contains no session content. `kv` output and `--no-session-log` omit this line.
 
 | Workflow result | Human output |
 | --- | --- |
-| Review starts in the initial phase | `Review attempt 1 started` |
-| Review starts after the first CI fix | `Review attempt 1 started after CI fix 1` |
-| Review is clean | `Review attempt 1: clean (1m 27s)` |
-| Review has findings | `Review attempt 2: 3 findings — 1 high, 2 medium (2m 13s)` |
-| Review fails | `Review attempt 2 failed (2m 13s)` |
-| Fix findings starts / succeeds / fails | `Fixing findings from review attempt 2...` / `Findings fixed (4m 23s)` / `Fixing findings failed (4m 23s)` |
-| Finalization starts | `Finalizing...` |
-| Finalization step | `  Commit: done`, `  Push: failed`, `  Change request: not needed`, or `  CI: unknown` |
-| Finalization succeeds | `Finalized successfully (42s)` |
-| Finalization reports red CI | `Finalized, but CI is failing (42s)` |
-| Finalization fails | `Finalization failed (42s)` |
-| CI fix starts / succeeds / fails | `Fixing CI...` / `CI fixed (1m 8s)` / `Fixing CI failed (1m 8s)` |
-| Run succeeds | `Done (8m 45s)` |
-| Findings remain | `Stopped: review findings remain (8m 45s, exit 1)` |
-| Operational failure | `Failed due to an operational error (8m 45s, exit 2)` |
-| CI remains red | `Stopped: CI is still failing (8m 45s, exit 3)` |
+| Review starts in the initial phase (non-TTY) | `22:14:05 [1/10] [gpt-5.6-sol/high] Review started` |
+| Review starts after the first CI recovery (non-TTY) | `22:14:05 [1/10] [gpt-5.6-sol/high] Review started (phase 2 after CI recovery 1)` |
+| Review is clean | `22:14:05 [2/10] [gpt-5.6-sol/high] Review: clean (1m 27s)` |
+| Review has findings | `22:14:05 [2/10] [gpt-5.6-sol/high] Review: 3 findings — 1 high, 2 medium (2m 13s)` |
+| Review fails | `22:14:05 [2/10] [gpt-5.6-sol/high] Review failed (2m 13s)` |
+| Fix findings starts / succeeds / fails | `22:14:05 [2/10] [gpt-5.6-luna/medium] Fixing findings` / `22:14:05 [2/10] [gpt-5.6-luna/medium] Findings fixed (4m 23s)` / `22:14:05 [2/10] [gpt-5.6-luna/medium] Fixing findings failed (4m 23s)` |
+| Finalization starts | `22:14:05 [gpt-5.3-codex-spark/agent-default] Finalizing` |
+| Finalization step | `22:14:05 [gpt-5.3-codex-spark/agent-default]   Commit: done` (and equivalent step status) |
+| Finalization succeeds | `22:14:05 [gpt-5.3-codex-spark/agent-default] Finalized successfully (42s)` |
+| Finalization reports red CI | `22:14:05 [gpt-5.3-codex-spark/agent-default] Finalized, but CI is failing (42s)` |
+| Finalization fails | `22:14:05 [gpt-5.3-codex-spark/agent-default] Finalization failed (42s)` |
+| CI recovery starts / succeeds / fails | `22:14:05 [1/3] [agent-default/agent-default] CI recovery` / `22:14:05 [1/3] [agent-default/agent-default] CI recovery fixed (1m 8s)` / `22:14:05 [1/3] [agent-default/agent-default] CI recovery failed (1m 8s)` |
+| Run succeeds | `22:14:05 Done (8m 45s)` |
+| Findings remain | `22:14:05 Stopped: review findings remain (8m 45s, exit 1)` |
+| Operational failure | `22:14:05 Failed due to an operational error (8m 45s, exit 2)` |
+| CI remains red | `22:14:05 Stopped: CI is still failing (8m 45s, exit 3)` |
 
 A findings summary always includes the total and only its non-zero severity counts, ordered critical, high, medium, low, unknown. Successful terminal lines omit exit `0`; failure terminal lines retain exit codes `1`, `2`, and `3`.
 
 ### Liveness
 
-In human mode on an interactive stdout terminal, each Codex-backed stage displays one in-place elapsed-time line such as `Reviewing... 1m 24s`. The timer changes once per second while a full-line color shimmer advances at 10 frames per second. The line is cleared before permanent stdout or diagnostic stderr output.
+In human mode on an interactive stdout terminal, each Codex-backed stage displays one in-place elapsed-time line such as `22:14:05 [1/10] [gpt-5.6-sol/high] Reviewing... 1m 24s`. The timer changes once per second while a soft color highlight travels across the fully colored line and returns at a 10-frame-per-second refresh rate. The live line replaces the permanent stage-start line in an interactive terminal, so the output is not duplicated. The line is cleared before permanent stdout or diagnostic stderr output.
 
 `--color=never` or the presence of `NO_COLOR` disables shimmer while retaining the elapsed line. `auto` uses true color when advertised by `COLORTERM`, ANSI-256 when advertised by `TERM`, basic magenta/cyan otherwise, and no color for unknown or dumb terminals.
 
 Non-TTY output has no implicit liveness and never contains ANSI controls. In human mode, an explicit positive heartbeat replaces transient animation and emits newline-safe records at the requested interval:
 
 ```text
-Review still running (30s)
-Review still running (1m)
+22:14:05 [1/10] [gpt-5.6-sol/high] Review still running (30s)
+22:15:05 [1/10] [gpt-5.6-sol/high] Review still running (1m)
 ```
 
 Heartbeat is disabled by default, accepts `0` or a Go duration of at least `1s`, and is rejected with `log-format=kv`. Liveness stops and joins before stage completion, failure, cancellation, or later output; a liveness write error becomes operational failure.
+
+### Interactive agent output view
+
+In `human` mode, when both standard input and standard output are terminals and `TERM` is neither empty nor `dumb`, Code-Converge accepts one-key terminal input. Press `i` during a workflow to toggle a split view without interrupting the active Codex process. The upper pane retains the workflow log; the lower pane shows arriving stdout and stderr from the active agent. Stderr lines are marked `[stderr]`.
+
+The view uses the terminal alternate screen and restores it when closed, on workflow completion, cancellation, interruption, setup failure, or panic unwinding. Each pane retains its most recent 2,000 logical lines; long lines wrap to the current terminal width. `Tab` selects a pane, arrow keys and Page Up/Down scroll it, and `End` returns it to the live tail. A view opened before an agent starts says `No active agent output`; completion leaves the final stream visible until the next agent stage.
+
+Agent output is sanitized before rendering: terminal controls are removed, invalid UTF-8 is rendered as replacement characters, and raw process output never enters workflow stdout. If the terminal is ineligible or raw-mode setup fails, no view is started and the existing human output continues unchanged. Non-interactive output and `kv` retain their existing contracts and never require a TTY.
 
 `code-converge config` is a separate human-readable command and is not part of the workflow event stream.
 
@@ -341,7 +360,7 @@ The `fast` and `best` modes select these operative stage profiles. `fast` is the
 
 | Option | Flag | Environment variable | Project / user file | Default |
 | --- | --- | --- | --- | --- |
-| Workflow log format | `--log-format` | `CODE_CONVERGE_LOG_FORMAT` | `log-format` | `kv` |
+| Workflow log format | `--log-format` | `CODE_CONVERGE_LOG_FORMAT` | `log-format` | `human` |
 | Human liveness heartbeat | `--heartbeat` | `CODE_CONVERGE_HEARTBEAT` | `heartbeat` | `0` (disabled) |
 | Interactive shimmer color | `--color` | `CODE_CONVERGE_COLOR` | `color` | `auto` |
 | Mode | `--mode` | `CODE_CONVERGE_MODE` | `mode` | `fast` |
@@ -359,6 +378,9 @@ The `fast` and `best` modes select these operative stage profiles. `fast` is the
 | CI-fix reasoning effort | `--ci-fix-reasoning-effort` | `CODE_CONVERGE_CI_FIX_REASONING_EFFORT` | `ci-fix-reasoning-effort` | selected profile |
 | CI-fix prompt | `--ci-fix-prompt-file` | `CODE_CONVERGE_CI_FIX_PROMPT_FILE` | `fix-ci.md` | `Исправь CI` |
 | Review base override | `--review-base` | `CODE_CONVERGE_REVIEW_BASE` | `review-base` | discover intended base |
+| Diagnostic session-log directory | `--session-log-dir` | `CODE_CONVERGE_SESSION_LOG_DIR` | `session-log-dir` | `~/.code-converge/session-logs` |
+| Diagnostic session-log retention | `--session-log-retention` | `CODE_CONVERGE_SESSION_LOG_RETENTION` | `session-log-retention` | `24h` |
+| Disable diagnostic logging for this run | `--no-session-log` | — | — | disabled only when flag supplied |
 
 For example, a team can commit these files:
 
@@ -379,6 +401,8 @@ For example, a team can commit these files:
 ├── ci-fix-reasoning-effort
 ├── max-cycles
 ├── max-ci-recoveries
+├── session-log-dir
+├── session-log-retention
 ├── fix-findings.md
 ├── finalize.md
 └── fix-ci.md
@@ -391,6 +415,8 @@ CODE_CONVERGE_MAX_CYCLES=3 \
 CODE_CONVERGE_REVIEW_MODEL=gpt-5.6-sol \
 code-converge
 ```
+
+`session-log-dir` must resolve to an absolute path (a leading `~` expands to the user home); `session-log-retention` is a Go duration of at least `1s`. `0` and negative values are invalid; use `--no-session-log` for a no-artifact run. At the start of an enabled run, Code-Converge creates an owner-only directory where the platform permits, then best-effort removes only expired, completed direct `session-*` child directories from that configured root; incomplete or unreadable sessions are retained so a concurrent active run cannot be removed. Cleanup, create, write and permission failures are diagnostics on stderr and do not alter an otherwise valid workflow result. Session records include redacted command/stdin/stdout/stderr data, but may still contain sensitive repository content, prompts, paths and agent output. They never include process environment values; known credential-bearing argument/text forms, including complete keyed values and separate credential-flag values, are replaced with `[REDACTED]`. Use `--no-session-log` when such local retention is not acceptable.
 
 ### Show effective settings
 

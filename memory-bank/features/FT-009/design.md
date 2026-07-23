@@ -60,7 +60,7 @@ flowchart LR
 
 ## Selected Solution
 
-- `SOL-01` Keep `kv` as the built-in default and add explicit `human` selection. Rendering consumes the same typed workflow facts; TTY detection never selects the semantic format.
+- `SOL-01` Make `human` the built-in default and retain explicit `kv` selection for automation. Rendering consumes the same typed workflow facts; TTY detection never selects the semantic format.
 - `SOL-02` Add three settings through the existing resolver: `log-format`, `heartbeat`, and `color`. Their exact public names and values are specified in `CTR-01`.
 - `SOL-03` Implement a presentation boundary that owns the unchanged `kv` encoder, the human catalog, duration/severity formatting, terminal capability detection and serialized permanent/transient/diagnostic writes.
 - `SOL-04` Scope liveness to human mode. Default TTY behavior is one transient elapsed line; explicit positive heartbeat selects permanent newline heartbeats instead of the transient line. Non-TTY output otherwise emits only permanent records. `kv` never emits heartbeat in this feature.
@@ -71,32 +71,32 @@ flowchart LR
 
 | Alternative ID | Option | Why not selected |
 | --- | --- | --- |
-| `ALT-01` | Make `human` the new default | Breaks scripts relying on the documented stable stream and conflicts with the compatibility outcome; explicit opt-in still delivers the operator value. |
+| `ALT-01` | Keep `kv` as the default | Rejected by the explicit product decision to optimize normal operator use. Existing integrations retain the stable stream through explicit `kv` selection. |
 | `ALT-02` | Choose human/kv automatically from TTY | Violates deterministic semantic selection required by issue #9. |
 | `ALT-03` | Put all progress on stderr | Conflicts with the established contract that workflow progress is stdout and diagnostics are stderr. |
 | `ALT-04` | Enable heartbeat in `kv` | Extends the structured event catalog without acceptance need and risks consumer compatibility; separately design it if demanded later. |
 | `ALT-05` | Run transient shimmer and explicit heartbeat together | Duplicates liveness, increases noise and complicates ordering. Explicit heartbeat therefore replaces transient display. |
-| `ALT-06` | Add timestamps to human output | Issue #9 only asks to consider them and says they are omitted by default. Deferring them avoids a fourth setting and keeps the first human contract concise. |
+| `ALT-06` | Leave timestamps and model context out of human output | Superseded by the direct operator decision recorded in `DL-12`; the approved human contract needs immediate correlation of each line with its time and executing model. |
 
 ## Trade-offs
 
 | Trade-off ID | Decision | Benefit | Cost / Risk |
 | --- | --- | --- | --- |
-| `TRD-01` | Compatibility-first `kv` default | No silent break for existing integrations | Operators must explicitly select `human`. |
+| `TRD-01` | Operator-first `human` default | Normal terminal use is readable without configuration | Existing integrations must explicitly select `kv`. |
 | `TRD-02` | Human-only heartbeat | Keeps `kv` byte/schema compatibility and bounds scope | Structured consumers cannot request liveness until a separate contract extension. |
 | `TRD-03` | Shared presentation coordinator for stdout/stderr ordering | Prevents transient corruption and late writes | Adds a small synchronization boundary that requires race/failure tests. |
 | `TRD-04` | Fixed built-in shimmer policy | Deterministic visuals and tests without theme/config expansion | Palette/frame rate are not user-customizable beyond disabling color. |
 
 ## Accepted Local Decisions
 
-- `SD-01` `kv` is the default; `human` is opt-in. This preserves the current stable automation contract.
+- `SD-01` `human` is the default; `kv` is explicit for automation. TTY state never selects the semantic format.
 - `SD-02` Human timestamps are unsupported in this delivery. `kv` retains mandatory RFC 3339 `ts` fields.
 - `SD-03` Explicit heartbeat is available only in human mode and replaces transient TTY animation; `0` disables heartbeat, positive values below `1s` and invalid/negative durations are configuration errors.
 - `SD-04` The color setting has values `auto` and `never`, default `auto`. `NO_COLOR` or `color=never` disables shimmer but not the updating elapsed line. Permanent and heartbeat lines never contain ANSI.
-- `SD-05` Shimmer advances at 10 frames/second across the complete transient text; its elapsed timer uses whole seconds and refreshes once per second. Use the fixed true-color gradient `#ff6b8a → #c084fc → #60a5fa`, approximate it in ANSI-256 terminals, fall back to basic magenta/cyan on lower-color terminals, and emit no color when disabled or terminal capability is unknown/dumb.
+- `SD-05` A soft highlight travels across and then back over the complete transient text; the line refreshes at 10 frames/second, while the highlight advances one character every two frames. Its elapsed timer uses whole seconds and refreshes once per second. Use the fixed true-color palette `#9370c4` base with `#b18fe6`, `#cfb5fa`, `#eadaff` and white highlight steps, approximate it in ANSI-256 terminals, fall back to basic magenta/cyan on lower-color terminals, and emit no color when disabled or terminal capability is unknown/dumb.
 - `SD-06` Durations below one minute round to the nearest tenth of a second and trim `.0`; durations of at least one minute round to the nearest second and render compact non-zero `h`, `m`, `s` units. Negative internal durations clamp to zero; human output never uses milliseconds.
 - `SD-07` A findings summary always includes total findings and only non-zero severity buckets in the fixed order critical, high, medium, low, unknown.
-- `SD-08` `run_started` is omitted in human mode. Model and reasoning-effort fields remain available in `kv` but are omitted from human permanent lines because they do not improve the operator stage summary requested by issue #9.
+- `SD-08` `run_started` is omitted in human mode. Every permanent human line begins with local `HH:MM:SS`; each retryable stage line immediately follows it with `[attempt/max] [model/reasoning-effort]`, with no separator before the message. Review and fix-findings use `cycle/max-cycles`; CI recovery uses `review_phase/max-ci-recoveries`. The overall terminal line has neither prefix because it is not stage-scoped. In an interactive terminal, the liveness line replaces the permanent stage-start line; non-TTY keeps the permanent start because it otherwise has no default liveness.
 - `SD-09` The selected renderer applies only after `log-format` resolves successfully. Failures before that point use the legacy `kv` startup-failure records where the current contract emits them; a failure in another setting after successful format resolution uses the selected renderer. This avoids guessing an unresolved semantic format and preserves pre-feature failure behavior.
 
 ## Contracts
@@ -105,26 +105,26 @@ flowchart LR
 
 | Contract ID | Connector / direction | Roles and sync boundary | Guarantees / failure / evolution semantics |
 | --- | --- | --- | --- |
-| `CTR-01` | Operator/config → CLI | Existing synchronous resolver | `--log-format`, `CODE_CONVERGE_LOG_FORMAT`, file `log-format`, values `kv|human`, default `kv`; `--heartbeat`, `CODE_CONVERGE_HEARTBEAT`, file `heartbeat`, Go-duration value with default/disabled `0`; `--color`, `CODE_CONVERGE_COLOR`, file `color`, values `auto|never`, default `auto`. Existing source precedence applies. Invalid values exit `2` before Codex. Heartbeat with `kv` is rejected instead of silently ignored. |
+| `CTR-01` | Operator/config → CLI | Existing synchronous resolver | `--log-format`, `CODE_CONVERGE_LOG_FORMAT`, file `log-format`, values `kv|human`, default `human`; `--heartbeat`, `CODE_CONVERGE_HEARTBEAT`, file `heartbeat`, Go-duration value with default/disabled `0`; `--color`, `CODE_CONVERGE_COLOR`, file `color`, values `auto|never`, default `auto`. Existing source precedence applies. Invalid values exit `2` before Codex. Heartbeat with `kv` is rejected instead of silently ignored. |
 
 ### Human permanent rendering contract
 
 | Existing event/result | Human rendering |
 | --- | --- |
 | `run_started` | omitted |
-| review `stage_started`, phase 1 | `Review attempt <cycle> started` |
-| review `stage_started`, phase >1 | `Review attempt <cycle> started after CI fix <phase-1>` |
-| `review_completed status=clean` | `Review attempt <cycle>: clean (<duration>)` |
-| `review_completed status=findings` | `Review attempt <cycle>: <total> findings — <non-zero severity list> (<duration>)` |
-| `review_completed status=failed` | `Review attempt <cycle> failed (<duration>)` |
-| fix-findings `stage_started` | `Fixing findings from review attempt <cycle>...` |
-| fix-findings `stage_completed success|failed` | `Findings fixed (<duration>)` or `Fixing findings failed (<duration>)` |
-| finalize `stage_started` | `Finalizing...` |
+| review `stage_started`, phase 1 | `[<cycle>/<max-cycles>] Review started` (non-TTY only) |
+| review `stage_started`, phase >1 | `[<cycle>/<max-cycles>] Review started (phase <phase> after CI recovery <phase-1>)` (non-TTY only) |
+| `review_completed status=clean` | `[<cycle>/<max-cycles>] Review: clean (<duration>)` |
+| `review_completed status=findings` | `[<cycle>/<max-cycles>] Review: <total> findings — <non-zero severity list> (<duration>)` |
+| `review_completed status=failed` | `[<cycle>/<max-cycles>] Review failed (<duration>)` |
+| fix-findings `stage_started` | `[<cycle>/<max-cycles>] Fixing findings` (non-TTY only) |
+| fix-findings `stage_completed success|failed` | `[<cycle>/<max-cycles>] Findings fixed (<duration>)` or `[<cycle>/<max-cycles>] Fixing findings failed (<duration>)` |
+| finalize `stage_started` | `Finalizing` |
 | finalization `step_completed` | `  Commit|Push|Change request|CI: done|not needed|failed|unknown`; `success→done`, `skipped→not needed`, other statuses retain their public words |
 | finalize `SUCCESS|CI_FAILED|FAILED` | `Finalized successfully (<duration>)`, `Finalized, but CI is failing (<duration>)`, or `Finalization failed (<duration>)` |
 | finalize invocation/parsing failure | `Finalization failed (<duration>)`; four step lines still render their emitted `unknown` statuses first |
-| fix-ci `stage_started` | `Fixing CI...` |
-| fix-ci `stage_completed success|failed` | `CI fixed (<duration>)` or `Fixing CI failed (<duration>)` |
+| fix-ci `stage_started` | `[<phase>/<max-ci-recoveries>] CI recovery` (non-TTY only) |
+| fix-ci `stage_completed success|failed` | `[<phase>/<max-ci-recoveries>] CI recovery fixed (<duration>)` or `[<phase>/<max-ci-recoveries>] CI recovery failed (<duration>)` |
 | `run_completed success` | `Done (<duration>)` |
 | `run_completed findings_remaining` | `Stopped: review findings remain (<duration>, exit 1)` |
 | `run_completed operational_failure` | `Failed due to an operational error (<duration>, exit 2)` |
@@ -136,8 +136,8 @@ flowchart LR
 
 | Contract ID | Connector / direction | Roles and sync boundary | Guarantees / failure / evolution semantics |
 | --- | --- | --- | --- |
-| `CTR-03` | Workflow facts → human formatter | Synchronous in-process transform | Applies `SD-06`/`SD-07`; singularizes `1 finding`; emits no timestamps, raw keys, model fields or zero severity buckets. Unexpected enum values are rendering errors, not improvised prose. |
-| `CTR-04` | Stage scope ↔ liveness worker ↔ stdout/stderr | One worker at most; mutex-protected output coordinator; stop-and-join barrier | In human mode with heartbeat `>0`, emit `Review still running`, `Fixing findings still running`, `Finalization still running`, or `CI fix still running`, followed by `(<elapsed>)`, at interval multiples regardless of TTY and without ANSI. Otherwise, if stdout is a TTY, update `Reviewing...`, `Fixing findings...`, `Finalizing...`, or `Fixing CI...` in place; the elapsed timer changes once per second while color advances at 10 fps. Clear transient output before permanent stdout or diagnostic stderr. Stop/join before stage completion, failure or cancellation output. The first worker write error cancels the stage scope and is returned once; no later write is allowed. |
+| `CTR-03` | Workflow facts → human formatter | Synchronous in-process transform | Applies `SD-06`/`SD-07`; prefixes every permanent line with local `HH:MM:SS`, then retryable stage lines with `[attempt/max] [model/reasoning-effort]`; singularizes `1 finding`; emits no raw keys or zero severity buckets. Interactive human output omits permanent `stage_started` records because its liveness line is the start indication. Unexpected enum values are rendering errors, not improvised prose. |
+| `CTR-04` | Stage scope ↔ liveness worker ↔ stdout/stderr | One worker at most; mutex-protected output coordinator; stop-and-join barrier | In human mode with heartbeat `>0`, emit timestamped context-scoped `Review still running`, `Fixing findings still running`, `Finalization still running`, or `CI recovery still running`, followed by `(<elapsed>)`, at interval multiples regardless of TTY and without ANSI. Retryable stages have `[attempt/max] [model/reasoning-effort]`; finalization has its model context only. Otherwise, if stdout is a TTY, update the equivalent timestamped/context-scoped line in place; the elapsed timer changes once per second while a soft color highlight moves across and then back over the fully colored line at a 10 fps refresh rate. Clear transient output before permanent stdout or diagnostic stderr. Stop/join before stage completion, failure or cancellation output. The first worker write error cancels the stage scope and is returned once; no later write is allowed. |
 | `CTR-05` | Structured facts → kv encoder | Existing synchronous writer | With `log-format=kv` and heartbeat `0`, record names, fields, ordering, timestamps and integer millisecond durations remain unchanged. No ANSI is ever emitted. |
 
 ## Invariants
@@ -152,7 +152,7 @@ flowchart LR
 
 ## Failure Modes
 
-- `FM-01` A new default breaks scripts; `SD-01` plus `kv` compatibility goldens prevent it.
+- `FM-01` The human default changes an existing script's output expectations; explicit `kv` selection and compatibility goldens provide the bounded migration path.
 - `FM-02` Timer tick races completion and writes after the result; the stop/join barrier and race tests enforce `INV-03`.
 - `FM-03` Transient ANSI corrupts a pipe/file; capability gating and byte-level non-TTY tests enforce `INV-05`.
 - `FM-04` Concurrent stderr diagnostic visually interleaves with the transient line; the shared coordinator clears and serializes both sinks.
@@ -165,20 +165,20 @@ flowchart LR
 
 | Stage ID | Stage | Entry condition | Backout |
 | --- | --- | --- | --- |
-| `RB-01` | Additive release with `kv` default | Contract, race, full repository and required CI checks green; high-risk execution approved | Revert the feature commit/release; automation remains on the unchanged default during rollout. |
-| `RB-02` | Operator adoption of `human` | Explicit `--log-format=human` or config selection | Select `kv` at a higher-precedence source without data migration. |
+| `RB-01` | Release with `human` default | Contract, race, full repository and required CI checks green; high-risk execution approved | Revert the feature commit/release; automation can select `kv` without data migration. |
+| `RB-02` | Automation compatibility | Explicit `--log-format=kv` or config selection | Remove the explicit setting to return to the human default. |
 
 ## Design Verification
 
 | Analysis | Required | Reason / risk | Method | Result / evidence |
 | --- | --- | --- | --- | --- |
-| Contract compatibility | yes | Public stdout/config has existing consumers | Baseline contract comparison and alternatives review | Pass at design: `kv` remains default and unchanged; human is additive; `CTR-01`, `CTR-02`, `CTR-05`. Execution evidence pending. |
+| Contract compatibility | yes | Public stdout/config has existing consumers | Baseline contract comparison and alternatives review | User-approved default change; `kv` remains byte-compatible when explicitly selected; `CTR-01`, `CTR-02`, `CTR-05`. Execution evidence pending. |
 | State / transition completeness | yes | Every event/result and terminal path needs human coverage | Cross-check current README catalog and workflow branches | Pass at design: all catalog/branch outcomes mapped in `CTR-02`; exhaustive tests planned. |
 | Failure propagation | yes | Background and permanent writer errors must remain terminal | Failure-mode analysis over start/tick/stop/diagnostic/completion | Pass at design: first-error cancellation and operational exit in `CTR-04`, `INV-07`, `FM-02`–`FM-06`. |
 | Concurrency / ordering | yes | Liveness races completion/cancellation/diagnostics | Happens-before review with single worker, coordinator lock and stop/join | Pass at design: `INV-03`/`INV-04`; deterministic and race evidence required during execution. |
 | Security boundaries | yes | Raw agent output and terminal control bytes are trust concerns | Data-flow/isolation review | Pass at design: `INV-05`/`INV-06`; byte-level tests pending. |
 | Capacity / latency | yes | Shimmer/heartbeat can consume CPU or flood logs | Fixed-rate and minimum-interval bound review | Pass at design: 10 fps transient, heartbeat disabled by default and minimum `1s`; no unbounded queue. |
-| Migration / evolution safety | yes | Existing automation must not migrate immediately | Default/rollback/extension review | Pass at design: `kv` default, explicit opt-in and `RB-01`/`RB-02`; no data migration. |
+| Migration / evolution safety | yes | Existing automation must make an explicit format choice | Default/rollback/extension review | Pass at design: explicit `kv`, documented rollback and `RB-01`/`RB-02`; no data migration. |
 
 ## Human Gates
 

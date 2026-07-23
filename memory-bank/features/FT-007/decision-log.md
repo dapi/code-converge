@@ -6,7 +6,7 @@ purpose: "Аудируемый журнал FPF reasoning, конфликтов,
 derived_from:
   - brief.md
   - design.md
-  - https://github.com/dapi/reviewer/issues/7
+  - https://github.com/dapi/code-converge/issues/7
 status: active
 audience: humans_and_agents
 ---
@@ -93,3 +93,8 @@ audience: humans_and_agents
 ## Human Gate Request
 
 The human gates are resolved. The package may proceed through Plan Ready and Execution; no compatibility layer or migration path is in scope.
+
+## Delivery Closure
+
+- **Status:** `done`.
+- **Evidence:** the approved GitHub rename is realized by the reachable `dapi/code-converge` repository; the feature branch is merged into `master`, and `brief.md` records `EVID-01`–`EVID-05` as passing.

@@ -38,8 +38,8 @@ The current workflow stdout contract is stable and machine-readable, but operato
 
 ### Scope
 
-- `REQ-01` Add explicitly selectable `human` and structured `kv` workflow log formats without selecting the semantic format from TTY detection.
-- `REQ-02` Specify and implement human rendering for every current workflow event/result, including review phase/cycle context, non-zero severity summaries, readable durations, finalization steps and every terminal exit path.
+- `REQ-01` Provide `human` and structured `kv` workflow log formats, with `human` as the built-in default and no TTY-selected semantic format.
+- `REQ-02` Specify and implement human rendering for every current workflow event/result, including local timestamps, `[attempt/max]` retry context before stage model/reasoning context, non-zero severity summaries, readable durations, finalization steps and every terminal exit path.
 - `REQ-03` Preserve the current stable `key=value` event stream for automation and compatibility when structured mode is selected and heartbeat is disabled.
 - `REQ-04` Provide an in-place elapsed-time liveness line with full-line color shimmer for long-running stages when human mode writes to an interactive terminal.
 - `REQ-05` Keep non-TTY output newline-safe and ANSI-free by default, and allow an explicit bounded heartbeat for callers that need liveness in redirected output or CI.
@@ -59,7 +59,7 @@ The current workflow stdout contract is stable and machine-readable, but operato
 
 - `ASM-01` The root README's current event catalog, field semantics and exit codes are the baseline public contract; source code owns implementation details.
 - `ASM-02` The existing configuration resolver supplies the project-wide source precedence and naming pattern for new settings.
-- `CON-01` Semantic format selection must be explicit and deterministic; TTY state may affect only liveness/color mechanics within human mode.
+- `CON-01` Semantic format selection must be deterministic; the built-in `human` default and every explicit override are independent of TTY state, which may affect only liveness/color mechanics within human mode.
 - `CON-02` Non-TTY workflow stdout must contain no ANSI/control sequences unless a future separately specified contract changes that rule.
 - `CON-03` Detailed diagnostics remain on stderr, and raw Codex output must never be forwarded to workflow progress output.
 - `CON-04` Liveness is an elapsed waiting indicator, never a completion-percentage claim.
@@ -90,7 +90,7 @@ The current workflow stdout contract is stable and machine-readable, but operato
 ### Exit Criteria
 
 - `EC-01` `human` and `kv` are explicitly selectable through the documented CLI/config/environment contract, with the documented default and precedence.
-- `EC-02` Every current event/result and terminal path matches its canonical human rendering; durations contain no milliseconds and zero severity counters are omitted.
+- `EC-02` Every current event/result and terminal path matches its canonical human rendering: each line has a local timestamp, retryable stage lines put `[attempt/max] [model/reasoning-effort]` before the message, review/fix/CI recovery show their real configured budgets, durations contain no milliseconds, and zero severity counters are omitted.
 - `EC-03` Existing `kv` records remain machine-safe and compatible when heartbeat is disabled.
 - `EC-04` Human TTY liveness updates in place with elapsed time and full-line shimmer, while no-color behavior retains the timer without color.
 - `EC-05` Human non-TTY output is ANSI-free and silent between permanent records unless heartbeat is explicitly enabled; enabled heartbeats are bounded and newline-safe.
@@ -113,8 +113,8 @@ The current workflow stdout contract is stable and machine-readable, but operato
 
 ### Acceptance Scenarios
 
-- `SC-01` An operator explicitly selects human mode for a normal findings/fix/clean/finalize run and receives concise permanent lines with non-zero severities, readable durations, finalization steps and `Done`.
-- `SC-02` An existing automation caller uses the default or explicitly selected `kv` mode and receives the existing stable event records without heartbeat additions.
+- `SC-01` An operator uses the default format for a normal findings/fix/clean/finalize run and receives concise permanent lines with non-zero severities, readable durations, finalization steps and `Done`.
+- `SC-02` An automation caller explicitly selects `kv` mode and receives the existing stable event records without heartbeat additions.
 - `SC-03` Human mode on a TTY shows one updating elapsed line during each Codex-backed stage, clears it before permanent completion/diagnostic output and respects no-color behavior.
 - `SC-04` Human mode with redirected output emits no implicit liveness or ANSI sequences; an explicit heartbeat emits bounded newline records at the configured interval.
 - `SC-05` Review findings exhaustion, operational failure and exhausted CI recovery each render the documented terminal line and preserve exit codes `1`, `2` and `3` respectively.

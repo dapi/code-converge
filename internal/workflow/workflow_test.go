@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -12,35 +13,66 @@ import (
 	"github.com/dapi/code-converge/internal/config"
 	"github.com/dapi/code-converge/internal/event"
 	"github.com/dapi/code-converge/internal/repository"
+	"github.com/dapi/code-converge/internal/runner"
 )
 
 type fakeAgent struct {
-	reviews        []codex.ReviewResult
-	reviewFailures map[int]error
-	finalizations  []codex.Finalization
-	finalizeErr    error
-	fixErr         error
-	ciFixErr       error
-	fixReports     []string
-	reviewCalls    int
-	reviewWait     bool
-	reviewStarted  chan struct{}
-	fixCalls       int
-	finalizeCalls  int
-	ciFixCalls     int
-	ciFixWait      bool
-	ciFixStarted   chan struct{}
+	reviews              []codex.ReviewResult
+	reviewFailures       map[int]error
+	finalizations        []codex.Finalization
+	finalizeErr          error
+	fixErr               error
+	ciFixErr             error
+	fixReports           []string
+	reviewCalls          int
+	reviewWait           bool
+	reviewStarted        chan struct{}
+	fixCalls             int
+	finalizeCalls        int
+	checkpointedFinalize []bool
+	ciFixCalls           int
+	ciFixWait            bool
+	ciFixStarted         chan struct{}
+	finalizeStages       []runner.StageContext
+	ciFixStages          []runner.StageContext
 }
 
 type fakeRepository struct {
-	hasChanges bool
-	err        error
-	calls      int
+	hasChanges      bool
+	err             error
+	calls           int
+	dirty           bool
+	cleanResults    []bool
+	cleanErr        error
+	checkpoint      repository.Checkpoint
+	checkpoints     []repository.Checkpoint
+	checkpointErr   error
+	cleanCalls      int
+	checkpointCalls int
+	head            string
 }
 
 func (f *fakeRepository) HasChanges(context.Context) (bool, error) {
 	f.calls++
 	return f.hasChanges, f.err
+}
+
+func (f *fakeRepository) IsClean(context.Context) (bool, error) {
+	f.cleanCalls++
+	if index := f.cleanCalls - 1; index < len(f.cleanResults) {
+		return f.cleanResults[index], f.cleanErr
+	}
+	return !f.dirty, f.cleanErr
+}
+
+func (f *fakeRepository) Head(context.Context) (string, error) { return f.head, nil }
+
+func (f *fakeRepository) Checkpoint(context.Context, string, bool) (repository.Checkpoint, error) {
+	f.checkpointCalls++
+	if index := f.checkpointCalls - 1; index < len(f.checkpoints) {
+		return f.checkpoints[index], f.checkpointErr
+	}
+	return f.checkpoint, f.checkpointErr
 }
 
 func (f *fakeAgent) Review(ctx context.Context) (codex.ReviewResult, error) {
@@ -68,9 +100,13 @@ func (f *fakeAgent) FixFindings(_ context.Context, report string) error {
 	return f.fixErr
 }
 
-func (f *fakeAgent) Finalize(context.Context) (codex.Finalization, error) {
+func (f *fakeAgent) Finalize(ctx context.Context, checkpointed bool) (codex.Finalization, error) {
+	if stage, ok := runner.StageContextFrom(ctx); ok {
+		f.finalizeStages = append(f.finalizeStages, stage)
+	}
 	index := f.finalizeCalls
 	f.finalizeCalls++
+	f.checkpointedFinalize = append(f.checkpointedFinalize, checkpointed)
 	if f.finalizeErr != nil {
 		return codex.Finalization{}, f.finalizeErr
 	}
@@ -82,6 +118,9 @@ func (f *fakeAgent) Finalize(context.Context) (codex.Finalization, error) {
 
 func (f *fakeAgent) FixCI(ctx context.Context) error {
 	f.ciFixCalls++
+	if stage, ok := runner.StageContextFrom(ctx); ok {
+		f.ciFixStages = append(f.ciFixStages, stage)
+	}
 	if f.ciFixStarted != nil {
 		close(f.ciFixStarted)
 	}
@@ -132,9 +171,9 @@ func TestHumanHappyPath(t *testing.T) {
 		t.Fatalf("code=%d stderr=%q", code, stderr)
 	}
 	for _, want := range []string{
-		"Review attempt 1 started\n", "Review attempt 1: 3 findings — 1 high, 2 medium (0s)\n",
-		"Fixing findings from review attempt 1...\n", "Findings fixed (0s)\n", "Review attempt 2: clean (0s)\n",
-		"Finalizing...\n", "  Commit: done\n", "  Change request: not needed\n", "Finalized successfully (0s)\n", "Done (0s)\n",
+		"10:00:00 [1/1] [gpt-5.6-sol/medium] Review started\n", "10:00:00 [1/1] [gpt-5.6-sol/medium] Review: 3 findings — 1 high, 2 medium (0s)\n",
+		"10:00:00 [1/1] [gpt-5.6-luna/medium] Fixing findings\n", "10:00:00 [1/1] [gpt-5.6-luna/medium] Findings fixed (0s)\n", "10:00:00 [2/1] [gpt-5.6-sol/medium] Review: clean (0s)\n",
+		"10:00:00 [gpt-5.3-codex-spark/agent-default] Finalizing\n", "10:00:00 [gpt-5.3-codex-spark/agent-default]   Commit: done\n", "10:00:00 [gpt-5.3-codex-spark/agent-default]   Change request: not needed\n", "10:00:00 [gpt-5.3-codex-spark/agent-default] Finalized successfully (0s)\n", "10:00:00 Done (0s)\n",
 	} {
 		if !strings.Contains(output, want) {
 			t.Errorf("missing %q in:\n%s", want, output)
@@ -153,7 +192,7 @@ func TestHumanTerminalPaths(t *testing.T) {
 		code  int
 		want  string
 	}{
-		{"findings", config.Config{LogFormat: "human", MaxCycles: 0}, &fakeAgent{reviews: []codex.ReviewResult{findings()}}, ExitFindingsRemaining, "Stopped: review findings remain"},
+		{"findings", config.Config{LogFormat: "human", MaxCycles: 0}, &fakeAgent{reviews: []codex.ReviewResult{findings()}}, ExitFindingsRemaining, "fix budget exhausted; finalization was not reached; checkpoint was not attempted"},
 		{"operational", config.Config{LogFormat: "human"}, &fakeAgent{reviewFailures: map[int]error{0: errors.New("bad")}}, ExitOperational, "Failed due to an operational error"},
 		{"ci", config.Config{LogFormat: "human", MaxCIRecoveries: 0}, &fakeAgent{reviews: []codex.ReviewResult{clean()}, finalizations: []codex.Finalization{ciFailed()}}, ExitCI, "Stopped: CI is still failing"},
 	}
@@ -227,12 +266,75 @@ func TestRepositoryStatusFailureIsOperational(t *testing.T) {
 
 func TestMandatoryVerificationAndFindingsLimit(t *testing.T) {
 	agent := &fakeAgent{reviews: []codex.ReviewResult{findings(), findings(), findings()}}
-	code, output, _ := run(t, config.Config{MaxCycles: 2}, agent)
+	repository := &fakeRepository{checkpoint: repository.Checkpoint{Created: true, Branch: "feature/checkpoints", Commit: "abc1234"}}
+	code, output, _ := runWithRepository(t, config.Config{MaxCycles: 2}, agent, repository)
 	if code != ExitFindingsRemaining || agent.fixCalls != 2 || agent.reviewCalls != 3 {
 		t.Fatalf("code=%d fixes=%d reviews=%d", code, agent.fixCalls, agent.reviewCalls)
 	}
 	assertRecord(t, output, "event=stage_started", "stage=review", "cycle=3")
 	assertRecord(t, output, "event=run_completed", "status=findings_remaining", "exit_code=1")
+	assertRecord(t, output, "event=run_completed", "checkpoint_status=committed_local", "checkpoint_branch=feature%2Fcheckpoints", "checkpoint_commit=abc1234")
+}
+
+func TestCheckpointBranchIsKVSafe(t *testing.T) {
+	agent := &fakeAgent{reviews: []codex.ReviewResult{findings(), findings()}}
+	repository := &fakeRepository{checkpoint: repository.Checkpoint{Created: true, Branch: "feature=a", Commit: "abc1234"}}
+	code, output, stderr := runWithRepository(t, config.Config{MaxCycles: 1}, agent, repository)
+	if code != ExitFindingsRemaining || stderr != "" {
+		t.Fatalf("code=%d stderr=%q", code, stderr)
+	}
+	assertRecord(t, output, "event=run_completed", "checkpoint_branch=feature%3Da", "checkpoint_commit=abc1234")
+}
+
+func TestCheckpointedFixFinalizesAfterCleanReview(t *testing.T) {
+	agent := &fakeAgent{reviews: []codex.ReviewResult{findings(), clean()}, finalizations: []codex.Finalization{success()}}
+	repository := &fakeRepository{checkpoint: repository.Checkpoint{Created: true, Branch: "feature/checkpoints", Commit: "abc1234"}}
+	code, _, stderr := runWithRepository(t, config.Config{MaxCycles: 1}, agent, repository)
+	if code != ExitSuccess || stderr != "" || repository.cleanCalls != 1 || repository.checkpointCalls != 1 || agent.finalizeCalls != 1 || !agent.checkpointedFinalize[0] {
+		t.Fatalf("code=%d stderr=%q clean checks=%d checkpoints=%d finalizations=%d checkpointed=%v", code, stderr, repository.cleanCalls, repository.checkpointCalls, agent.finalizeCalls, agent.checkpointedFinalize)
+	}
+}
+
+func TestCheckpointFailureStopsBeforeNextReview(t *testing.T) {
+	agent := &fakeAgent{reviews: []codex.ReviewResult{findings(), clean()}}
+	repository := &fakeRepository{checkpointErr: errors.New("commit failed")}
+	code, output, stderr := runWithRepository(t, config.Config{MaxCycles: 1}, agent, repository)
+	if code != ExitOperational || agent.reviewCalls != 1 || !strings.Contains(stderr, "findings checkpoint failed") {
+		t.Fatalf("code=%d reviews=%d stderr=%q", code, agent.reviewCalls, stderr)
+	}
+	assertRecord(t, output, "event=run_completed", "status=operational_failure", "exit_code=2")
+}
+
+func TestDirtyWorktreeSkipsCheckpointAndStillFixes(t *testing.T) {
+	agent := &fakeAgent{reviews: []codex.ReviewResult{findings(), clean()}, finalizations: []codex.Finalization{success()}}
+	repository := &fakeRepository{hasChanges: true, dirty: true}
+	code, _, stderr := runWithRepository(t, config.Config{MaxCycles: 1}, agent, repository)
+	if code != ExitSuccess || stderr != "" || agent.fixCalls != 1 || repository.checkpointCalls != 1 || agent.finalizeCalls != 1 {
+		t.Fatalf("code=%d fixes=%d checkpoints=%d finalizations=%d stderr=%q", code, agent.fixCalls, repository.checkpointCalls, agent.finalizeCalls, stderr)
+	}
+}
+
+func TestDirtyWorktreeReportsSkippedCheckpointOnExhaustion(t *testing.T) {
+	agent := &fakeAgent{reviews: []codex.ReviewResult{findings(), findings()}}
+	repository := &fakeRepository{dirty: true}
+	code, output, stderr := runWithRepository(t, config.Config{MaxCycles: 1}, agent, repository)
+	if code != ExitFindingsRemaining || stderr != "" || agent.fixCalls != 1 || repository.checkpointCalls != 1 {
+		t.Fatalf("code=%d fixes=%d checkpoints=%d stderr=%q", code, agent.fixCalls, repository.checkpointCalls, stderr)
+	}
+	assertRecord(t, output, "event=run_completed", "status=findings_remaining", "checkpoint_status=not_attempted", "checkpoint_reason=pre_existing_changes")
+}
+
+func TestCleanFixClearsEarlierCheckpointSkipReason(t *testing.T) {
+	agent := &fakeAgent{reviews: []codex.ReviewResult{findings(), findings(), findings()}}
+	repository := &fakeRepository{cleanResults: []bool{false, true}, checkpoints: []repository.Checkpoint{{}}}
+	code, output, stderr := runWithRepository(t, config.Config{MaxCycles: 2}, agent, repository)
+	if code != ExitFindingsRemaining || stderr != "" || agent.fixCalls != 2 || repository.checkpointCalls != 2 {
+		t.Fatalf("code=%d fixes=%d checkpoints=%d stderr=%q", code, agent.fixCalls, repository.checkpointCalls, stderr)
+	}
+	assertRecord(t, output, "event=run_completed", "checkpoint_status=no_changes")
+	if strings.Contains(output, "checkpoint_reason=pre_existing_changes") {
+		t.Fatalf("stale checkpoint skip reason leaked:\n%s", output)
+	}
 }
 
 func TestZeroFixBudget(t *testing.T) {
@@ -261,10 +363,43 @@ func TestCIRecoveryRestartsReviewPhase(t *testing.T) {
 	assertRecord(t, output, "event=stage_started", "stage=review", "review_phase=2", "cycle=1")
 }
 
+func TestLaterStagesReceiveReviewPhaseAndCycle(t *testing.T) {
+	agent := &fakeAgent{reviews: []codex.ReviewResult{clean(), clean()}, finalizations: []codex.Finalization{ciFailed(), success()}}
+	code, _, _ := run(t, config.Config{MaxCycles: 1, MaxCIRecoveries: 1}, agent)
+	if code != ExitSuccess {
+		t.Fatalf("code=%d", code)
+	}
+	if got, want := agent.finalizeStages, []runner.StageContext{
+		{Stage: "finalize", ReviewPhase: 1, Cycle: 1, Model: "gpt-5.3-codex-spark", ReasoningEffort: "agent-default"},
+		{Stage: "finalize", ReviewPhase: 2, Cycle: 1, Model: "gpt-5.3-codex-spark", ReasoningEffort: "agent-default"},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("finalize stages=%#v want=%#v", got, want)
+	}
+	if got, want := agent.ciFixStages, []runner.StageContext{{Stage: "fix-ci", ReviewPhase: 1, Cycle: 1, Model: "agent-default", ReasoningEffort: "agent-default"}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("CI fix stages=%#v want=%#v", got, want)
+	}
+}
+
+func TestCIRecoveryClearsPublishedCheckpointBeforeNextPhase(t *testing.T) {
+	agent := &fakeAgent{
+		reviews:       []codex.ReviewResult{findings(), clean(), findings(), findings()},
+		finalizations: []codex.Finalization{ciFailed()},
+	}
+	repository := &fakeRepository{checkpoints: []repository.Checkpoint{{Created: true, Branch: "feature/checkpoints", Commit: "abc1234"}, {}}}
+	code, output, stderr := runWithRepository(t, config.Config{MaxCycles: 1, MaxCIRecoveries: 1}, agent, repository)
+	if code != ExitFindingsRemaining || stderr != "" || agent.ciFixCalls != 1 {
+		t.Fatalf("code=%d ci fixes=%d stderr=%q", code, agent.ciFixCalls, stderr)
+	}
+	assertRecord(t, output, "event=run_completed", "status=findings_remaining", "checkpoint_status=no_changes")
+	if strings.Contains(output, "checkpoint_commit=abc1234") {
+		t.Fatalf("published checkpoint leaked into next phase terminal result:\n%s", output)
+	}
+}
+
 func TestStageModelsAreLogged(t *testing.T) {
 	agent := &fakeAgent{reviews: []codex.ReviewResult{findings(), clean(), clean()}, finalizations: []codex.Finalization{ciFailed(), success()}}
-	_, output, _ := run(t, config.Config{MaxCycles: 1, MaxCIRecoveries: 1, ReviewModel: "review", ReviewEffort: "high", FixModel: "fix", FixEffort: "low", FinalizeModel: "final", CIFixModel: "ci"}, agent)
-	for _, stage := range []struct{ name, model, effort string }{{"review", "review", "high"}, {"fix-findings", "fix", "low"}, {"finalize", "final", "agent-default"}, {"fix-ci", "ci", "agent-default"}} {
+	_, output, _ := run(t, config.Config{MaxCycles: 1, MaxCIRecoveries: 1, ReviewModel: "review", ReviewEffort: "high", FixModel: "fix", FixEffort: "low", FinalizeModel: "final", FinalizeEffort: "medium", CIFixModel: "ci", CIFixEffort: "high"}, agent)
+	for _, stage := range []struct{ name, model, effort string }{{"review", "review", "high"}, {"fix-findings", "fix", "low"}, {"finalize", "final", "medium"}, {"fix-ci", "ci", "high"}} {
 		assertRecord(t, output, "event=stage_started", "stage="+stage.name, "model="+stage.model, "reasoning_effort="+stage.effort)
 	}
 }
@@ -474,7 +609,7 @@ func TestCancellationStopsActiveLivenessWithoutLateWrites(t *testing.T) {
 	if after := output.String(); after != before {
 		t.Fatalf("late output after cancellation: before=%q after=%q", before, after)
 	}
-	if !strings.Contains(before, "Review attempt 1 failed") || !strings.Contains(before, "Failed due to an operational error") {
+	if !strings.Contains(before, "[1/0] [gpt-5.6-sol/medium] Review failed") || !strings.Contains(before, "Failed due to an operational error") {
 		t.Fatalf("missing cancellation terminal output: %q", before)
 	}
 }

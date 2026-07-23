@@ -111,10 +111,10 @@ flowchart LR
 
 | Analysis | Required | Method | Result / evidence |
 | --- | --- | --- | --- |
-| Contract compatibility | yes | Configuration, event and fake-Codex invocation matrix | `CHK-02`, `CHK-03` planned |
-| State/transition completeness | yes | Workflow tests for discovery failure, clean/no-change and later review refresh | `CHK-01`, `CHK-03` planned |
-| Failure propagation | yes | Fake Git/`gh` failure and ambiguity matrix | `CHK-01` planned |
+| Contract compatibility | yes | Configuration, event and fake-Codex invocation matrix | pass: `CHK-02`, `CHK-03`; concrete carriers are `EVID-02`, `EVID-03` in `brief.md` |
+| State/transition completeness | yes | Workflow tests for discovery failure, clean/no-change and later review refresh | pass: `CHK-01`, `CHK-03`; concrete carriers are `EVID-01`, `EVID-03` in `brief.md` |
+| Failure propagation | yes | Fake Git/`gh` failure and ambiguity matrix | pass: `CHK-01`; concrete carrier is `EVID-01` in `brief.md` |
 | Concurrency/ordering | no | Workflow remains sequential; temporary index is private to one run. | N/A |
 | Security boundaries | yes | Deterministic regression coverage proves the private index is injected without replacing the user's shell-environment allowlist, provider identity retains the host and non-default port, and every configured push destination agrees before `gh` is queried. | `CHK-01`, `CHK-02` |
 | Capacity/latency | no | A bounded local Git preparation per review adds no network operation. | N/A |
-| Migration/evolution safety | yes | README/domain/architecture convergence and no-fetch/no-mutation regression coverage | `CHK-03`, `CHK-04` planned |
+| Migration/evolution safety | yes | README/domain/architecture convergence and no-fetch/no-mutation regression coverage | pass: `CHK-03`, `CHK-04`; concrete carriers are `EVID-03`, `EVID-04` in `brief.md` |

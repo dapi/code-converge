@@ -8,9 +8,9 @@ derived_from:
   - ../../engineering/testing-policy.md
   - ../../engineering/validation-profiles.md
   - ../../../README.md
-  - https://github.com/dapi/reviewer/issues/7
+  - https://github.com/dapi/code-converge/issues/7
 status: active
-delivery_status: in_progress
+delivery_status: done
 audience: humans_and_agents
 must_not_define:
   - implementation_sequence
@@ -165,4 +165,4 @@ Issue #7 requires changing the identity of the local CLI and its GitHub reposito
 - `EVID-02` pass — repository identity inventory shows no unintended old identity outside explicit FT-007 rename facts and the current pre-rename issue URL.
 - `EVID-03` pass — existing workflow, event, Codex, app and config tests pass unchanged apart from renamed identifiers.
 - `EVID-04` pass — make dist, sh -n scripts/install.sh, GitHub Actions smoke paths and make docs-lint pass; Linux binary execution is reserved for CI.
-- `EVID-05` pending — external repository rename and reachability smoke are owned by dapi and are not performed from this worktree.
+- `EVID-05` pass — dapi completed the approved GitHub rename; `origin` resolves to `github.com/dapi/code-converge`, the renamed repository is reachable, and the merged `master` history carries the delivery.

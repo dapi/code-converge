@@ -11,7 +11,7 @@ derived_from:
   - ../../../README.md
   - https://github.com/dapi/code-converge/issues/16
 status: active
-delivery_status: planned
+delivery_status: done
 audience: humans_and_agents
 must_not_define:
   - implementation_sequence
@@ -143,4 +143,4 @@ The current review adapter invokes `codex review --uncommitted`. As documented a
 | `EVID-02` | pass | `TestAdapterInvocations`, `TestScopedReviewArgsDisableLoginShellToPreserveWrapperPath`, `TestScopedReviewArgsRequireScopedGitEnvironment`, `TestReviewScopePrivateIndexSurvivesPathOnlyEnvironment`, `TestLinkGitHelpersReservesScopedConfigurationFile`, app fake-runner integration, `TestExecPassesInvocationEnvironment` and `TestExecOverridesInheritedEnvironment`; `go test ./internal/codex ./internal/app ./internal/repository ./internal/runner` |
 | `EVID-03` | pass | `TestReviewBasePrecedence`, `TestConfigCommand`, `TestReviewMetadataUsesResolvedCommitForEventSafety` and workflow/app event assertions; affected suite passed. |
 | `EVID-04` | pass | Root README, domain rules/states, engineering architecture and FT-016 converge by semantic read-through; `make docs-lint` passes after the documented-global-option evidence update. |
-| `EVID-05` | partial | `GOCACHE=/private/tmp/code-converge-options-test.XXXXXX go test ./...`, `GOCACHE=/private/tmp/code-converge-options-vet.XXXXXX go vet ./...`, `gofmt -d` for the modified Go files and `git diff --check` pass. Required CI and independent final review remain pending. |
+| `EVID-05` | partial | Original delivery passed `go test ./...`, `go vet ./...`, `make docs-lint`, `git diff --check` and the required [PR #19 Verify run](https://github.com/dapi/code-converge/actions/runs/29949418336). Follow-up hardening passed its pre-merge local suites; reconciliation validation, required PR #30 CI and independent final review remain pending. |
