@@ -6,6 +6,15 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Added conventional `-h` and `--help` aliases for the root command.
+- Added strict structured Codex review-result handling through `codex exec --output-schema`, removing dependence on terminal streams for review classification.
+
+### Changed
+
+- Review integration now fails closed when the required structured-result capabilities are unavailable or the response is malformed.
+
 ## [0.3.1] - 2026-07-22
 
 ### Changed
