@@ -27,6 +27,8 @@ const ghPRListLimit = "1000000"
 
 const disableSplitIndexConfig = "core.splitIndex=false"
 
+const scopedGitNoIndexEnvironment = "CODE_CONVERGE_SCOPED_GIT_NO_INDEX"
+
 // ReviewTarget is the resolved base and scoped Git environment used for one review.
 type ReviewTarget struct {
 	Base       string
@@ -44,6 +46,7 @@ var gitTransportEnvironment = []string{
 	"GIT_DISCOVERY_ACROSS_FILESYSTEM", "GIT_IMPLICIT_WORK_TREE",
 	"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_SYSTEM",
 	"GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM",
+	scopedGitNoIndexEnvironment,
 }
 
 // ReviewScope discovers a base once and refreshes a private index before each review.
@@ -879,13 +882,16 @@ func RunScopedGitWrapper(args []string) int {
 		return 125
 	}
 	targetsReviewRoot := gitTargetsReviewRoot(args, configuration.Executable, configuration.Root)
-	if targetsReviewRoot {
+	forceNoIndex := os.Getenv(scopedGitNoIndexEnvironment) != ""
+	if targetsReviewRoot && !forceNoIndex {
 		if gitMayWriteSplitIndex(args, configuration.Executable, workingDirectory) {
 			fmt.Fprintln(os.Stderr, "code-converge scoped git helper: split-index-enabling Git commands are not permitted")
 			return 125
 		}
 	}
-	if targetsReviewRoot && !gitCreatesRepository(args, configuration.Executable, workingDirectory) {
+	useReviewIndex := targetsReviewRoot && !forceNoIndex &&
+		!gitCreatesRepository(args, configuration.Executable, workingDirectory)
+	if useReviewIndex {
 		return runScopedGit(configuration.Executable, args, configuration.Index, configuration.HelperDir)
 	}
 	return runScopedGit(configuration.Executable, args, "", configuration.HelperDir)
@@ -979,8 +985,12 @@ func scopedGitProcessEnvironment(indexPath, wrapperDir string) []string {
 	// The Codex invocation and top-level review Git calls already remove
 	// caller-inherited repository selectors. Preserve Git variables established
 	// by a running parent Git process for aliases, hooks and worktree helpers;
-	// replace only the two transports owned by this wrapper.
-	remove := map[string]bool{"GIT_INDEX_FILE": true, "GIT_EXEC_PATH": true}
+	// replace only the transports owned by this wrapper.
+	remove := map[string]bool{
+		"GIT_INDEX_FILE":            true,
+		"GIT_EXEC_PATH":             true,
+		scopedGitNoIndexEnvironment: true,
+	}
 	var environment []string
 	for _, value := range os.Environ() {
 		name, _, ok := strings.Cut(value, "=")
@@ -991,6 +1001,12 @@ func scopedGitProcessEnvironment(indexPath, wrapperDir string) []string {
 	}
 	if indexPath != "" {
 		environment = append(environment, "GIT_INDEX_FILE="+indexPath)
+	} else if wrapperDir != "" {
+		// Repository-creating and other unscoped commands must keep all
+		// descendant Git invocations on their normal index. Without this
+		// child-only marker, helpers such as git-submodule can reach the PATH
+		// wrapper again and accidentally re-enable the review index.
+		environment = append(environment, scopedGitNoIndexEnvironment+"=1")
 	}
 	if wrapperDir != "" {
 		environment = append(environment, "GIT_EXEC_PATH="+wrapperDir)
@@ -1179,7 +1195,7 @@ func gitCommandCreatesRepository(prefix []string, subcommand string, remainder [
 			if strings.HasPrefix(argument, "-") {
 				continue
 			}
-			return argument == "add"
+			return argument == "add" || argument == "update"
 		}
 		return false
 	}

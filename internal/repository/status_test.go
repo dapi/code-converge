@@ -1620,6 +1620,36 @@ func TestReviewScopePrivateIndexSurvivesScopedShellEnvironment(t *testing.T) {
 	if !reflect.DeepEqual(afterSubmodule, before) {
 		t.Fatal("submodule creation changed the private review index")
 	}
+	runGit(root, "submodule", "--quiet", "deinit", "-f", "--", "submodule")
+	if err := os.RemoveAll(filepath.Join(root, ".git", "modules", "submodule")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (runner.Exec{Dir: root}).Run(context.Background(), runner.Invocation{
+		Executable: "sh", Args: []string{"-c", "git -c protocol.file.allow=always submodule update --init --recursive -- submodule"}, Env: target.Env,
+	}); err != nil {
+		t.Fatalf("initialize submodule: %v", err)
+	}
+	initializedIndex, err := exec.Command("git", "-C", submodule, "rev-parse", "--git-path", "index").Output()
+	if err != nil {
+		t.Fatalf("resolve initialized submodule index: %v", err)
+	}
+	initializedIndexPath := strings.TrimSpace(string(initializedIndex))
+	if !filepath.IsAbs(initializedIndexPath) {
+		initializedIndexPath = filepath.Join(submodule, initializedIndexPath)
+	}
+	if _, err := os.Stat(initializedIndexPath); err != nil {
+		t.Fatalf("initialized submodule index was not created: %v", err)
+	}
+	if status, err := exec.Command("git", "-C", submodule, "status", "--porcelain").Output(); err != nil || len(status) != 0 {
+		t.Fatalf("initialized submodule status = %q, %v; want clean", status, err)
+	}
+	afterSubmoduleUpdate, err := os.ReadFile(privateIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(afterSubmoduleUpdate, before) {
+		t.Fatal("submodule initialization changed the private review index")
+	}
 }
 
 func TestReviewScopeRemovesInheritedGitTransportEnvironment(t *testing.T) {
@@ -1649,6 +1679,7 @@ func TestReviewScopeRemovesInheritedGitTransportEnvironment(t *testing.T) {
 	t.Setenv("GIT_CONFIG_KEY_0", "core.splitIndex")
 	t.Setenv("GIT_CONFIG_VALUE_0", "true")
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "foreign-gitconfig"))
+	t.Setenv(scopedGitNoIndexEnvironment, "1")
 	t.Setenv("BASH_FUNC_git%%", "() { /usr/bin/git \"$@\"; }")
 	startupDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(startupDir, ".zshenv"), []byte("PATH=/usr/bin:/bin\n"), 0o600); err != nil {
@@ -1675,7 +1706,7 @@ func TestReviewScopeRemovesInheritedGitTransportEnvironment(t *testing.T) {
 	result, err := (runner.Exec{Dir: root}).Run(context.Background(), runner.Invocation{
 		Executable: "sh",
 		Args: []string{"-c",
-			"test -z \"$GIT_INDEX_FILE\" && test -z \"$GIT_EXEC_PATH\" && test -z \"$GIT_DIR\" && test -z \"$GIT_CONFIG_COUNT\" && test -z \"$GIT_CONFIG_KEY_0\" && test -z \"$GIT_CONFIG_VALUE_0\" && test -z \"$GIT_CONFIG_GLOBAL\" && git diff --cached --name-only HEAD",
+			"test -z \"$GIT_INDEX_FILE\" && test -z \"$GIT_EXEC_PATH\" && test -z \"$GIT_DIR\" && test -z \"$GIT_CONFIG_COUNT\" && test -z \"$GIT_CONFIG_KEY_0\" && test -z \"$GIT_CONFIG_VALUE_0\" && test -z \"$GIT_CONFIG_GLOBAL\" && test -z \"$" + scopedGitNoIndexEnvironment + "\" && git diff --cached --name-only HEAD",
 		},
 		Env:      target.Env,
 		UnsetEnv: target.UnsetEnv,
@@ -1778,6 +1809,7 @@ func TestGitCreationAndTargetParsingConsumeNamespaceValue(t *testing.T) {
 		{"--namespace", "review", "clone", "source", "destination"},
 		{"--namespace", "review", "worktree", "add", "destination"},
 		{"--namespace", "review", "submodule", "--quiet", "add", "source", "destination"},
+		{"--namespace", "review", "submodule", "--quiet", "update", "--init", "--recursive"},
 	} {
 		if !gitCreatesRepository(args, "", "") {
 			t.Fatalf("gitCreatesRepository(%#v) = false", args)
@@ -1800,6 +1832,7 @@ func TestGitCreatesRepositoryResolvesAliases(t *testing.T) {
 	runGit("config", "alias.add-worktree", "worktree add")
 	runGit("config", "alias.chained-worktree", "add-worktree")
 	runGit("config", "alias.add-submodule", "submodule add")
+	runGit("config", "alias.update-submodules", "submodule update --init --recursive")
 	runGit("config", "alias.shell-worktree", `!f() { git worktree add "$@"; }; f`)
 	runGit("config", "alias.absolute-shell-clone", "!"+git+" clone")
 	runGit("config", "alias.other-status", "-C ../other status --porcelain")
@@ -1811,6 +1844,7 @@ func TestGitCreatesRepositoryResolvesAliases(t *testing.T) {
 		{"-C", root, "add-worktree", "destination"},
 		{"-C", root, "chained-worktree", "destination"},
 		{"-C", root, "add-submodule", "source", "destination"},
+		{"-C", root, "update-submodules"},
 		{"-C", root, "shell-worktree", "destination"},
 		{"-C", root, "absolute-shell-clone", "source", "destination"},
 	} {
