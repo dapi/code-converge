@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/dapi/code-converge/internal/config"
 	"github.com/dapi/code-converge/internal/repository"
@@ -85,7 +86,7 @@ func (a Adapter) Review(ctx context.Context) (ReviewResult, error) {
 	if strings.TrimSpace(target.BaseCommit) == "" || strings.TrimSpace(target.MergeBase) == "" {
 		return ReviewResult{}, errors.New("review target requires a selected base commit and merge base")
 	}
-	indexPath, err := reviewIndexPath(target.Env)
+	args, err := scopedReviewArgs(a.Config, target)
 	if err != nil {
 		return ReviewResult{}, err
 	}
@@ -101,16 +102,16 @@ func (a Adapter) Review(ctx context.Context) (ReviewResult, error) {
 		return ReviewResult{}, fmt.Errorf("write review output schema: %w", err)
 	}
 
-	args := append(
-		modelArgs(a.Config.ReviewModel, a.Config.ReviewEffort),
-		"-c", "shell_environment_policy.set.GIT_INDEX_FILE="+strconv.Quote(indexPath),
+	args = append(
+		args,
 		"exec", "--output-schema", schemaPath, "--output-last-message", messagePath, "-",
 	)
 	if _, err := a.Runner.Run(ctx, runner.Invocation{
-		Args:   args,
-		Env:    target.Env,
-		Stdin:  reviewPrompt(target, indexPath),
-		Output: a.output(),
+		Args:     args,
+		Env:      target.Env,
+		UnsetEnv: target.UnsetEnv,
+		Stdin:    reviewPrompt(target),
+		Output:   a.output(),
 	}); err != nil {
 		return ReviewResult{}, err
 	}
@@ -127,40 +128,93 @@ func (a Adapter) Review(ctx context.Context) (ReviewResult, error) {
 	return review, nil
 }
 
-func reviewIndexPath(env []string) (string, error) {
-	var path string
-	found := false
-	for _, entry := range env {
-		name, value, hasValue := strings.Cut(entry, "=")
-		if name != "GIT_INDEX_FILE" {
-			continue
-		}
-		if found || !hasValue || strings.TrimSpace(value) == "" {
-			return "", errors.New("review target requires exactly one non-empty GIT_INDEX_FILE")
-		}
-		path = value
-		found = true
+func scopedReviewArgs(configuration config.Config, target repository.ReviewTarget) ([]string, error) {
+	required := []struct {
+		name     string
+		nonEmpty bool
+	}{
+		{name: "PATH", nonEmpty: true},
+		{name: "SHELL", nonEmpty: true},
+		{name: "ZDOTDIR", nonEmpty: true},
+		{name: "BASH_ENV"},
+		{name: "ENV"},
 	}
-	if !found {
-		return "", errors.New("review target requires exactly one non-empty GIT_INDEX_FILE")
+	args := modelArgs(configuration.ReviewModel, configuration.ReviewEffort)
+	for _, item := range required {
+		value, ok := environmentValue(target.Env, item.name)
+		if !ok || item.nonEmpty && value == "" {
+			return nil, fmt.Errorf("review scope did not provide required %s environment", item.name)
+		}
+		quoted, err := quoteTOMLString(value)
+		if err != nil {
+			return nil, fmt.Errorf("review scope %s environment: %w", item.name, err)
+		}
+		args = append(args, "-c", "shell_environment_policy.set."+item.name+"="+quoted)
 	}
-	return path, nil
+	// A login shell can prepend a system Git directory after Codex applies PATH.
+	// Disable it as a second layer after selecting a neutral non-login shell and
+	// neutralizing user-controlled non-interactive startup files.
+	args = append(args, "-c", "allow_login_shell=false")
+	return args, nil
 }
 
-func reviewPrompt(target repository.ReviewTarget, indexPath string) string {
+func quoteTOMLString(value string) (string, error) {
+	if !utf8.ValidString(value) {
+		return "", errors.New("value is not valid UTF-8")
+	}
+	var quoted strings.Builder
+	quoted.Grow(len(value) + 2)
+	quoted.WriteByte('"')
+	for _, character := range value {
+		switch character {
+		case '\b':
+			quoted.WriteString(`\b`)
+		case '\t':
+			quoted.WriteString(`\t`)
+		case '\n':
+			quoted.WriteString(`\n`)
+		case '\f':
+			quoted.WriteString(`\f`)
+		case '\r':
+			quoted.WriteString(`\r`)
+		case '"':
+			quoted.WriteString(`\"`)
+		case '\\':
+			quoted.WriteString(`\\`)
+		default:
+			if character < 0x20 || character == 0x7f {
+				fmt.Fprintf(&quoted, `\u%04X`, character)
+				continue
+			}
+			quoted.WriteRune(character)
+		}
+	}
+	quoted.WriteByte('"')
+	return quoted.String(), nil
+}
+
+func environmentValue(environment []string, name string) (string, bool) {
+	prefix := name + "="
+	for index := len(environment) - 1; index >= 0; index-- {
+		if strings.HasPrefix(environment[index], prefix) {
+			return strings.TrimPrefix(environment[index], prefix), true
+		}
+	}
+	return "", false
+}
+
+func reviewPrompt(target repository.ReviewTarget) string {
 	return fmt.Sprintf(
 		`Review the changes in the prepared private Git index.
 
 Selected base commit: %s
 Merge base and comparison start: %s
-Private index path: %s
 
-GIT_INDEX_FILE is set to the private index path for this process and for commands you run. Review the equivalent of git diff --cached %s so the comparison covers the merge-base-to-private-snapshot change. Inspect related files when needed, but do not modify the repository, the real index, or the worktree.
+A scoped Git helper exposes the private snapshot only to Git commands that target the reviewed repository. Review the equivalent of git diff --cached %s so the comparison covers the merge-base-to-private-snapshot change. Inspect related files when needed, but do not modify the repository, the real index, or the worktree.
 
 Return actionable code-review findings. Use an empty findings array when there are none. Return only the JSON object required by the supplied output schema.`,
 		target.BaseCommit,
 		target.MergeBase,
-		indexPath,
 		target.MergeBase,
 	)
 }

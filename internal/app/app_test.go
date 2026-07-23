@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,22 @@ import (
 	selfupdate "github.com/dapi/code-converge/internal/update"
 	"github.com/dapi/code-converge/internal/workflow"
 )
+
+func TestMain(m *testing.M) {
+	clearGitRepositoryEnvironment()
+	os.Exit(m.Run())
+}
+
+func clearGitRepositoryEnvironment() {
+	for _, name := range []string{
+		"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+		"GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+		"GIT_NAMESPACE", "GIT_CEILING_DIRECTORIES",
+		"GIT_DISCOVERY_ACROSS_FILESYSTEM", "GIT_IMPLICIT_WORK_TREE",
+	} {
+		_ = os.Unsetenv(name)
+	}
+}
 
 const cleanReviewJSONForApp = `{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"no findings","overall_confidence_score":0.99}`
 
@@ -204,6 +221,14 @@ func (f *appFakeRunner) Run(_ context.Context, invocation runner.Invocation) (ru
 			return f.status, f.statusErr
 		case args == "symbolic-ref --quiet --short HEAD":
 			return runner.Result{Stdout: "feature"}, nil
+		case args == "config --get branch.feature.pushRemote", args == "config --get remote.pushDefault":
+			return runner.Result{}, errors.New("not configured")
+		case args == "config --get branch.feature.remote":
+			return runner.Result{Stdout: "origin"}, nil
+		case args == "remote get-url --push --all origin":
+			return runner.Result{Stdout: "git@github.com:dapi/code-converge.git"}, nil
+		case args == "remote get-url --all origin":
+			return runner.Result{Stdout: "git@github.com:dapi/code-converge.git"}, nil
 		case args == "config --get branch.feature.gh-merge-base":
 			return runner.Result{}, errors.New("not configured")
 		case args == "remote":
@@ -212,11 +237,11 @@ func (f *appFakeRunner) Run(_ context.Context, invocation runner.Invocation) (ru
 			return runner.Result{Stdout: "refs/remotes/origin/main"}, nil
 		case strings.HasPrefix(args, "rev-parse --verify "):
 			return runner.Result{Stdout: "0123456789012345678901234567890123456789"}, nil
-		case args == "rev-parse --git-path index":
+		case strings.HasSuffix(args, "rev-parse --git-path index"):
 			return runner.Result{Stdout: ".git/index"}, nil
 		case strings.HasPrefix(args, "merge-base "):
 			return runner.Result{Stdout: "abcdefabcdefabcdefabcdefabcdefabcdefabcd"}, nil
-		case strings.HasPrefix(args, "read-tree ") || args == "add -A":
+		case strings.HasPrefix(args, "read-tree ") || strings.HasSuffix(args, "-c core.splitIndex=false ls-files -v -z") || strings.HasSuffix(args, "add --sparse -A"):
 			return runner.Result{}, nil
 		}
 		return f.status, f.statusErr
@@ -305,19 +330,27 @@ func TestAppWorkflowSuccessWithFakeRunner(t *testing.T) {
 			break
 		}
 	}
-	indexPath := ""
-	if len(review.Env) == 1 {
-		indexPath = strings.TrimPrefix(review.Env[0], "GIT_INDEX_FILE=")
+	wrapperPath := ""
+	for _, value := range review.Env {
+		if strings.HasPrefix(value, "PATH=") {
+			wrapperPath = strings.TrimPrefix(value, "PATH=")
+			break
+		}
 	}
 	reviewArgs := strings.Join(review.Args, " ")
 	if len(review.Args) == 0 ||
 		!strings.Contains(reviewArgs, " exec --output-schema ") ||
 		!strings.Contains(reviewArgs, "--output-last-message") ||
-		!strings.Contains(reviewArgs, "shell_environment_policy.set.GIT_INDEX_FILE=") ||
+		!strings.Contains(reviewArgs, "shell_environment_policy.set.PATH="+strconv.Quote(wrapperPath)) ||
+		!strings.Contains(reviewArgs, "shell_environment_policy.set.SHELL="+strconv.Quote("/bin/sh")) ||
+		!strings.Contains(reviewArgs, "shell_environment_policy.set.ZDOTDIR=") ||
+		!strings.Contains(reviewArgs, "shell_environment_policy.set.BASH_ENV="+strconv.Quote("")) ||
+		!strings.Contains(reviewArgs, "shell_environment_policy.set.ENV="+strconv.Quote("")) ||
+		!strings.Contains(reviewArgs, "allow_login_shell=false") ||
+		strings.Contains(reviewArgs, "GIT_INDEX_FILE") ||
 		!strings.Contains(review.Stdin, "0123456789012345678901234567890123456789") ||
 		!strings.Contains(review.Stdin, "git diff --cached abcdefabcdefabcdefabcdefabcdefabcdefabcd") ||
-		indexPath == "" ||
-		!strings.Contains(review.Stdin, indexPath) {
+		wrapperPath == "" {
 		t.Fatalf("review was not bound to the resolved target: %#v", review)
 	}
 }

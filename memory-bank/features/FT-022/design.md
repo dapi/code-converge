@@ -46,8 +46,8 @@ FT-015 remains the source baseline for the exact structured review object and fa
 ```mermaid
 flowchart LR
     Operator["Operator"] -->|"starts run; reads workflow stdout/stderr and exit"| CC["Code-Converge CLI"]
-    CC -->|"Git commands; private GIT_INDEX_FILE snapshot"| Repo["Target Git repository"]
-    CC -->|"synchronous codex exec; schema path; final-message path; review prompt; private-index process/tool binding"| Codex["Codex CLI"]
+    CC -->|"Git commands; private index snapshot"| Repo["Target Git repository"]
+    CC -->|"synchronous codex exec; schema path; final-message path; review prompt; scoped Git PATH"| Codex["Codex CLI"]
     Codex -->|"schema-valid final response file"| CC
     Codex -.->|"terminal stdout/stderr captured as non-result process data"| CC
 ```
@@ -58,14 +58,14 @@ flowchart LR
 | --- | --- | --- | --- | --- |
 | Components / responsibilities | covered | `SOL-01`–`SOL-05`, `SD-03`; existing architecture owners | `C4-01` | Repository scope prepares the target; adapter prepares/interprets the protocol; runner executes/captures; workflow remains result/exit owner. |
 | Connectors / interactions | covered | `CTR-01`–`CTR-05`, `SD-01`–`SD-04` | `C4-01` | One synchronous local process uses stdin, environment, two temp paths and captured terminal streams with an explicit sole result carrier. |
-| Configuration / topology | covered | `SOL-01`, `SOL-02`, `SD-07`, `CTR-01`, `CTR-04` | `C4-01` | The process stays in the repository cwd with resolved model/effort; the private-index path is bound into both process and spawned-tool environments without changing persistent config. |
+| Configuration / topology | covered | `SOL-01`, `SOL-02`, `SD-07`, `CTR-01`, `CTR-04` | `C4-01` | The process stays in the repository cwd with resolved model/effort; a wrapper-first `PATH` exposes the prepared snapshot only to Git commands targeting that repository without changing persistent config. |
 | Behavioral semantics | covered | `SOL-03`–`SOL-05`, `CTR-03`–`CTR-05`, `INV-01`–`INV-06`, `FM-01`–`FM-09` | compact flow below | Ordering, target validation, result authority, fail-closed branches and unchanged workflow handoff are explicit. |
 | Quality / evolution concerns | covered | `TRD-01`–`TRD-03`, `SD-05`, `FM-05`, `RB-01`–`RB-02` | design verification | Exact schema safety, capability-based compatibility, temp isolation, diagnostic separation and release backout are bounded. |
 
 ## Selected Solution
 
 - `SOL-01` For each review, the adapter prepares a private `0700` temporary directory, writes the canonical review JSON Schema to a `0600` file and reserves a separate final-response path.
-- `SOL-02` The adapter requires a configured `ReviewScope`, calls `ReviewScope.Prepare`, validates the selected base commit/computed merge base, extracts the single `GIT_INDEX_FILE` path, and invokes `codex exec` with the resolved review model/effort, an invocation-local Codex shell-environment override for that path, the schema path, the final-response path and a stdin review instruction tied to the merge-base-to-private-snapshot comparison.
+- `SOL-02` The adapter requires a configured `ReviewScope`, calls `ReviewScope.Prepare`, validates the selected base commit/computed merge base and scoped shell environment, and invokes `codex exec` with the resolved review model/effort, the target's inherited-Git/shell-environment removals, invocation-local Codex shell-environment overrides for the wrapper-first `PATH` and neutral startup settings, login-shell startup disabled, the schema path, the final-response path and a stdin review instruction tied to the merge-base-to-private-snapshot comparison.
 - `SOL-03` After a zero Codex exit, the adapter reads only the final-response file, applies the existing exact structured-review validation and preserves the normalized JSON as `ReviewResult.Report` for fix-findings.
 - `SOL-04` Captured terminal stdout and stderr are never classification input and are never merged into the report. Runner error handling may use stderr to enrich a non-zero invocation diagnostic, preserving its existing diagnostic role.
 - `SOL-05` The adapter returns the same `ReviewResult` categories and `ReviewTarget` metadata to the workflow, so workflow counters, transitions, events, budgets and exit meanings do not change.
@@ -103,11 +103,11 @@ flowchart LR
 
 - `SD-01` The sole authoritative result is the file named by `--output-last-message`; neither terminal stream is a fallback.
 - `SD-02` The output schema is structurally identical to FT-015's accepted strict review contract. It adds no unsupported non-empty, confidence-range or line-order rules.
-- `SD-03` The private review target is passed through unchanged: the same `ReviewTarget.Env` reaches Codex, and the instruction names the pinned selected-base commit, computed merge base and private snapshot.
+- `SD-03` The private review target is passed through unchanged: the same wrapper-first `ReviewTarget.Env` and `ReviewTarget.UnsetEnv` reach the runner, and the instruction names the pinned selected-base commit, computed merge base and private snapshot semantics.
 - `SD-04` A final-response file is considered only after a zero process exit; partial/stale output from a failed invocation is never classified.
 - `SD-05` Codex compatibility is capability-based: versions supporting the required `exec` flags can participate; an unsupported invocation fails through the existing exit-2 operational path with no legacy fallback.
 - `SD-06` A missing `ReviewScope` is an adapter configuration error. The adapter does not synthesize an unscoped review target or retain a legacy invocation branch.
-- `SD-07` `GIT_INDEX_FILE` is supplied both to the Codex process through `ReviewTarget.Env` and to Codex-spawned tool commands through invocation-local `shell_environment_policy.set.GIT_INDEX_FILE`. This targeted override survives user include/exclude policy without changing other environment variables.
+- `SD-07` A wrapper-first `PATH` plus neutral `SHELL`, `ZDOTDIR`, `BASH_ENV`, and `ENV` values are supplied to the Codex process through `ReviewTarget.Env` and forced for Codex-spawned tool commands through invocation-local `shell_environment_policy.set` values, with login-shell startup disabled. `ReviewTarget.UnsetEnv` removes inherited Git repository/index/config transports and exported shell functions before Codex starts. The wrapper reads the private index from its sidecar, rejects reviewed-root split-index enabling commands, and injects the private index only after confirming that a Git command targets the reviewed repository; Codex never receives `GIT_INDEX_FILE`.
 - `SD-08` The selected base commit is review provenance, while `ReviewTarget.MergeBase` is the comparison start. The instruction directs `git diff --cached <merge-base>` so FT-022 preserves the existing merge-base-to-worktree scope on diverged branches.
 
 ## Contracts
@@ -117,10 +117,10 @@ flowchart LR
 With a non-nil `ReviewScope` that has successfully returned a `ReviewTarget`, the adapter invokes:
 
 ```text
-codex <resolved model/effort args> -c shell_environment_policy.set.GIT_INDEX_FILE=<TOML-quoted-index-path> exec --output-schema <schema-path> --output-last-message <message-path> -
+codex <resolved model/effort args> -c shell_environment_policy.set.PATH=<TOML-quoted-wrapper-path> -c shell_environment_policy.set.SHELL="/bin/sh" -c shell_environment_policy.set.ZDOTDIR=<TOML-quoted-helper-path> -c shell_environment_policy.set.BASH_ENV="" -c shell_environment_policy.set.ENV="" -c allow_login_shell=false exec --output-schema <schema-path> --output-last-message <message-path> -
 ```
 
-The review instruction is supplied on stdin. The invocation uses the existing repository cwd through the runner and the exact `ReviewTarget.Env`, including `GIT_INDEX_FILE`. The adapter requires exactly one non-empty `GIT_INDEX_FILE=<path>` entry and quotes its path using the same TOML-safe value convention as model/effort overrides. There is no adapter retry or new timeout; existing context cancellation/process-group behavior remains authoritative.
+The review instruction is supplied on stdin. The invocation uses the existing repository cwd through the runner, the exact `ReviewTarget.Env` containing one non-empty wrapper-first `PATH` and the four neutral shell-startup values, and the exact `ReviewTarget.UnsetEnv` that removes inherited Git repository/index/config transports and exported shell functions. The adapter quotes every value using the same TOML-safe convention as model/effort overrides, forces them through Codex's invocation-local shell policy and disables login-shell startup. There is no adapter retry or new timeout; existing context cancellation/process-group behavior remains authoritative.
 
 ### `CTR-02` — Strict final-response schema
 
@@ -186,7 +186,7 @@ The parser still rejects duplicate/case-variant keys and trailing data because J
 The instruction must:
 
 - identify the pinned selected base commit from `ReviewTarget.BaseCommit` and the comparison start from `ReviewTarget.MergeBase`;
-- tell the agent the exact private-index path and that `GIT_INDEX_FILE` selects the private branch-and-worktree snapshot;
+- tell the agent that scoped Git exposes the prepared private branch-and-worktree snapshot only for the reviewed repository;
 - direct the agent to inspect the equivalent of `git diff --cached <ReviewTarget.MergeBase>`, not a direct diff from the selected base tip;
 - request actionable code-review findings, with an empty array when none exist;
 - require the final object defined by `CTR-02`;
@@ -199,7 +199,7 @@ Exact prose is implementation-local provided these semantics and tests remain tr
 | Channel / carrier | Owner and use | Classification rule |
 | --- | --- | --- |
 | stdin | Adapter → Codex review instruction | Input only |
-| `GIT_INDEX_FILE` environment | Repository scope → Codex process and spawned review tools through exact invocation-local override | Input only; preserved unchanged and not dependent on user shell-environment filters |
+| wrapper-first `PATH`, neutral shell startup and Git/shell removals | Repository scope → Codex process and spawned review tools through exact invocation-local override/runner contract | Input only; exposes scoped Git without exporting or inheriting `GIT_INDEX_FILE` and without depending on user shell startup or environment filters |
 | `--output-schema` file | Adapter → Codex response constraint | Input only |
 | `--output-last-message` file | Codex → adapter review result | Sole classification/report carrier after zero exit |
 | process stdout | Runner-captured Codex terminal output | Never review data; never copied to workflow stdout |
@@ -209,7 +209,7 @@ Exact prose is implementation-local provided these semantics and tests remain tr
 
 | Failure | Adapter result | Workflow/public result |
 | --- | --- | --- |
-| Review scope is absent or prepared target lacks one required index/base/merge-base value | Contextual configuration/target error before temp setup or Codex invocation | Existing failed review completion and exit `2` |
+| Review scope is absent or prepared target lacks one required wrapper-PATH/base/merge-base value | Contextual configuration/target error before temp setup or Codex invocation | Existing failed review completion and exit `2` |
 | Temp directory or schema write fails | Contextual setup error | Existing failed review completion and exit `2` |
 | Codex exits non-zero | Runner error; ignore any message file | Existing failed review completion and exit `2` with diagnostic |
 | Final-response file is missing/unreadable | Contextual read error | Existing failed review completion and exit `2` |
@@ -222,7 +222,7 @@ Exact prose is implementation-local provided these semantics and tests remain tr
 - `INV-01` Exactly one carrier can determine a review result: the final-response file after a zero invocation exit.
 - `INV-02` A clean result requires a complete exact object with an empty `findings` array; prose and terminal streams cannot imply clean.
 - `INV-03` Every accepted non-empty finding maps numeric priority `0`–`3` to exactly one existing counter and preserves its structured report for remediation.
-- `INV-04` The review target returned to workflow, prompt, Codex process environment and invocation-local shell-environment override identify the same selected base, computed merge base and private snapshot; comparison begins at the computed merge base.
+- `INV-04` The review target returned to workflow, prompt, Codex process wrapper environment and invocation-local shell-environment override identify the same selected base, computed merge base and scoped private snapshot; comparison begins at the computed merge base.
 - `INV-05` FT-022 changes no public workflow event field, severity meaning, budget or exit-code meaning.
 - `INV-06` Every Codex review invocation follows the same prepared-scope structured protocol; no nil-scope terminal-parser fallback exists.
 
@@ -237,7 +237,7 @@ Exact prose is implementation-local provided these semantics and tests remain tr
 | `FM-05` | Future Codex emits an incompatible result shape or lacks required capabilities | Fail closed with exit `2`; add support only through a separately evidenced contract change. |
 | `FM-06` | Temporary cleanup fails after result/error construction | Cleanup remains best-effort and cannot change the review verdict; the `0700` directory limits exposure and no path becomes a public artifact. |
 | `FM-07` | Adapter is called without `ReviewScope` | Return a contextual configuration error before temp setup or Codex invocation. |
-| `FM-08` | Prepared target has no single non-empty `GIT_INDEX_FILE` entry | Return a contextual target error before temp setup or Codex invocation; do not review a different index. |
+| `FM-08` | Prepared target has no single non-empty wrapper-first `PATH` entry, or a scoped path cannot be represented losslessly as UTF-8 | Return a contextual target error before wrapper creation or Codex invocation; do not review a different index. |
 | `FM-09` | Prepared target lacks a pinned selected-base commit or computed merge base | Return a contextual target error before temp setup or Codex invocation; do not infer a replacement comparison point. |
 
 ## Rollout / Backout
@@ -255,7 +255,7 @@ Exact prose is implementation-local provided these semantics and tests remain tr
 | State / transition completeness | yes | Clean, findings, invalid target/output and invocation failure drive different workflow outcomes | Scenario/failure table walk-through | `CTR-05` covers every accepted result and `FM-01`–`FM-09` failure class; planned `CHK-03` |
 | Failure propagation | yes | A wrong fallback or target binding could produce false clean, wrong-scope review or unreliable counters | Channel-conflict, target-policy, nil-scope and invalid-file analysis | `SD-01`, `SD-04`, `SD-06`–`SD-08`, `INV-01`–`INV-02`, `INV-04`, `INV-06`, `FM-01`–`FM-05`, `FM-07`–`FM-09`; planned `CHK-01`–`CHK-03` |
 | Concurrency / ordering | yes | Multiple local runs must not share schema/result paths; file is trusted only after process completion | Per-call temp isolation and happens-before review | `SOL-01`, `TRD-03`, `SD-04`; unique temp paths and post-wait read are sufficient; planned adapter tests |
-| Security boundaries | yes | External process, environment policy and temporary review content cross a local trust boundary | Channel/permission/threat review | `CTR-04`, `SOL-01`, `SD-07`, `FM-06`: exact non-secret path override, `0700` directory, `0600` schema, no terminal-result merge or environment logging |
+| Security boundaries | yes | External process, environment policy and temporary review content cross a local trust boundary | Channel/permission/threat review | `CTR-04`, `SOL-01`, `SD-07`, `FM-06`: exact wrapper-PATH override, repository-target validation, `0700` directory, `0600` schema, no private-index export, terminal-result merge or environment logging |
 | Capacity / latency | no | One small schema write/read replaces terminal parsing and adds no load-sensitive path | N/A | No material capacity or latency decision. |
 | Migration / evolution safety | yes | Older/incompatible Codex capabilities and current docs may diverge | Capability and current-state owner review | `SD-05`, `FM-05`, `RB-02`; planned `CHK-04`, `CHK-05` |
 

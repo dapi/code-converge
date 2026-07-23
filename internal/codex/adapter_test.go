@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -105,23 +106,25 @@ type recordingRunner struct {
 func (r *recordingRunner) Run(_ context.Context, invocation runner.Invocation) (runner.Result, error) {
 	r.invocations = append(r.invocations, invocation)
 	if invocation.Executable == "git" {
-		switch strings.Join(invocation.Args, " ") {
-		case "rev-parse --verify base^{commit}":
+		args := strings.Join(invocation.Args, " ")
+		switch {
+		case args == "rev-parse --verify base^{commit}":
 			if r.baseCommit == "" {
 				return runner.Result{Stdout: "1111111111111111111111111111111111111111"}, nil
 			}
 			return runner.Result{Stdout: r.baseCommit}, nil
-		case "merge-base HEAD base":
+		case strings.HasPrefix(args, "merge-base HEAD "):
 			if r.mergeBase == "" {
 				return runner.Result{Stdout: "2222222222222222222222222222222222222222"}, nil
 			}
 			return runner.Result{Stdout: r.mergeBase}, nil
-		case "rev-parse --git-path index":
+		case strings.HasSuffix(args, "rev-parse --git-path index"):
 			return runner.Result{Stdout: ".git/index"}, nil
-		case "add -A":
+		case strings.HasSuffix(args, "-c core.splitIndex=false ls-files -v -z"),
+			strings.HasSuffix(args, "add --sparse -A"):
 			return runner.Result{}, nil
 		default:
-			return runner.Result{}, errors.New("unexpected git invocation")
+			return runner.Result{}, fmt.Errorf("unexpected git invocation %q", args)
 		}
 	}
 	for index, arg := range invocation.Args {
@@ -246,6 +249,77 @@ func TestAdapterPropagatesRunnerFailure(t *testing.T) {
 	}
 }
 
+func TestScopedReviewArgsDisableLoginShellToPreserveWrapperPath(t *testing.T) {
+	wrapperPath := filepath.Join(t.TempDir(), "bin") + ":/user-configured/bin"
+	target := repository.ReviewTarget{BaseCommit: "base-sha", Env: []string{
+		"PATH=" + wrapperPath,
+		"SHELL=/bin/sh",
+		"ZDOTDIR=/review/helper",
+		"BASH_ENV=",
+		"ENV=",
+	}}
+	args, err := scopedReviewArgs(config.Config{ReviewModel: "review-model", ReviewEffort: "high"}, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(args, " ")
+	for name, value := range map[string]string{
+		"PATH":     wrapperPath,
+		"SHELL":    "/bin/sh",
+		"ZDOTDIR":  "/review/helper",
+		"BASH_ENV": "",
+		"ENV":      "",
+	} {
+		want := "shell_environment_policy.set." + name + "=" + strconv.Quote(value)
+		if !strings.Contains(joined, "-c "+want) {
+			t.Errorf("args %#v do not contain %q", args, want)
+		}
+	}
+	if !strings.Contains(joined, "-c allow_login_shell=false") || strings.Contains(joined, "GIT_INDEX_FILE") || strings.Contains(joined, "CODE_CONVERGE_SCOPED_GIT") || strings.Contains(joined, "GIT_EXEC_PATH") || strings.Contains(joined, "shell_environment_policy.include_only") {
+		t.Errorf("args = %#v", args)
+	}
+}
+
+func TestScopedReviewArgsRequireScopedGitEnvironment(t *testing.T) {
+	_, err := scopedReviewArgs(config.Config{ReviewModel: "review-model"}, repository.ReviewTarget{BaseCommit: "base-sha"})
+	if err == nil || !strings.Contains(err.Error(), "required PATH environment") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestScopedReviewArgsUseTOMLCompatibleEnvironmentEncoding(t *testing.T) {
+	target := repository.ReviewTarget{BaseCommit: "base-sha", Env: []string{
+		"PATH=/review/\a\v\x1b/bin",
+		"SHELL=/bin/sh",
+		"ZDOTDIR=/review/\"quoted\"\\helper",
+		"BASH_ENV=",
+		"ENV=",
+	}}
+	args, err := scopedReviewArgs(config.Config{ReviewModel: "review-model"}, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(args, " ")
+	for _, want := range []string{
+		`shell_environment_policy.set.PATH="/review/\u0007\u000B\u001B/bin"`,
+		`shell_environment_policy.set.ZDOTDIR="/review/\"quoted\"\\helper"`,
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("args %#v do not contain %q", args, want)
+		}
+	}
+	for _, invalidEscape := range []string{`\a`, `\v`, `\x1b`} {
+		if strings.Contains(joined, invalidEscape) {
+			t.Errorf("args %#v contain non-TOML escape %q", args, invalidEscape)
+		}
+	}
+
+	target.Env[0] = "PATH=/review/" + string([]byte{0xff}) + "/bin"
+	if _, err := scopedReviewArgs(config.Config{ReviewModel: "review-model"}, target); err == nil || !strings.Contains(err.Error(), "PATH environment") || !strings.Contains(err.Error(), "valid UTF-8") {
+		t.Fatalf("invalid UTF-8 error = %v", err)
+	}
+}
+
 func TestFinalizationSchemaIsStrictJSON(t *testing.T) {
 	var schema map[string]any
 	if err := json.Unmarshal([]byte(finalizationSchema), &schema); err != nil {
@@ -367,49 +441,53 @@ func TestReviewUsesOnlyFinalResponseAndPreservesTarget(t *testing.T) {
 		t.Fatalf("codex invocations = %#v", invocations)
 	}
 	invocation := invocations[0]
-	if len(invocation.Env) != 1 || !strings.HasPrefix(invocation.Env[0], "GIT_INDEX_FILE=") {
+	wrapperPath, ok := environmentValue(invocation.Env, "PATH")
+	if !ok || wrapperPath == "" {
 		t.Fatalf("review env = %#v", invocation.Env)
 	}
-	indexPath := strings.TrimPrefix(invocation.Env[0], "GIT_INDEX_FILE=")
 	args := strings.Join(invocation.Args, " ")
-	override := "shell_environment_policy.set.GIT_INDEX_FILE=" + strconv.Quote(indexPath)
-	for _, want := range []string{"exec", "--output-schema", "--output-last-message", override} {
+	for _, want := range []string{
+		"exec",
+		"--output-schema",
+		"--output-last-message",
+		"shell_environment_policy.set.PATH=" + strconv.Quote(wrapperPath),
+		"shell_environment_policy.set.SHELL=" + strconv.Quote("/bin/sh"),
+		"shell_environment_policy.set.ZDOTDIR=",
+		"shell_environment_policy.set.BASH_ENV=" + strconv.Quote(""),
+		"shell_environment_policy.set.ENV=" + strconv.Quote(""),
+		"allow_login_shell=false",
+	} {
 		if !strings.Contains(args, want) {
 			t.Errorf("review args %q do not contain %q", args, want)
 		}
 	}
-	for _, want := range []string{r.baseCommit, r.mergeBase, indexPath, "git diff --cached " + r.mergeBase} {
+	if strings.Contains(args, "GIT_INDEX_FILE") {
+		t.Errorf("review args expose the private index: %q", args)
+	}
+	for _, name := range []string{"GIT_INDEX_FILE", "GIT_EXEC_PATH", "GIT_DIR", "GIT_WORK_TREE"} {
+		found := false
+		for _, unset := range invocation.UnsetEnv {
+			if unset == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("review invocation does not remove inherited %s: %#v", name, invocation.UnsetEnv)
+		}
+	}
+	for _, want := range []string{r.baseCommit, r.mergeBase, "git diff --cached " + r.mergeBase} {
 		if !strings.Contains(invocation.Stdin, want) {
 			t.Errorf("review prompt does not contain %q:\n%s", want, invocation.Stdin)
 		}
 	}
-	if result.Scope.BaseCommit != r.baseCommit || result.Scope.MergeBase != r.mergeBase || !reflect.DeepEqual(result.Scope.Env, invocation.Env) {
-		t.Fatalf("scope = %#v, invocation env = %#v", result.Scope, invocation.Env)
+	if result.Scope.BaseCommit != r.baseCommit || result.Scope.MergeBase != r.mergeBase ||
+		!reflect.DeepEqual(result.Scope.Env, invocation.Env) || !reflect.DeepEqual(result.Scope.UnsetEnv, invocation.UnsetEnv) {
+		t.Fatalf("scope = %#v, invocation = %#v", result.Scope, invocation)
 	}
 }
 
 func TestReviewTargetValidation(t *testing.T) {
-	t.Run("index environment", func(t *testing.T) {
-		if got, err := reviewIndexPath([]string{"OTHER=value", "GIT_INDEX_FILE=/tmp/a=b"}); err != nil || got != "/tmp/a=b" {
-			t.Fatalf("index path = %q, %v", got, err)
-		}
-		for _, test := range []struct {
-			name string
-			env  []string
-		}{
-			{name: "missing", env: nil},
-			{name: "empty", env: []string{"GIT_INDEX_FILE="}},
-			{name: "whitespace", env: []string{"GIT_INDEX_FILE= "}},
-			{name: "duplicate", env: []string{"GIT_INDEX_FILE=/a", "GIT_INDEX_FILE=/b"}},
-			{name: "missing equals", env: []string{"GIT_INDEX_FILE"}},
-		} {
-			t.Run(test.name, func(t *testing.T) {
-				if _, err := reviewIndexPath(test.env); err == nil {
-					t.Fatal("expected target validation error")
-				}
-			})
-		}
-	})
 	for _, test := range []struct {
 		name       string
 		baseCommit string
@@ -536,7 +614,8 @@ printf 'untrusted stderr' >&2
 		t.Errorf("cwd = %q, want %q", gotCWD, wantCWD)
 	}
 	indexPath := read("index")
-	if indexPath == "" || !reflect.DeepEqual(result.Scope.Env, []string{"GIT_INDEX_FILE=" + indexPath}) {
+	wrapperPath, ok := environmentValue(result.Scope.Env, "PATH")
+	if indexPath != "" || !ok || wrapperPath == "" {
 		t.Fatalf("index = %q scope = %#v", indexPath, result.Scope)
 	}
 	args := read("args")
@@ -544,14 +623,22 @@ printf 'untrusted stderr' >&2
 		"exec",
 		"--output-schema",
 		"--output-last-message",
-		"shell_environment_policy.set.GIT_INDEX_FILE=" + strconv.Quote(indexPath),
+		"shell_environment_policy.set.PATH=" + strconv.Quote(wrapperPath),
+		"shell_environment_policy.set.SHELL=" + strconv.Quote("/bin/sh"),
+		"shell_environment_policy.set.ZDOTDIR=",
+		"shell_environment_policy.set.BASH_ENV=" + strconv.Quote(""),
+		"shell_environment_policy.set.ENV=" + strconv.Quote(""),
+		"allow_login_shell=false",
 	} {
 		if !strings.Contains(args, want) {
 			t.Errorf("args do not contain %q:\n%s", want, args)
 		}
 	}
+	if strings.Contains(args, "GIT_INDEX_FILE") {
+		t.Errorf("args expose the private index:\n%s", args)
+	}
 	prompt := read("stdin")
-	for _, want := range []string{baseCommit, indexPath, "git diff --cached " + baseCommit} {
+	for _, want := range []string{baseCommit, "git diff --cached " + baseCommit} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt does not contain %q:\n%s", want, prompt)
 		}
