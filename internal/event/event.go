@@ -267,37 +267,55 @@ func (l *Logger) writeTransient(stage StageContext, elapsed time.Duration, frame
 	if seconds < 0 {
 		seconds = 0
 	}
-	line := fmt.Sprintf("%s%s... %s", l.humanPrefix(l.stageAttempt(stage), stage.Model, stage.ReasoningEffort), label, compoundSeconds(seconds))
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	width, err := l.terminalWidthLocked()
 	if err != nil {
 		return err
 	}
-	line, cells := truncateCells(line, width-1)
+	line, cells := l.transientLineLocked(stage, label, compoundSeconds(seconds), width-1)
 	if cells == 0 {
 		return fmt.Errorf("liveness line does not fit terminal width %d", width)
-	}
-	if err := l.clearLocked(); err != nil {
-		return err
 	}
 	if l.ColorDepth > 0 {
 		line = shimmer(line, frame, l.ColorDepth)
 	}
 	if l.View != nil {
-		consumed, err := l.View.WriteTransient(l.Out, "\r\x1b[2K"+line)
+		l.View.SetTransientClearer(l.clearPrimaryTransient)
+		consumed, err := l.View.WriteTransient(func() error {
+			if err := l.clearLocked(); err != nil {
+				return err
+			}
+			if _, err := io.WriteString(l.Out, "\r\x1b[2K"+line); err != nil {
+				return err
+			}
+			l.transient = true
+			l.transientCells = cells
+			return nil
+		})
 		if err != nil {
 			return fmt.Errorf("render interactive view: %w", err)
 		}
 		if consumed {
 			return nil
 		}
-	} else if _, err := io.WriteString(l.Out, "\r\x1b[2K"+line); err != nil {
+		return nil
+	}
+	if err := l.clearLocked(); err != nil {
+		return err
+	}
+	if _, err := io.WriteString(l.Out, "\r\x1b[2K"+line); err != nil {
 		return err
 	}
 	l.transient = true
 	l.transientCells = cells
 	return nil
+}
+
+func (l *Logger) clearPrimaryTransient() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.clearLocked()
 }
 
 func (l *Logger) clearLocked() error {
@@ -310,7 +328,7 @@ func (l *Logger) clearLocked() error {
 	}
 	rows := (l.transientCells + width - 1) / width
 	if rows < 1 {
-		return fmt.Errorf("invalid transient footprint %d", l.transientCells)
+		return fmt.Errorf("invalid transient footprint %d cells", l.transientCells)
 	}
 	var output strings.Builder
 	output.WriteString("\r\x1b[2K")
@@ -323,6 +341,31 @@ func (l *Logger) clearLocked() error {
 		l.transientCells = 0
 	}
 	return err
+}
+
+func (l *Logger) transientLineLocked(stage StageContext, label, elapsed string, limit int) (string, int) {
+	if limit < 1 {
+		return "", 0
+	}
+	status := label + "... " + elapsed
+	statusCells := runewidth.StringWidth(status)
+	if statusCells > limit {
+		// The context is already absent at this point. Retain the timer and as
+		// much of the stage label as the terminal can represent.
+		status = label + " " + elapsed
+		statusCells = runewidth.StringWidth(status)
+		if statusCells > limit {
+			elapsedCells := runewidth.StringWidth(elapsed)
+			if elapsedCells >= limit {
+				return truncateCells(elapsed, limit)
+			}
+			label, _ = truncateCells(label, limit-elapsedCells-1)
+			status = label + " " + elapsed
+			statusCells = runewidth.StringWidth(status)
+		}
+	}
+	context, _ := truncateCells(l.humanPrefix(l.stageAttempt(stage), stage.Model, stage.ReasoningEffort), limit-statusCells)
+	return context + status, runewidth.StringWidth(context) + statusCells
 }
 
 func (l *Logger) terminalWidthLocked() (int, error) {

@@ -267,6 +267,47 @@ func TestTransientClearedBeforePermanentAndDiagnostic(t *testing.T) {
 	}
 }
 
+func TestTransientRemainsOwnedByPrimaryScreenWhileViewIsOpen(t *testing.T) {
+	writer := &signalWriter{writes: make(chan string, 8)}
+	view := terminal.New(writer, nil)
+	ticks := make(chan time.Time, 1)
+	start := time.Date(2026, 7, 21, 0, 0, 0, 0, time.UTC)
+	logger := Logger{
+		Out:           writer,
+		Format:        "human",
+		Interactive:   true,
+		View:          view,
+		Now:           func() time.Time { return start },
+		TerminalWidth: fixedWidth(80),
+		Tick:          func(time.Duration) (<-chan time.Time, func()) { return ticks, func() {} },
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	live := logger.StartLiveness(ctx, StageContext{Stage: "review", Model: "gpt-test", ReasoningEffort: "high", Cycle: 1}, start, cancel)
+	if initial := <-writer.writes; !strings.Contains(initial, "Reviewing... 0s") {
+		t.Fatalf("initial primary-screen transient = %q", initial)
+	}
+	if err := view.Toggle(); err != nil {
+		t.Fatal(err)
+	}
+	ticks <- start.Add(time.Second)
+	if err := live.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	if err := logger.Emit("run_completed", F("status", "success"), F("exit_code", "0"), F("total_duration_ms", "1000")); err != nil {
+		t.Fatal(err)
+	}
+	got := writer.String()
+	restore := strings.LastIndex(got, "\x1b[?1049l")
+	if restore < 0 {
+		t.Fatalf("view was not restored: %q", got)
+	}
+	clear := strings.Index(got[restore:], "\r\x1b[2K")
+	completed := strings.Index(got[restore:], "Done (1s)")
+	if clear < 0 || completed < clear {
+		t.Fatalf("primary transient was not cleared after view restoration: %q", got)
+	}
+}
+
 func TestLivenessWriterFailureCancelsStage(t *testing.T) {
 	writer := &signalWriter{writes: make(chan string, 1), fail: true}
 	start := time.Date(2026, 7, 21, 0, 0, 0, 0, time.UTC)
@@ -335,6 +376,44 @@ func TestTransientReflowClearsEveryOwnedRow(t *testing.T) {
 	}
 	if got := writer.String(); !strings.Contains(got, "\r\x1b[2K00:00:00 [1/0] Review: clean (1s)\n") {
 		t.Fatalf("reflow clear sequence missing from %q", got)
+	}
+}
+
+func TestClosingViewClearsPrimaryTransientAfterLivenessStops(t *testing.T) {
+	writer := &signalWriter{writes: make(chan string, 8)}
+	view := terminal.New(writer, nil)
+	start := time.Date(2026, 7, 21, 0, 0, 0, 0, time.UTC)
+	logger := Logger{Out: writer, Format: "human", Interactive: true, View: view, Now: func() time.Time { return start }, TerminalWidth: fixedWidth(80)}
+	ctx, cancel := context.WithCancel(context.Background())
+	live := logger.StartLiveness(ctx, StageContext{Stage: "review", Model: "gpt-test", ReasoningEffort: "high", Cycle: 1}, start, cancel)
+	<-writer.writes
+	if err := view.Toggle(); err != nil {
+		t.Fatal(err)
+	}
+	if err := live.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	if err := view.Toggle(); err != nil {
+		t.Fatal(err)
+	}
+	got := writer.String()
+	restore := strings.LastIndex(got, "\x1b[?1049l")
+	if restore < 0 || !strings.HasPrefix(got[restore+len("\x1b[?1049l"):], "\r\x1b[2K") {
+		t.Fatalf("primary transient was not cleared on close: %q", got)
+	}
+}
+
+func TestTransientTruncationPreservesLivenessPayload(t *testing.T) {
+	logger := Logger{Now: func() time.Time { return time.Date(2026, 7, 21, 0, 0, 0, 0, time.UTC) }}
+	line, cells := logger.transientLineLocked(
+		StageContext{Model: strings.Repeat("very-long-model-", 4), ReasoningEffort: "high", Cycle: 1},
+		"Reviewing", "1m 2s", 39,
+	)
+	if !strings.HasSuffix(line, "Reviewing... 1m 2s") {
+		t.Fatalf("liveness payload was truncated: %q", line)
+	}
+	if cells > 39 {
+		t.Fatalf("line uses %d cells, want at most 39: %q", cells, line)
 	}
 }
 
