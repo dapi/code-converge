@@ -1188,12 +1188,29 @@ func gitCommandCreatesRepository(prefix []string, subcommand string, remainder [
 		return false
 	}
 	if subcommand == "submodule" {
-		for _, argument := range remainder {
+		for index := 0; index < len(remainder); index++ {
+			argument := remainder[index]
 			if argument == "--" {
-				return false
+				// A terminator before a subcommand is malformed or belongs to
+				// syntax this classifier does not understand. Withhold the
+				// disposable index because repository creation is not disproven.
+				return true
+			}
+			if gitSubmoduleOptionTakesValue(argument) {
+				if index+1 >= len(remainder) {
+					return true
+				}
+				index++
+				continue
+			}
+			if gitSubmoduleOptionHasAttachedValue(argument) || gitSubmoduleFlag(argument) {
+				continue
 			}
 			if strings.HasPrefix(argument, "-") {
-				continue
+				// Unknown options may consume the following token in a newer Git
+				// version. Fail closed instead of mistaking that value for the
+				// subcommand and leaking the review index into a nested clone.
+				return true
 			}
 			return argument == "add" || argument == "update"
 		}
@@ -1238,6 +1255,36 @@ func gitCommandCreatesRepository(prefix []string, subcommand string, remainder [
 	expandedPrefix = append(append([]string{}, prefix...), expandedPrefix...)
 	expandedRemainder = append(expandedRemainder, remainder...)
 	return gitCommandCreatesRepository(expandedPrefix, expandedSubcommand, expandedRemainder, gitExecutable, directory, visitedAliases)
+}
+
+func gitSubmoduleOptionTakesValue(argument string) bool {
+	switch argument {
+	case "-b", "--branch", "--name", "--reference", "--depth", "-j", "--jobs", "--filter", "--ref-format", "--summary-limit":
+		return true
+	default:
+		return false
+	}
+}
+
+func gitSubmoduleOptionHasAttachedValue(argument string) bool {
+	for _, prefix := range []string{"--branch=", "--name=", "--reference=", "--depth=", "--jobs=", "--filter=", "--ref-format=", "--summary-limit="} {
+		if strings.HasPrefix(argument, prefix) {
+			return true
+		}
+	}
+	return (strings.HasPrefix(argument, "-b") || strings.HasPrefix(argument, "-j")) && len(argument) > 2
+}
+
+func gitSubmoduleFlag(argument string) bool {
+	switch argument {
+	case "-q", "--quiet", "--cached", "--recursive", "--init", "--remote", "-N", "--no-fetch",
+		"-f", "--force", "--checkout", "--merge", "--rebase", "--recommend-shallow",
+		"--no-recommend-shallow", "--single-branch", "--no-single-branch", "--progress",
+		"--dissociate", "--require-init":
+		return true
+	default:
+		return false
+	}
 }
 
 func gitCommandIsBuiltIn(gitExecutable, directory, subcommand string) bool {

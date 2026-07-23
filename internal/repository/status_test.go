@@ -1811,10 +1811,20 @@ func TestGitCreationAndTargetParsingConsumeNamespaceValue(t *testing.T) {
 		{"--namespace", "review", "worktree", "add", "destination"},
 		{"--namespace", "review", "submodule", "--quiet", "add", "source", "destination"},
 		{"--namespace", "review", "submodule", "--quiet", "update", "--init", "--recursive"},
+		{"submodule", "-b", "main", "add", "source", "destination"},
+		{"submodule", "--branch=main", "add", "source", "destination"},
+		{"submodule", "--depth", "1", "update", "--init"},
+		{"submodule", "--reference", "../source", "add", "source", "destination"},
+		{"submodule", "--jobs", "4", "update", "--init"},
+		{"submodule", "-j4", "update", "--init"},
+		{"submodule", "--future-option", "value", "update", "--init"},
 	} {
 		if !gitCreatesRepository(args, "", "") {
 			t.Fatalf("gitCreatesRepository(%#v) = false", args)
 		}
+	}
+	if gitCreatesRepository([]string{"submodule", "--quiet", "status", "--recursive"}, "", "") {
+		t.Fatal("gitCreatesRepository() classified submodule status as repository creation")
 	}
 }
 
