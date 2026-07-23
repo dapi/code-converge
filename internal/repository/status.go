@@ -29,21 +29,18 @@ func (s Status) HasChanges(ctx context.Context) (bool, error) {
 	return strings.TrimSpace(result.Stdout) != "", nil
 }
 
-// RequireClean prevents an automatic checkpoint from including work that was
-// already present before the agent started fixing review findings.
-func (s Status) RequireClean(ctx context.Context) error {
+// IsClean reports whether an automatic checkpoint can safely attribute all
+// resulting worktree changes to one findings-fix stage.
+func (s Status) IsClean(ctx context.Context) (bool, error) {
 	result, err := s.status(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
-	if strings.TrimSpace(result.Stdout) != "" {
-		return fmt.Errorf("cannot checkpoint findings fixes: worktree has pre-existing changes")
-	}
-	return nil
+	return strings.TrimSpace(result.Stdout) == "", nil
 }
 
 // Checkpoint commits all changes made by a fix stage. Callers must first use
-// RequireClean, which defines the safety boundary for this operation.
+// IsClean, which defines the safety boundary for this operation.
 func (s Status) Checkpoint(ctx context.Context) (Checkpoint, error) {
 	hasChanges, err := s.HasChanges(ctx)
 	if err != nil {

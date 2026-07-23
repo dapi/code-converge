@@ -28,7 +28,7 @@ type Agent interface {
 
 type Repository interface {
 	HasChanges(context.Context) (bool, error)
-	RequireClean(context.Context) error
+	IsClean(context.Context) (bool, error)
 	Checkpoint(context.Context) (repository.Checkpoint, error)
 }
 
@@ -58,6 +58,7 @@ func (w *Workflow) Run(ctx context.Context) int {
 	fixes, recoveries := 0, 0
 	checkpointed := false
 	lastCheckpoint := repository.Checkpoint{}
+	checkpointSkipReason := ""
 	for {
 		stageStarted := now()
 		if !w.emit("stage_started", event.F("stage", "review"), event.F("model", w.stageModel("review")), event.F("reasoning_effort", w.stageReasoningEffort("review")), intField("review_phase", phase), intField("cycle", cycle)) {
@@ -101,12 +102,18 @@ func (w *Workflow) Run(ctx context.Context) int {
 
 		if !review.Clean {
 			if fixes >= w.Config.MaxCycles {
-				return w.completeFindingsRemaining(now().Sub(runStarted), lastCheckpoint, fixes > 0)
+				return w.completeFindingsRemaining(now().Sub(runStarted), lastCheckpoint, fixes > 0, checkpointSkipReason)
 			}
+			canCheckpoint := w.Repository != nil
 			if w.Repository != nil {
-				if err := w.Repository.RequireClean(ctx); err != nil {
-					w.diagnostic("checkpoint precondition failed", err)
+				clean, err := w.Repository.IsClean(ctx)
+				if err != nil {
+					w.diagnostic("checkpoint status failed", err)
 					return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+				}
+				canCheckpoint = clean
+				if !clean {
+					checkpointSkipReason = "pre_existing_changes"
 				}
 			}
 			stageStarted = now()
@@ -133,7 +140,7 @@ func (w *Workflow) Run(ctx context.Context) int {
 				w.diagnostic("fix-findings failed", err)
 				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 			}
-			if w.Repository != nil {
+			if canCheckpoint {
 				checkpoint, checkpointErr := w.Repository.Checkpoint(ctx)
 				if checkpointErr != nil {
 					w.diagnostic("findings checkpoint failed", checkpointErr)
@@ -224,12 +231,16 @@ func (w *Workflow) Run(ctx context.Context) int {
 	}
 }
 
-func (w *Workflow) completeFindingsRemaining(elapsed time.Duration, checkpoint repository.Checkpoint, hadFixes bool) int {
+func (w *Workflow) completeFindingsRemaining(elapsed time.Duration, checkpoint repository.Checkpoint, hadFixes bool, skippedReason string) int {
 	fields := []event.Field{event.F("status", "findings_remaining"), intField("exit_code", ExitFindingsRemaining), event.F("total_duration_ms", milliseconds(elapsed))}
 	if checkpoint.Created {
 		fields = append(fields, event.F("checkpoint_status", "committed_local"), event.F("checkpoint_branch", checkpoint.Branch), event.F("checkpoint_commit", checkpoint.Commit))
 	} else if hadFixes {
-		fields = append(fields, event.F("checkpoint_status", "no_changes"))
+		if skippedReason != "" {
+			fields = append(fields, event.F("checkpoint_status", "not_attempted"), event.F("checkpoint_reason", skippedReason))
+		} else {
+			fields = append(fields, event.F("checkpoint_status", "no_changes"))
+		}
 	} else {
 		fields = append(fields, event.F("checkpoint_status", "not_attempted"), event.F("checkpoint_reason", "fix_budget_exhausted"))
 	}

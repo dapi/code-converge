@@ -20,7 +20,7 @@ must_not_define:
 ## Selected Design
 
 - `SOL-01`: `internal/repository.Status` owns the Git boundary: porcelain status, clean-precondition, local `git add -A` / `git commit`, and branch/short-SHA lookup. It never pushes.
-- `SOL-02`: `internal/workflow.Workflow` invokes the clean precondition before `fix-findings`, checkpoints only after a successful agent run, and fails closed on any repository error.
+- `SOL-02`: `internal/workflow.Workflow` checks checkpoint eligibility before `fix-findings`, continues remediation on a dirty baseline without checkpointing, checkpoints only a successful clean-baseline fix, and fails closed on repository-operation errors.
 - `SOL-03`: The workflow remembers that this run created a checkpoint. A clean review then enters finalization even with no remaining worktree changes; the finalizer is told that committing is inapplicable but pushing/PR/CI are still required.
 - `SOL-04`: `run_completed findings_remaining` carries machine-safe `checkpoint_status`, plus `checkpoint_branch` and `checkpoint_commit` for a local commit; human rendering expands that state into an unambiguous terminal sentence.
 
@@ -40,7 +40,7 @@ must_not_define:
 
 ## Decisions, Contracts, and Failure Modes
 
-- `SD-01`: The safety boundary is a clean porcelain status immediately before each automatic findings-fix invocation. This avoids committing pre-existing user work; an unsafe worktree is an operational failure before mutation.
+- `SD-01`: The safety boundary is a clean porcelain status immediately before each automatic findings-fix invocation. A dirty worktree does not prevent remediation; it disables the checkpoint so pre-existing user work cannot be committed automatically.
 - `SD-02`: The stable checkpoint message is `chore: checkpoint review fixes`; an empty post-fix status does not commit.
 - `SD-03`: Checkpoints remain local. Only finalization pushes or coordinates external systems.
 - `CTR-01`: A checkpoint result is either no commit or `{branch, commit}` after a successful local commit. It is never a finalization verdict.

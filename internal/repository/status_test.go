@@ -123,11 +123,11 @@ func TestStatusCheckpointPropagatesCommitFailure(t *testing.T) {
 	}
 }
 
-func TestStatusRequireCleanRejectsExistingWork(t *testing.T) {
+func TestStatusIsCleanRecognizesExistingWork(t *testing.T) {
 	fake := &fakeRunner{result: runner.Result{Stdout: " M user-work.go\n"}}
-	err := (Status{Runner: fake}).RequireClean(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "pre-existing changes") {
-		t.Fatalf("error=%v", err)
+	clean, err := (Status{Runner: fake}).IsClean(context.Background())
+	if err != nil || clean {
+		t.Fatalf("clean=%v error=%v", clean, err)
 	}
 }
 
