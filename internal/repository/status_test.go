@@ -1592,6 +1592,34 @@ func TestReviewScopePrivateIndexSurvivesScopedShellEnvironment(t *testing.T) {
 	if !reflect.DeepEqual(afterWorktree, before) {
 		t.Fatal("worktree creation changed the private review index")
 	}
+
+	submodule := filepath.Join(root, "submodule")
+	if _, err := (runner.Exec{Dir: root}).Run(context.Background(), runner.Invocation{
+		Executable: "sh", Args: []string{"-c", "git -c protocol.file.allow=always submodule --quiet add \"$1\" submodule", "sh", source}, Env: target.Env,
+	}); err != nil {
+		t.Fatalf("create submodule: %v", err)
+	}
+	submoduleIndex, err := exec.Command("git", "-C", submodule, "rev-parse", "--git-path", "index").Output()
+	if err != nil {
+		t.Fatalf("resolve submodule index: %v", err)
+	}
+	submoduleIndexPath := strings.TrimSpace(string(submoduleIndex))
+	if !filepath.IsAbs(submoduleIndexPath) {
+		submoduleIndexPath = filepath.Join(submodule, submoduleIndexPath)
+	}
+	if _, err := os.Stat(submoduleIndexPath); err != nil {
+		t.Fatalf("submodule index was not created: %v", err)
+	}
+	if status, err := exec.Command("git", "-C", submodule, "status", "--porcelain").Output(); err != nil || len(status) != 0 {
+		t.Fatalf("submodule status = %q, %v; want clean", status, err)
+	}
+	afterSubmodule, err := os.ReadFile(privateIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(afterSubmodule, before) {
+		t.Fatal("submodule creation changed the private review index")
+	}
 }
 
 func TestReviewScopeRemovesInheritedGitTransportEnvironment(t *testing.T) {
@@ -1749,6 +1777,7 @@ func TestGitCreationAndTargetParsingConsumeNamespaceValue(t *testing.T) {
 	for _, args := range [][]string{
 		{"--namespace", "review", "clone", "source", "destination"},
 		{"--namespace", "review", "worktree", "add", "destination"},
+		{"--namespace", "review", "submodule", "--quiet", "add", "source", "destination"},
 	} {
 		if !gitCreatesRepository(args, "", "") {
 			t.Fatalf("gitCreatesRepository(%#v) = false", args)
@@ -1770,6 +1799,7 @@ func TestGitCreatesRepositoryResolvesAliases(t *testing.T) {
 	runGit("config", "alias.clone-escaped", `cl\one`)
 	runGit("config", "alias.add-worktree", "worktree add")
 	runGit("config", "alias.chained-worktree", "add-worktree")
+	runGit("config", "alias.add-submodule", "submodule add")
 	runGit("config", "alias.shell-worktree", `!f() { git worktree add "$@"; }; f`)
 	runGit("config", "alias.absolute-shell-clone", "!"+git+" clone")
 	runGit("config", "alias.other-status", "-C ../other status --porcelain")
@@ -1780,6 +1810,7 @@ func TestGitCreatesRepositoryResolvesAliases(t *testing.T) {
 		{"-C", root, "clone-escaped", "source", "destination"},
 		{"-C", root, "add-worktree", "destination"},
 		{"-C", root, "chained-worktree", "destination"},
+		{"-C", root, "add-submodule", "source", "destination"},
 		{"-C", root, "shell-worktree", "destination"},
 		{"-C", root, "absolute-shell-clone", "source", "destination"},
 	} {

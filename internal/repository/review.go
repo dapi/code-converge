@@ -1171,6 +1171,18 @@ func gitCommandCreatesRepository(prefix []string, subcommand string, remainder [
 		}
 		return false
 	}
+	if subcommand == "submodule" {
+		for _, argument := range remainder {
+			if argument == "--" {
+				return false
+			}
+			if strings.HasPrefix(argument, "-") {
+				continue
+			}
+			return argument == "add"
+		}
+		return false
+	}
 	// Git resolves built-ins before aliases. Checking this before consulting
 	// alias.<subcommand> ensures a user alias named after a built-in cannot
 	// cause the reviewed repository to lose its private snapshot.
