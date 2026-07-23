@@ -1120,6 +1120,18 @@ func TestReviewScopePrivateIndexSurvivesPathOnlyEnvironment(t *testing.T) {
 			t.Fatalf("reviewed repository did not use private index for %q: output=%q err=%v", gitCommand, output, err)
 		}
 	}
+	for _, gitCommand := range []string{
+		"git --attr-source=HEAD check-attr --all -- change.txt",
+		"git --attr-source HEAD check-attr --all -- change.txt",
+		"git --list-cmds=builtins",
+	} {
+		command := exec.Command("sh", "-c", gitCommand)
+		command.Dir = root
+		command.Env = target.Env
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("documented Git global option failed for %q: output=%q err=%v", gitCommand, output, err)
+		}
+	}
 	// Git ignores aliases that reuse a built-in command name. The wrapper must
 	// make the same precedence decision before classifying an alias; otherwise
 	// this harmless-looking ignored alias would withhold the review index.
@@ -1551,6 +1563,23 @@ func TestSplitGitGlobalOptionsRecognizesSupportedTargetNeutralFlags(t *testing.T
 		prefix, subcommand, remainder, ok := splitGitGlobalOptions([]string{option, "status", "--short"})
 		if !ok || subcommand != "status" || !reflect.DeepEqual(prefix, []string{option}) || !reflect.DeepEqual(remainder, []string{"--short"}) {
 			t.Fatalf("splitGitGlobalOptions(%q) = %#v, %q, %#v, %v", option, prefix, subcommand, remainder, ok)
+		}
+	}
+}
+
+func TestSplitGitGlobalOptionsRecognizesDocumentedValueFlags(t *testing.T) {
+	for _, test := range []struct {
+		args    []string
+		prefix  []string
+		command string
+	}{
+		{args: []string{"--attr-source", "HEAD", "check-attr", "--all", "--", "file"}, prefix: []string{"--attr-source", "HEAD"}, command: "check-attr"},
+		{args: []string{"--attr-source=HEAD", "check-attr", "--all", "--", "file"}, prefix: []string{"--attr-source=HEAD"}, command: "check-attr"},
+		{args: []string{"--list-cmds=builtins"}, prefix: []string{"--list-cmds=builtins"}},
+	} {
+		prefix, subcommand, _, ok := splitGitGlobalOptions(test.args)
+		if !ok || subcommand != test.command || !reflect.DeepEqual(prefix, test.prefix) {
+			t.Fatalf("splitGitGlobalOptions(%#v) = %#v, %q, _, %v; want %#v, %q, _, true", test.args, prefix, subcommand, ok, test.prefix, test.command)
 		}
 	}
 }

@@ -1159,7 +1159,7 @@ func splitGitGlobalOptions(args []string) (prefix []string, subcommand string, r
 	for index := 0; index < len(args); index++ {
 		argument := args[index]
 		switch argument {
-		case "-C", "--git-dir", "--work-tree", "-c", "--config", "--config-env", "--namespace", "--super-prefix":
+		case "-C", "--git-dir", "--work-tree", "-c", "--config", "--config-env", "--namespace", "--super-prefix", "--attr-source":
 			if index+1 == len(args) {
 				return nil, "", nil, false
 			}
@@ -1184,7 +1184,7 @@ func splitGitGlobalOptions(args []string) (prefix []string, subcommand string, r
 }
 
 func hasGitOptionValue(argument string) bool {
-	for _, option := range []string{"--git-dir=", "--work-tree=", "--config=", "--config-env=", "--exec-path=", "--namespace=", "--super-prefix="} {
+	for _, option := range []string{"--git-dir=", "--work-tree=", "--config=", "--config-env=", "--namespace=", "--super-prefix=", "--attr-source=", "--list-cmds="} {
 		if strings.HasPrefix(argument, option) {
 			return true
 		}

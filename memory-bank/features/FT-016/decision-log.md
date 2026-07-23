@@ -285,6 +285,15 @@ The reasoning bounds this feature to review-input selection, separates issue fac
 - **Verification:** `GOCACHE=/private/tmp/code-converge-review-test.XXXXXX go test ./internal/repository`, `GOCACHE=/private/tmp/code-converge-full-test.XXXXXX go test ./...`, `GOCACHE=/private/tmp/code-converge-full-vet.XXXXXX go vet ./...`, `make docs-lint`, `gofmt -d` for modified Go files and `git diff --check` pass. Required CI and independent final review remain high-risk gates.
 - **Human gate:** no; this restores the documented fail-closed private-index isolation behavior without changing the public contract.
 
+### Cycle 26 — documented-global-option remediation
+
+- **Routing:** Bug Fix flow within FT-016. The review finding contradicts `CTR-04`: a valid Git global option must not fail before the wrapped Git command runs. The active `high-risk` profile remains applicable because parser errors determine whether the review snapshot is available.
+- **Review scope:** scoped Git global-option parsing in `internal/repository/review.go`.
+- **Important:** reviewer `P2`: the allowlist rejected documented `--attr-source=<tree-ish>` and `--list-cmds=<group>` forms, turning valid Codex review-time Git commands into an exit-125 operational failure.
+- **Changes:** accept both documented `--attr-source` forms and the `--list-cmds=<group>` probe while retaining unknown/malformed-option rejection. Added parser coverage and real PATH-only wrapper assertions for each accepted form.
+- **Verification:** `GOCACHE=/private/tmp/code-converge-global-options.XXXXXX go test ./internal/repository`, `GOCACHE=/private/tmp/code-converge-options-test.XXXXXX go test ./...`, `GOCACHE=/private/tmp/code-converge-options-vet.XXXXXX go vet ./...`, `make docs-lint`, `gofmt -d` for modified Go files and `git diff --check` pass. Required CI and independent final review remain high-risk gates.
+- **Human gate:** no; this restores supported Git invocation behavior without widening the parser to unknown options or changing the public contract.
+
 ## Human Gate
 
 ### `HG-01` — Public review-base/scope contract
