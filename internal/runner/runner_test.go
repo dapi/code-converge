@@ -68,6 +68,23 @@ func TestExecCancellationTerminatesDescendants(t *testing.T) {
 	}
 }
 
+func TestExecReapsBeforeDescendantClosesInheritedPipes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is POSIX-only")
+	}
+	started := time.Now()
+	result, err := (Exec{Executable: "sh"}).Run(context.Background(), Invocation{
+		Args:   []string{"-c", "sleep 60 & printf done"},
+		Output: func(Output) {},
+	})
+	if err != nil || !strings.Contains(result.Stdout, "done") {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("run took %s; inherited pipe kept it blocked", elapsed)
+	}
+}
+
 func TestExecIncludesCapturedDiagnosticOnFailure(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture is POSIX-only")
@@ -94,6 +111,16 @@ func TestExecLongStderrTruncation(t *testing.T) {
 	_, err := (Exec{Executable: "sh"}).Run(context.Background(), Invocation{Args: []string{"-c", "printf '%*s' 10000 '' | tr ' ' 'x' >&2; exit 1"}})
 	if err == nil || !strings.Contains(err.Error(), "…") || len(err.Error()) < 8200 {
 		t.Fatalf("error not truncated: len=%d", len(err.Error()))
+	}
+}
+
+func TestExecRecordsExitCode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is POSIX-only")
+	}
+	result, err := (Exec{Executable: "sh"}).Run(context.Background(), Invocation{Args: []string{"-c", "exit 7"}})
+	if err == nil || result.ExitCode != 7 {
+		t.Fatalf("result=%#v err=%v", result, err)
 	}
 }
 

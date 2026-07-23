@@ -230,7 +230,7 @@ If the agent completes successfully, the entire workflow begins again with a new
 
 ## Logging and metrics
 
-During a workflow run, `code-converge` writes operational progress to standard output in one deterministically selected format: `human` or `kv`. The built-in default is `human`; select `kv` explicitly for machine-readable automation. TTY detection never selects the semantic format. Raw Codex stdout and stderr are captured by the process boundary and are never review-result data or workflow stdout; stderr may enrich the diagnostic for a failed Codex process.
+During a workflow run, `code-converge` writes operational progress to standard output in one deterministically selected format: `human` or `kv`. The built-in default is `human`; select `kv` explicitly for machine-readable automation. TTY detection never selects the semantic format. Raw Codex stdout and stderr are captured by the process boundary and are never review-result data or workflow stdout; stderr may enrich the diagnostic for a failed Codex process. Unless disabled, private diagnostic session records capture those invocation details locally; they are not event-stream records.
 
 ### Structured `kv` format
 
@@ -279,6 +279,8 @@ This makes the trend across cycles directly measurable without requiring it to b
 
 Human is the built-in format for concise operator output. Every permanent line starts with local `HH:MM:SS`; retryable stage lines then include `[attempt/max] [model/reasoning-effort]` with no separator before the message. The overall terminal line has no attempt or model because it does not belong to a single stage. Human lines omit raw event keys, zero-valued severity buckets, and the redundant `run_started` record. Durations below one minute use seconds rounded to a tenth with a trailing `.0` removed; longer durations use rounded whole seconds in compact `h m s` form. Select `--log-format=kv` when an integration requires the machine-readable event stream.
 
+When diagnostic session logging is enabled and its record directory has been created, human output first writes exactly one permanent path handoff such as `22:14:05 Session log: /Users/me/.code-converge/session-logs/session-...`. It contains no session content. `kv` output and `--no-session-log` omit this line.
+
 | Workflow result | Human output |
 | --- | --- |
 | Review starts in the initial phase (non-TTY) | `22:14:05 [1/10] [gpt-5.6-sol/high] Review started` |
@@ -314,6 +316,14 @@ Non-TTY output has no implicit liveness and never contains ANSI controls. In hum
 ```
 
 Heartbeat is disabled by default, accepts `0` or a Go duration of at least `1s`, and is rejected with `log-format=kv`. Liveness stops and joins before stage completion, failure, cancellation, or later output; a liveness write error becomes operational failure.
+
+### Interactive agent output view
+
+In `human` mode, when both standard input and standard output are terminals and `TERM` is neither empty nor `dumb`, Code-Converge accepts one-key terminal input. Press `i` during a workflow to toggle a split view without interrupting the active Codex process. The upper pane retains the workflow log; the lower pane shows arriving stdout and stderr from the active agent. Stderr lines are marked `[stderr]`.
+
+The view uses the terminal alternate screen and restores it when closed, on workflow completion, cancellation, interruption, setup failure, or panic unwinding. Each pane retains its most recent 2,000 logical lines; long lines wrap to the current terminal width. `Tab` selects a pane, arrow keys and Page Up/Down scroll it, and `End` returns it to the live tail. A view opened before an agent starts says `No active agent output`; completion leaves the final stream visible until the next agent stage.
+
+Agent output is sanitized before rendering: terminal controls are removed, invalid UTF-8 is rendered as replacement characters, and raw process output never enters workflow stdout. If the terminal is ineligible or raw-mode setup fails, no view is started and the existing human output continues unchanged. Non-interactive output and `kv` retain their existing contracts and never require a TTY.
 
 `code-converge config` is a separate human-readable command and is not part of the workflow event stream.
 
@@ -368,6 +378,9 @@ The `fast` and `best` modes select these operative stage profiles. `fast` is the
 | CI-fix reasoning effort | `--ci-fix-reasoning-effort` | `CODE_CONVERGE_CI_FIX_REASONING_EFFORT` | `ci-fix-reasoning-effort` | selected profile |
 | CI-fix prompt | `--ci-fix-prompt-file` | `CODE_CONVERGE_CI_FIX_PROMPT_FILE` | `fix-ci.md` | `Исправь CI` |
 | Review base override | `--review-base` | `CODE_CONVERGE_REVIEW_BASE` | `review-base` | discover intended base |
+| Diagnostic session-log directory | `--session-log-dir` | `CODE_CONVERGE_SESSION_LOG_DIR` | `session-log-dir` | `~/.code-converge/session-logs` |
+| Diagnostic session-log retention | `--session-log-retention` | `CODE_CONVERGE_SESSION_LOG_RETENTION` | `session-log-retention` | `24h` |
+| Disable diagnostic logging for this run | `--no-session-log` | — | — | disabled only when flag supplied |
 
 For example, a team can commit these files:
 
@@ -388,6 +401,8 @@ For example, a team can commit these files:
 ├── ci-fix-reasoning-effort
 ├── max-cycles
 ├── max-ci-recoveries
+├── session-log-dir
+├── session-log-retention
 ├── fix-findings.md
 ├── finalize.md
 └── fix-ci.md
@@ -400,6 +415,8 @@ CODE_CONVERGE_MAX_CYCLES=3 \
 CODE_CONVERGE_REVIEW_MODEL=gpt-5.6-sol \
 code-converge
 ```
+
+`session-log-dir` must resolve to an absolute path (a leading `~` expands to the user home); `session-log-retention` is a Go duration of at least `1s`. `0` and negative values are invalid; use `--no-session-log` for a no-artifact run. At the start of an enabled run, Code-Converge creates an owner-only directory where the platform permits, then best-effort removes only expired, completed direct `session-*` child directories from that configured root; incomplete or unreadable sessions are retained so a concurrent active run cannot be removed. Cleanup, create, write and permission failures are diagnostics on stderr and do not alter an otherwise valid workflow result. Session records include redacted command/stdin/stdout/stderr data, but may still contain sensitive repository content, prompts, paths and agent output. They never include process environment values; known credential-bearing argument/text forms, including complete keyed values and separate credential-flag values, are replaced with `[REDACTED]`. Use `--no-session-log` when such local retention is not acceptable.
 
 ### Show effective settings
 

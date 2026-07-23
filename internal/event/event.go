@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dapi/code-converge/internal/terminal"
 	"github.com/mattn/go-runewidth"
 	"github.com/rivo/uniseg"
 )
@@ -39,6 +40,7 @@ type Logger struct {
 	// TerminalWidth returns the current interactive stdout width in cells. It is
 	// used only for transient human liveness frames.
 	TerminalWidth func() (int, error)
+	View          *terminal.View
 	// HumanMaxCycles and HumanMaxCIRecoveries provide the configured budgets for
 	// operator-facing progress only. They never affect workflow behavior or kv.
 	HumanMaxCycles       int
@@ -63,12 +65,44 @@ func (l *Logger) Emit(eventName string, fields ...Field) error {
 	if err := validate(eventName, fields); err != nil {
 		return err
 	}
+	viewRecorded := false
+	// The terminal must be restored before the terminal record is written; the
+	// alternate screen is discarded on restoration.
+	if eventName == "run_completed" && l.View != nil {
+		if err := l.View.Stop(); err != nil {
+			return fmt.Errorf("restore interactive view: %w", err)
+		}
+	}
+	if l.View != nil && l.normalizedFormat() == "human" && l.Interactive && eventName == "stage_started" {
+		line, err := renderHuman(eventName, fields, l.HumanMaxCycles, l.HumanMaxCIRecoveries)
+		if err != nil {
+			return err
+		}
+		line = l.humanPrefix(l.eventAttempt(fields), fieldValue(fields, "model"), fieldValue(fields, "reasoning_effort")) + line
+		if err := l.View.AppendWorkflow(line); err != nil {
+			return fmt.Errorf("render interactive view: %w", err)
+		}
+		viewRecorded = true
+		if l.View.Active() {
+			return nil
+		}
+	}
 	line, err := l.render(eventName, fields)
 	if err != nil || line == "" {
 		return err
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.View != nil {
+		if !viewRecorded {
+			if err := l.View.AppendWorkflow(line); err != nil {
+				return fmt.Errorf("render interactive view: %w", err)
+			}
+		}
+		if l.View.Active() {
+			return nil
+		}
+	}
 	if err := l.clearLocked(); err != nil {
 		return err
 	}
@@ -82,10 +116,52 @@ func (l *Logger) Diagnostic(message string, err error) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.View != nil && l.View.Active() {
+		_ = l.View.AppendWorkflow(terminal.Sanitize([]byte("code-converge: " + message + ": " + err.Error())))
+		return
+	}
 	if l.clearLocked() != nil {
 		return
 	}
 	fmt.Fprintf(l.Err, "code-converge: %s: %v\n", message, err)
+}
+
+// StartAgent marks a new Codex process as the only active pane stream.
+func (l *Logger) StartAgent(identity string) error {
+	if l.View != nil {
+		return l.View.StartAgent(identity)
+	}
+	return nil
+}
+
+// AgentOutput accepts runner output only for the interactive pane. It never
+// forwards raw bytes into the workflow's stdout event stream.
+func (l *Logger) AgentOutput(source string, data []byte) {
+	if l.View != nil {
+		_ = l.View.AppendAgent(source, data)
+	}
+}
+
+func (l *Logger) CompleteAgent(state string) error {
+	if l.View != nil {
+		return l.View.CompleteAgent(state)
+	}
+	return nil
+}
+
+// SessionLog writes the one human-only handoff line for a successfully created
+// private diagnostic session. It is intentionally outside the kv event schema.
+func (l *Logger) SessionLog(path string) error {
+	if path == "" || l.normalizedFormat() != "human" {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if err := l.clearLocked(); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(l.Out, "%sSession log: %s\n", l.now().Format("15:04:05 "), path)
+	return err
 }
 
 type Liveness struct {
@@ -169,7 +245,16 @@ func (l *Logger) writeHeartbeat(stage StageContext, elapsed time.Duration) error
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	_, err := fmt.Fprintf(l.Out, "%s%s still running (%s)\n", l.humanPrefix(l.stageAttempt(stage), stage.Model, stage.ReasoningEffort), label, HumanDuration(elapsed))
+	line := fmt.Sprintf("%s%s still running (%s)", l.humanPrefix(l.stageAttempt(stage), stage.Model, stage.ReasoningEffort), label, HumanDuration(elapsed))
+	if l.View != nil {
+		if err := l.View.AppendWorkflow(line); err != nil {
+			return fmt.Errorf("render interactive view: %w", err)
+		}
+		if l.View.Active() {
+			return nil
+		}
+	}
+	_, err := fmt.Fprintln(l.Out, line)
 	return err
 }
 
@@ -185,6 +270,15 @@ func (l *Logger) writeTransient(stage StageContext, elapsed time.Duration, frame
 	line := fmt.Sprintf("%s%s... %s", l.humanPrefix(l.stageAttempt(stage), stage.Model, stage.ReasoningEffort), label, compoundSeconds(seconds))
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.View != nil && l.View.Active() {
+		consumed, err := l.View.WriteTransient(l.Out, "\r\x1b[2K"+line)
+		if err != nil {
+			return fmt.Errorf("render interactive view: %w", err)
+		}
+		if consumed {
+			return nil
+		}
+	}
 	width, err := l.terminalWidthLocked()
 	if err != nil {
 		return err
@@ -287,7 +381,7 @@ func (l *Logger) normalizedFormat() string {
 
 func (l *Logger) render(eventName string, fields []Field) (string, error) {
 	if l.normalizedFormat() == "human" {
-		if l.Interactive && eventName == "stage_started" {
+		if l.Interactive && eventName == "stage_started" && (l.View == nil || l.View.Active()) {
 			return "", nil
 		}
 		line, err := renderHuman(eventName, fields, l.HumanMaxCycles, l.HumanMaxCIRecoveries)
