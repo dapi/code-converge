@@ -245,7 +245,7 @@ func randomSuffix() (string, error) {
 
 var (
 	keySecret    = regexp.MustCompile(`(?i)((?:["']?[a-z0-9_.-]*(?:token|secret|password|api[-_]?key|apikey|authorization|cookie)[a-z0-9_.-]*["']?)\s*(?:[:=]\s*|\s+))(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;}\]\r\n]+)`)
-	secretHeader = regexp.MustCompile(`(?im)(^|\r?\n)(\s*(?:authorization|cookie)\s*:\s*)[^\r\n]*`)
+	secretHeader = regexp.MustCompile(`(?i)(\b(?:authorization|cookie)\s*:\s*)[^\r\n]*`)
 	bearer       = regexp.MustCompile(`(?i)\bbearer\s+[^\s,;]+`)
 	githubToken  = regexp.MustCompile(`(?i)\b(?:ghp|gho|ghs|ghr)_[a-z0-9_]+\b|\bgithub_pat_[a-z0-9_]+\b`)
 )
@@ -253,7 +253,7 @@ var (
 func redact(value string) string {
 	value = bearer.ReplaceAllString(value, "Bearer [REDACTED]")
 	value = keySecret.ReplaceAllString(value, "$1[REDACTED]")
-	value = secretHeader.ReplaceAllString(value, "$1$2[REDACTED]")
+	value = secretHeader.ReplaceAllString(value, "$1[REDACTED]")
 	return githubToken.ReplaceAllString(value, "[REDACTED]")
 }
 

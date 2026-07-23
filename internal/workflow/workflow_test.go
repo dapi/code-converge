@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/dapi/code-converge/internal/config"
 	"github.com/dapi/code-converge/internal/event"
 	"github.com/dapi/code-converge/internal/repository"
+	"github.com/dapi/code-converge/internal/runner"
 )
 
 type fakeAgent struct {
@@ -30,6 +32,8 @@ type fakeAgent struct {
 	ciFixCalls     int
 	ciFixWait      bool
 	ciFixStarted   chan struct{}
+	finalizeStages []runner.StageContext
+	ciFixStages    []runner.StageContext
 }
 
 type fakeRepository struct {
@@ -68,7 +72,10 @@ func (f *fakeAgent) FixFindings(_ context.Context, report string) error {
 	return f.fixErr
 }
 
-func (f *fakeAgent) Finalize(context.Context) (codex.Finalization, error) {
+func (f *fakeAgent) Finalize(ctx context.Context) (codex.Finalization, error) {
+	if stage, ok := runner.StageContextFrom(ctx); ok {
+		f.finalizeStages = append(f.finalizeStages, stage)
+	}
 	index := f.finalizeCalls
 	f.finalizeCalls++
 	if f.finalizeErr != nil {
@@ -82,6 +89,9 @@ func (f *fakeAgent) Finalize(context.Context) (codex.Finalization, error) {
 
 func (f *fakeAgent) FixCI(ctx context.Context) error {
 	f.ciFixCalls++
+	if stage, ok := runner.StageContextFrom(ctx); ok {
+		f.ciFixStages = append(f.ciFixStages, stage)
+	}
 	if f.ciFixStarted != nil {
 		close(f.ciFixStarted)
 	}
@@ -259,6 +269,23 @@ func TestCIRecoveryRestartsReviewPhase(t *testing.T) {
 		t.Fatalf("code=%d ci fixes=%d", code, agent.ciFixCalls)
 	}
 	assertRecord(t, output, "event=stage_started", "stage=review", "review_phase=2", "cycle=1")
+}
+
+func TestLaterStagesReceiveReviewPhaseAndCycle(t *testing.T) {
+	agent := &fakeAgent{reviews: []codex.ReviewResult{clean(), clean()}, finalizations: []codex.Finalization{ciFailed(), success()}}
+	code, _, _ := run(t, config.Config{MaxCycles: 1, MaxCIRecoveries: 1}, agent)
+	if code != ExitSuccess {
+		t.Fatalf("code=%d", code)
+	}
+	if got, want := agent.finalizeStages, []runner.StageContext{
+		{Stage: "finalize", ReviewPhase: 1, Cycle: 1, Model: "gpt-5.3-codex-spark", ReasoningEffort: "agent-default"},
+		{Stage: "finalize", ReviewPhase: 2, Cycle: 1, Model: "gpt-5.3-codex-spark", ReasoningEffort: "agent-default"},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("finalize stages=%#v want=%#v", got, want)
+	}
+	if got, want := agent.ciFixStages, []runner.StageContext{{Stage: "fix-ci", ReviewPhase: 1, Cycle: 1, Model: "agent-default", ReasoningEffort: "agent-default"}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("CI fix stages=%#v want=%#v", got, want)
+	}
 }
 
 func TestStageModelsAreLogged(t *testing.T) {

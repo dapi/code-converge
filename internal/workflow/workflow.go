@@ -144,8 +144,8 @@ func (w *Workflow) Run(ctx context.Context) int {
 			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 		}
 		stageCtx, cancelStage = context.WithCancel(ctx)
-		liveness = w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "finalize", Model: w.stageModel("finalize"), ReasoningEffort: w.stageReasoningEffort("finalize")}, stageStarted, cancelStage)
-		finalization, err := w.Agent.Finalize(runner.WithStageContext(stageCtx, runner.StageContext{Stage: "finalize", Model: w.stageModel("finalize"), ReasoningEffort: w.stageReasoningEffort("finalize")}))
+		liveness = w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "finalize", Model: w.stageModel("finalize"), ReasoningEffort: w.stageReasoningEffort("finalize"), ReviewPhase: phase, Cycle: cycle}, stageStarted, cancelStage)
+		finalization, err := w.Agent.Finalize(runner.WithStageContext(stageCtx, runner.StageContext{Stage: "finalize", ReviewPhase: phase, Cycle: cycle, Model: w.stageModel("finalize"), ReasoningEffort: w.stageReasoningEffort("finalize")}))
 		livenessErr = liveness.Stop()
 		cancelStage()
 		if livenessErr != nil {
@@ -177,8 +177,8 @@ func (w *Workflow) Run(ctx context.Context) int {
 				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 			}
 			stageCtx, cancelStage = context.WithCancel(ctx)
-			liveness = w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "fix-ci", Model: w.stageModel("fix-ci"), ReasoningEffort: w.stageReasoningEffort("fix-ci"), ReviewPhase: phase}, stageStarted, cancelStage)
-			err = w.Agent.FixCI(runner.WithStageContext(stageCtx, runner.StageContext{Stage: "fix-ci", ReviewPhase: phase, Model: w.stageModel("fix-ci"), ReasoningEffort: w.stageReasoningEffort("fix-ci")}))
+			liveness = w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "fix-ci", Model: w.stageModel("fix-ci"), ReasoningEffort: w.stageReasoningEffort("fix-ci"), ReviewPhase: phase, Cycle: cycle}, stageStarted, cancelStage)
+			err = w.Agent.FixCI(runner.WithStageContext(stageCtx, runner.StageContext{Stage: "fix-ci", ReviewPhase: phase, Cycle: cycle, Model: w.stageModel("fix-ci"), ReasoningEffort: w.stageReasoningEffort("fix-ci")}))
 			livenessErr = liveness.Stop()
 			cancelStage()
 			if livenessErr != nil {

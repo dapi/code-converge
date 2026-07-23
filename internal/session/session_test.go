@@ -59,14 +59,14 @@ func TestRecordsRedactedCodexInvocation(t *testing.T) {
 }
 
 func TestRedactRemovesCompleteAuthorizationAndCookieHeaders(t *testing.T) {
-	value := "Authorization: Basic dXNlcjpwYXNz\nCookie: SID=secret; CSRF=other"
+	value := "request Authorization: Basic dXNlcjpwYXNz\nCookie: SID=secret; CSRF=other"
 	redacted := redact(value)
 	for _, secret := range []string{"dXNlcjpwYXNz", "SID=secret", "CSRF=other"} {
 		if strings.Contains(redacted, secret) {
 			t.Fatalf("redaction leaked %q: %q", secret, redacted)
 		}
 	}
-	if redacted != "Authorization: [REDACTED]\nCookie: [REDACTED]" {
+	if redacted != "request Authorization: [REDACTED]\nCookie: [REDACTED]" {
 		t.Fatalf("redacted=%q", redacted)
 	}
 }
