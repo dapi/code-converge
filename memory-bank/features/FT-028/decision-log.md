@@ -110,6 +110,14 @@ must_not_define:
 - **Verification:** required GitHub Actions [Verify run](https://github.com/dapi/code-converge/actions/runs/30021940686) passed, including `make verify`, distribution build, and Linux AMD64 artifact smoke test.
 - **Result:** feature delivery is done; `implementation-plan.md` is archived in accordance with Feature Flow. A final documentation-only CI run remains required for this evidence update.
 
+### Iteration 4 — PR review corrections
+
+- **Critical:** none.
+- **High:** none.
+- **P2 — grapheme footprint:** `RuneWidth` per code point could split a multi-rune grapheme and overestimate its display cells. Replaced it with `uniseg` cluster iteration plus `runewidth.StringWidth` per cluster; the regression test covers `👩‍💻`.
+- **P2 — diagnostic after failed clear:** `Diagnostic` ignored an error from `clearLocked` and could write stderr after a stale transient frame. It now returns without writing the diagnostic when clearing fails; a deterministic liveness width-failure test covers that path.
+- **State:** feature is reopened pending local and hosted verification; the plan is active until the corrected PR is green.
+
 ## Human Gate
 
 No unresolved question currently requires a human decision. `HG-01` was resolved by the user's instruction to use FPF for the choice; `DL-02` records the selected scope and the evidence required to validate it.

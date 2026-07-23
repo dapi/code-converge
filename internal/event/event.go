@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/mattn/go-runewidth"
+	"github.com/rivo/uniseg"
 )
 
 var keyPattern = regexp.MustCompile(`^[a-z0-9_]+$`)
@@ -81,7 +82,9 @@ func (l *Logger) Diagnostic(message string, err error) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	_ = l.clearLocked()
+	if l.clearLocked() != nil {
+		return
+	}
 	fmt.Fprintf(l.Err, "code-converge: %s: %v\n", message, err)
 }
 
@@ -247,15 +250,15 @@ func truncateCells(value string, limit int) (string, int) {
 	if limit < 1 {
 		return "", 0
 	}
-	width := 0
-	end := 0
-	for index, r := range value {
-		cells := runewidth.RuneWidth(r)
-		if cells < 0 || width+cells > limit {
+	width, end := 0, 0
+	graphemes := uniseg.NewGraphemes(value)
+	for graphemes.Next() {
+		cells := runewidth.StringWidth(graphemes.Str())
+		if width+cells > limit {
 			break
 		}
 		width += cells
-		end = index + len(string(r))
+		_, end = graphemes.Positions()
 	}
 	return value[:end], width
 }

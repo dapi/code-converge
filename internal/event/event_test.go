@@ -279,6 +279,43 @@ func TestTransientRequiresTerminalWidth(t *testing.T) {
 	}
 }
 
+func TestTransientTruncationKeepsGraphemeClusters(t *testing.T) {
+	value := "a👩‍💻b"
+	got, cells := truncateCells(value, 3)
+	if got != "a👩‍💻" || cells != 3 {
+		t.Fatalf("truncateCells(%q, 3) = %q, %d", value, got, cells)
+	}
+}
+
+func TestDiagnosticIsSuppressedWhenTransientClearFails(t *testing.T) {
+	writer := &signalWriter{writes: make(chan string, 2)}
+	var stderr bytes.Buffer
+	var widthErr error
+	ticks := make(chan time.Time, 1)
+	logger := Logger{
+		Out: writer, Err: &stderr, Format: "human", Interactive: true,
+		Tick: func(time.Duration) (<-chan time.Time, func()) { return ticks, func() {} },
+		TerminalWidth: func() (int, error) {
+			if widthErr != nil {
+				return 0, widthErr
+			}
+			return 80, nil
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	live := logger.StartLiveness(ctx, StageContext{Stage: "review"}, time.Now(), cancel)
+	<-writer.writes
+	widthErr = errors.New("width unavailable")
+	ticks <- time.Now()
+	if err := live.Stop(); err == nil || !strings.Contains(err.Error(), "width unavailable") {
+		t.Fatalf("liveness error = %v", err)
+	}
+	logger.Diagnostic("review failed", errors.New("boom"))
+	if got := stderr.String(); got != "" {
+		t.Fatalf("diagnostic after failed transient clear = %q", got)
+	}
+}
+
 func TestHumanRendererRejectsUnknownStatus(t *testing.T) {
 	logger := Logger{Out: ioDiscard{}, Format: "human"}
 	for _, stage := range []string{"fix-findings", "fix-ci", "finalize"} {
