@@ -114,6 +114,16 @@ func TestExecLongStderrTruncation(t *testing.T) {
 	}
 }
 
+func TestExecRecordsExitCode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is POSIX-only")
+	}
+	result, err := (Exec{Executable: "sh"}).Run(context.Background(), Invocation{Args: []string{"-c", "exit 7"}})
+	if err == nil || result.ExitCode != 7 {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+}
+
 func TestExecDefaultExecutableName(t *testing.T) {
 	_, err := (Exec{}).Run(context.Background(), Invocation{Args: []string{"__nonexistent_subcommand__"}})
 	if err == nil || !strings.Contains(err.Error(), "codex") {

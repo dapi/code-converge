@@ -29,9 +29,32 @@ type Output struct {
 	Data   []byte
 }
 
+// StageContext identifies a Codex-backed workflow stage for private
+// diagnostics. It is deliberately separate from Invocation so the process
+// boundary stays usable for non-workflow commands such as git and gh.
+type StageContext struct {
+	Stage           string
+	ReviewPhase     int
+	Cycle           int
+	Model           string
+	ReasoningEffort string
+}
+
+type stageContextKey struct{}
+
+func WithStageContext(ctx context.Context, stage StageContext) context.Context {
+	return context.WithValue(ctx, stageContextKey{}, stage)
+}
+
+func StageContextFrom(ctx context.Context) (StageContext, bool) {
+	stage, ok := ctx.Value(stageContextKey{}).(StageContext)
+	return stage, ok && stage.Stage != ""
+}
+
 type Result struct {
-	Stdout string
-	Stderr string
+	Stdout   string
+	Stderr   string
+	ExitCode int
 }
 
 type Runner interface {
@@ -144,7 +167,7 @@ func (r Exec) Run(ctx context.Context, invocation Invocation) (Result, error) {
 		_ = stdoutWriter.Close()
 		_ = stderrReader.Close()
 		_ = stderrWriter.Close()
-		return Result{}, err
+		return Result{ExitCode: -1}, err
 	}
 	err = cmd.Start()
 	// The child (and any descendants it creates) now owns the write ends.
@@ -154,7 +177,7 @@ func (r Exec) Run(ctx context.Context, invocation Invocation) (Result, error) {
 	if err != nil {
 		_ = stdoutReader.Close()
 		_ = stderrReader.Close()
-		result := Result{Stdout: stdout.String(), Stderr: stderr.String()}
+		result := Result{Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: -1}
 		return result, formatRunError(name, err, result.Stderr)
 	}
 	var outputDone chan struct{}
@@ -196,6 +219,11 @@ func (r Exec) Run(ctx context.Context, invocation Invocation) (Result, error) {
 	}
 	result := Result{Stdout: stdout.String(), Stderr: stderr.String()}
 	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			result.ExitCode = exitErr.ExitCode()
+		} else {
+			result.ExitCode = -1
+		}
 		return result, formatRunError(name, err, result.Stderr)
 	}
 	return result, nil

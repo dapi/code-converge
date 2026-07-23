@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dapi/code-converge/internal/config"
 	"github.com/dapi/code-converge/internal/runner"
@@ -337,7 +338,7 @@ func TestAppNoChangeSkipsFinalize(t *testing.T) {
 		t.Fatalf("stdout:\n%s", stdout.String())
 	}
 	last := fake.invocations[len(fake.invocations)-1]
-	if last.Executable != "git" || !reflect.DeepEqual(last.Args, []string{"status", "--porcelain"}) {
+	if last.Executable != "git" || !reflect.DeepEqual(last.Args, []string{"status", "--porcelain", "--untracked-files=all"}) {
 		t.Fatalf("invocations = %#v", fake.invocations)
 	}
 }
@@ -384,6 +385,50 @@ func TestAppHumanNonTTYWorkflow(t *testing.T) {
 	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home, Runner: fake}).Run(context.Background(), nil)
 	if code != workflow.ExitSuccess || !strings.Contains(stdout.String(), "Done (") || strings.Contains(stdout.String(), "\x1b") || strings.Contains(stdout.String(), "event=") || strings.Contains(stdout.String(), "No findings") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestAppCreatesHumanSessionLogHandoff(t *testing.T) {
+	root, home := testRepo(t)
+	var stdout, stderr bytes.Buffer
+	fake := &appFakeRunner{
+		t:         t,
+		review:    runner.Result{Stdout: "raw review output", Stderr: "raw review diagnostic"},
+		reviewMsg: `{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"no changes","overall_confidence_score":0.99}`,
+	}
+	now := func() time.Time { return time.Date(2026, 7, 23, 22, 14, 5, 0, time.Local) }
+	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home, Runner: fake, Now: now}).Run(context.Background(), nil)
+	if code != workflow.ExitSuccess || stderr.Len() != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) == 0 || !strings.HasPrefix(lines[0], "22:14:05 Session log: ") {
+		t.Fatalf("missing initial session handoff:\n%s", stdout.String())
+	}
+	path := strings.TrimPrefix(lines[0], "22:14:05 Session log: ")
+	if !strings.HasPrefix(path, filepath.Join(home, ".code-converge", "session-logs", "session-")) {
+		t.Fatalf("path=%q", path)
+	}
+	data, err := os.ReadFile(filepath.Join(path, "0001-invocation.json"))
+	if err != nil || !strings.Contains(string(data), "raw review output") || strings.Contains(stdout.String(), "raw review output") {
+		t.Fatalf("record=%q err=%v stdout=%q", data, err, stdout.String())
+	}
+}
+
+func TestAppNoSessionLogCreatesNoArtifactsOrHandoff(t *testing.T) {
+	root, home := testRepo(t)
+	var stdout, stderr bytes.Buffer
+	fake := &appFakeRunner{
+		t:         t,
+		review:    runner.Result{Stdout: "raw review output"},
+		reviewMsg: `{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"no changes","overall_confidence_score":0.99}`,
+	}
+	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home, Runner: fake}).Run(context.Background(), []string{"--no-session-log", "--log-format=kv"})
+	if code != workflow.ExitSuccess || stderr.Len() != 0 || strings.Contains(stdout.String(), "Session log:") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(home, ".code-converge", "session-logs")); !os.IsNotExist(err) {
+		t.Fatalf("session logs created: %v", err)
 	}
 }
 

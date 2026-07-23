@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -138,6 +139,21 @@ func (l *Logger) CompleteAgent(state string) error {
 		return l.View.CompleteAgent(state)
 	}
 	return nil
+}
+
+// SessionLog writes the one human-only handoff line for a successfully created
+// private diagnostic session. It is intentionally outside the kv event schema.
+func (l *Logger) SessionLog(path string) error {
+	if path == "" || l.normalizedFormat() != "human" {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if err := l.clearLocked(); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(l.Out, "%sSession log: %s\n", l.now().Format("15:04:05 "), path)
+	return err
 }
 
 type Liveness struct {
@@ -429,7 +445,27 @@ func renderHuman(eventName string, fields []Field, maxCycles, maxCIRecoveries in
 		case "success":
 			return fmt.Sprintf("Done (%s)", d), nil
 		case "findings_remaining":
-			return fmt.Sprintf("Stopped: review findings remain (%s, exit 1)", d), nil
+			switch values["checkpoint_status"] {
+			case "committed_local":
+				branch, err := url.QueryUnescape(values["checkpoint_branch"])
+				if err != nil {
+					return "", fmt.Errorf("decode checkpoint_branch: %w", err)
+				}
+				return fmt.Sprintf("Stopped: fix budget exhausted; finalization was not reached; checkpoint committed locally on %s at %s and not pushed (%s, exit 1)", branch, values["checkpoint_commit"], d), nil
+			case "no_changes":
+				return fmt.Sprintf("Stopped: fix budget exhausted; finalization was not reached; no checkpoint was needed (%s, exit 1)", d), nil
+			case "not_attempted":
+				switch values["checkpoint_reason"] {
+				case "pre_existing_changes":
+					return fmt.Sprintf("Stopped: fix budget exhausted; finalization was not reached; checkpoint was skipped because the worktree had pre-existing changes (%s, exit 1)", d), nil
+				case "fix_budget_exhausted":
+					return fmt.Sprintf("Stopped: fix budget exhausted; finalization was not reached; checkpoint was not attempted because no fix ran (%s, exit 1)", d), nil
+				default:
+					return fmt.Sprintf("Stopped: fix budget exhausted; finalization was not reached; checkpoint was not attempted (%s, exit 1)", d), nil
+				}
+			default:
+				return fmt.Sprintf("Stopped: review findings remain (%s, exit 1)", d), nil
+			}
 		case "operational_failure":
 			return fmt.Sprintf("Failed due to an operational error (%s, exit 2)", d), nil
 		case "ci_failure":

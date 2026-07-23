@@ -14,6 +14,7 @@ import (
 	"github.com/dapi/code-converge/internal/event"
 	"github.com/dapi/code-converge/internal/repository"
 	"github.com/dapi/code-converge/internal/runner"
+	"github.com/dapi/code-converge/internal/session"
 	"github.com/dapi/code-converge/internal/terminal"
 	selfupdate "github.com/dapi/code-converge/internal/update"
 	"github.com/dapi/code-converge/internal/version"
@@ -107,6 +108,9 @@ func (a App) Run(ctx context.Context, args []string) int {
 	bind(flags, "ci-fix-reasoning-effort", &overrides.CIFixEffort)
 	bind(flags, "ci-fix-prompt-file", &overrides.CIFixPromptPath)
 	bind(flags, "review-base", &overrides.ReviewBase)
+	bind(flags, "session-log-dir", &overrides.SessionLogDir)
+	bind(flags, "session-log-retention", &overrides.SessionLogRetention)
+	flags.BoolVar(&overrides.NoSessionLog, "no-session-log", false, "disable diagnostic session logging")
 
 	if len(args) > 0 && args[0] == "config" {
 		args = append(append([]string{}, args[1:]...), "config")
@@ -154,8 +158,6 @@ func (a App) Run(ctx context.Context, args []string) int {
 	}
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
-	reviewScope := &repository.ReviewScope{Runner: processRunner, Base: cfg.ReviewBase, Root: cfg.Root}
-	defer reviewScope.Close()
 	var view *terminal.View
 	stdin := a.Stdin
 	if stdin == nil {
@@ -176,8 +178,26 @@ func (a App) Run(ctx context.Context, args []string) int {
 	}
 	logger := event.Logger{
 		Out: stdout, Err: stderr, Now: a.Now, Format: cfg.LogFormat, Heartbeat: cfg.Heartbeat,
-		Interactive: terminal.IsTerminalWriter(stdout), ColorDepth: a.colorDepth(cfg, stdout), View: view,
+		Interactive: a.isTerminal(stdout), ColorDepth: a.colorDepth(cfg, stdout), View: view,
 	}
+	if !cfg.NoSessionLog {
+		writer, sessionErr := session.Start(session.Config{
+			Dir: cfg.SessionLogDir, Retention: cfg.SessionLogRetention, Now: a.Now,
+			Diagnostic: logger.Diagnostic,
+		})
+		if sessionErr != nil {
+			logger.Diagnostic("session log", sessionErr)
+		}
+		if writer != nil {
+			defer writer.Close()
+			processRunner = session.Wrap(processRunner, writer)
+			if err := logger.SessionLog(writer.Path()); err != nil {
+				logger.Diagnostic("write session log path", err)
+			}
+		}
+	}
+	reviewScope := &repository.ReviewScope{Runner: processRunner, Base: cfg.ReviewBase, Root: cfg.Root}
+	defer reviewScope.Close()
 	var agentOutput func(string, []byte)
 	if view != nil {
 		agentOutput = logger.AgentOutput
