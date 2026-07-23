@@ -177,6 +177,14 @@ func (f *appFakeRunner) Run(_ context.Context, invocation runner.Invocation) (ru
 			return f.status, f.statusErr
 		case args == "symbolic-ref --quiet --short HEAD":
 			return runner.Result{Stdout: "feature"}, nil
+		case args == "config --get branch.feature.pushRemote", args == "config --get remote.pushDefault":
+			return runner.Result{}, errors.New("not configured")
+		case args == "config --get branch.feature.remote":
+			return runner.Result{Stdout: "origin"}, nil
+		case args == "remote get-url --push --all origin":
+			return runner.Result{Stdout: "git@github.com:dapi/code-converge.git"}, nil
+		case args == "remote get-url --all origin":
+			return runner.Result{Stdout: "git@github.com:dapi/code-converge.git"}, nil
 		case args == "config --get branch.feature.gh-merge-base":
 			return runner.Result{}, errors.New("not configured")
 		case args == "remote":

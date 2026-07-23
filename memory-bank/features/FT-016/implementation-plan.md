@@ -41,7 +41,7 @@ must_not_define:
 
 1. `STEP-01` Add `review-base` through config/app flags and config-format tests (`REQ-02`, `CTR-01`, `CHK-03`).
 2. `STEP-02` Extend runner invocations with a scoped environment and introduce a fakeable review-discovery/snapshot collaborator under `internal/repository`; write the candidate/ambiguity/error matrix before production wiring (`SOL-02`, `CTR-02`, `FM-01`–`FM-04`, `CHK-01`).
-3. `STEP-03` Wire discovery once per workflow run and snapshot refresh before every Codex review; update the Codex adapter to invoke `review --base` with temporary-index environment and retain existing parser/fix/finalization behavior (`SOL-03`–`SOL-04`, `INV-01`–`INV-04`, `CHK-01`, `CHK-02`).
+3. `STEP-03` Wire discovery once per workflow run and snapshot refresh before every Codex review; update the Codex adapter to invoke `review --base` with a wrapper-prefixed `PATH` forced through its per-invocation Codex shell-policy override and disable login-shell startup for that review. Keep `GIT_INDEX_FILE` and helper configuration local to snapshot/helper execution via a private wrapper sidecar, and set `GIT_EXEC_PATH` only within the wrapper's Git child process (`SOL-03`–`SOL-04`, `INV-01`–`INV-04`, `CHK-01`, `CHK-02`).
 4. `STEP-04` Add structured-safe review metadata fields and app/workflow golden tests for all source values and operational failures (`SOL-05`, `CTR-05`, `CHK-03`).
 5. `STEP-05` Update root README first, then domain rules/states and architecture to describe only delivered behavior; update FT-016 evidence state (`REQ-08`, `RB-01`, `CHK-04`).
 6. `STEP-06` Run focused tests, full Go checks, documentation lint and diff hygiene; record evidence and required CI in the feature package (`CHK-01`–`CHK-05`).
@@ -49,14 +49,14 @@ must_not_define:
 ## Checkpoints and Stop Conditions
 
 - `CP-01` After `STEP-02`, each selection source has positive, unavailable, ambiguity and stale/missing cases; no test needs live GitHub or remote access.
-- `CP-02` After `STEP-03`, assert every Git mutation invocation carries the temporary `GIT_INDEX_FILE` and no real-index command is issued.
+- `CP-02` After `STEP-03`, assert only snapshot/helper Git mutations carry the temporary `GIT_INDEX_FILE`; every Codex review forces a wrapper-prefixed `PATH` through `shell_environment_policy.set` and disables login-shell startup, so profile initialization cannot bypass the helper; the wrapper sidecar keeps helper configuration out of restrictive `include_only` environments; every reviewed-root wrapper command uses a disposable index copy so absolute or nested descendant Git cannot corrupt the stable snapshot; and repository creation uses only the target repository index.
 - `CP-03` Before publication, map every `REQ-*` to a passing `CHK-*` and an `EVID-*` carrier.
 - `STOP-01` If `codex review --base` does not inherit the runner's environment or does not honor the temporary index, stop before implementation alters the public contract; return to `design.md` with observed evidence.
 - `STOP-02` If a provider query cannot distinguish unavailable service/authentication from a discovered ambiguous PR set without parsing raw output safely, stop and refine the provider adapter boundary.
 
 ## Test Strategy
 
-`standard` validation uses table-driven config/repository/workflow tests, fake-executable Codex/Git integration and event golden tests, then `go test ./...`, `go vet ./...`, `make docs-lint` and `git diff --check`. No manual-only gap is planned. Required CI remains a delivery gate.
+`high-risk` validation uses table-driven config/repository/workflow tests, deterministic shell-policy and provider-identity failure coverage, fake-executable Codex/Git integration and event golden tests, then `go test ./...`, `go vet ./...`, `make docs-lint` and `git diff --check`. The user's 2026-07-22 remediation directive is the profile approval; no manual-only gap is planned. Required CI and independent review remain delivery gates.
 
 ## Evidence Realization
 

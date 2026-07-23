@@ -7,10 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/dapi/code-converge/internal/config"
+	"github.com/dapi/code-converge/internal/repository"
 	"github.com/dapi/code-converge/internal/runner"
 )
 
@@ -174,6 +176,29 @@ func TestAdapterPropagatesRunnerFailure(t *testing.T) {
 	a := Adapter{Runner: r, Config: config.Config{ReviewModel: "m", ReviewEffort: "e"}}
 	if _, err := a.Review(context.Background()); err == nil {
 		t.Fatal("expected runner error")
+	}
+}
+
+func TestScopedReviewArgsDisableLoginShellToPreserveWrapperPath(t *testing.T) {
+	wrapperPath := filepath.Join(t.TempDir(), "bin") + ":/user-configured/bin"
+	target := repository.ReviewTarget{BaseCommit: "base-sha", Env: []string{
+		"PATH=" + wrapperPath,
+	}}
+	args, err := scopedReviewArgs(config.Config{ReviewModel: "review-model", ReviewEffort: "high"}, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(args, " ")
+	wantPathPolicy := "shell_environment_policy.set.PATH=" + strconv.Quote(wrapperPath)
+	if !strings.Contains(joined, "-c "+wantPathPolicy) || !strings.Contains(joined, "-c allow_login_shell=false") || strings.Contains(joined, "GIT_INDEX_FILE") || strings.Contains(joined, "CODE_CONVERGE_SCOPED_GIT") || strings.Contains(joined, "GIT_EXEC_PATH") || strings.Contains(joined, "shell_environment_policy.include_only") || !strings.HasSuffix(joined, "review --base base-sha") {
+		t.Fatalf("args = %#v", args)
+	}
+}
+
+func TestScopedReviewArgsRequireScopedGitEnvironment(t *testing.T) {
+	_, err := scopedReviewArgs(config.Config{ReviewModel: "review-model"}, repository.ReviewTarget{BaseCommit: "base-sha"})
+	if err == nil || !strings.Contains(err.Error(), "wrapper PATH") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

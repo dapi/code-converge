@@ -91,7 +91,10 @@ func (a Adapter) Review(ctx context.Context) (ReviewResult, error) {
 	if err != nil {
 		return ReviewResult{}, err
 	}
-	args := append(modelArgs(a.Config.ReviewModel, a.Config.ReviewEffort), "review", "--base", target.BaseCommit)
+	args, err := scopedReviewArgs(a.Config, target)
+	if err != nil {
+		return ReviewResult{}, err
+	}
 	result, err := a.Runner.Run(ctx, runner.Invocation{Args: args, Env: target.Env})
 	if err != nil {
 		return ReviewResult{}, err
@@ -103,6 +106,30 @@ func (a Adapter) Review(ctx context.Context) (ReviewResult, error) {
 	review.Report = strings.TrimSpace(ansiPattern.ReplaceAllString(result.Stdout, ""))
 	review.Scope = target
 	return review, nil
+}
+
+func scopedReviewArgs(configuration config.Config, target repository.ReviewTarget) ([]string, error) {
+	path, ok := environmentValue(target.Env, "PATH")
+	if !ok || path == "" {
+		return nil, errors.New("review scope did not provide wrapper PATH")
+	}
+	args := modelArgs(configuration.ReviewModel, configuration.ReviewEffort)
+	// A login shell can prepend a system Git directory after Codex applies PATH.
+	// Disable login-shell startup for the review so its wrapper remains first
+	// without exporting GIT_INDEX_FILE beyond the scoped Git helper.
+	args = append(args, "-c", "shell_environment_policy.set.PATH="+strconv.Quote(path))
+	args = append(args, "-c", "allow_login_shell=false")
+	return append(args, "review", "--base", target.BaseCommit), nil
+}
+
+func environmentValue(environment []string, name string) (string, bool) {
+	prefix := name + "="
+	for index := len(environment) - 1; index >= 0; index-- {
+		if strings.HasPrefix(environment[index], prefix) {
+			return strings.TrimPrefix(environment[index], prefix), true
+		}
+	}
+	return "", false
 }
 
 func (a Adapter) FixFindings(ctx context.Context, report string) error {

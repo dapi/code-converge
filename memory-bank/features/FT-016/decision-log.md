@@ -105,6 +105,105 @@ The reasoning bounds this feature to review-input selection, separates issue fac
 - **Verification:** full local suites, documentation lint and required CI are required before closure.
 - **Human gate:** no.
 
+### Cycle 6 — shell-policy and provider-identity remediation
+
+- **Routing:** Bug Fix flow. The root README already promises that the private review index is forced without narrowing the user's normal command environment, and FT-016 requires fail-safe provider discovery; the report identifies implementation that violates those accepted behaviors. The remediation remains in the existing FT-016 package. The validation profile is raised to `high-risk` because the shell-environment security boundary and provider trust decision are affected; the user's 2026-07-22 `fix findings` directive authorizes this repair.
+- **Review scope:** review findings against `internal/codex/adapter.go` and `internal/repository/review.go`, plus the FT-016 design/architecture contract.
+- **Important:** reviewer `P1`: overriding `shell_environment_policy.include_only` with `[*]` exposed variables deliberately excluded by the user. Reviewer `P2`: a provider identity discarded the host, so same-named repositories on different hosts were indistinguishable. Reviewer `P2`: only the first push URL was examined despite Git pushing to all configured `pushurl` values.
+- **Changes:** retain only the private-index `shell_environment_policy.set` override; derive host-aware identities from every push URL; reject conflicting identities; scope `gh pr list` to the selected host/repository. Added deterministic allowlist, host-selection and conflicting-push-URL regressions.
+- **Verification:** focused Codex/repository suites, affected app tests, all non-update packages and `go vet ./...` pass. `go test ./...` is blocked only because sandbox policy forbids the loopback listener used by `internal/update`; `make docs-lint` is blocked because sandbox DNS cannot download its pinned linter. `git diff --check`, required CI and independent final review remain closure evidence.
+- **Human gate:** no; the user explicitly authorized the security remediation.
+
+### Cycle 7 — nested-index and fork-target remediation
+
+- **Routing:** Bug Fix flow within FT-016. The reported behavior violates the accepted private-index isolation and verified-provider-base contracts; the active `high-risk` profile remains applicable.
+- **Review scope:** review findings against the forced Codex environment and open-PR discovery.
+- **Important:** reviewer `P1`: the forced private index leaks into `git -C <other-repository>` commands and corrupts the review snapshot. Reviewer `P1`: querying only the fork push repository misses a PR owned by an upstream base repository.
+- **Changes:** route Git through a per-review wrapper that clears `GIT_INDEX_FILE` outside the reviewed worktree, and query the verified head branch across same-host configured remotes before validating the returned PR head identity. Environment override merging now replaces inherited duplicate keys so the wrapper `PATH` takes effect.
+- **Verification:** focused runner/Codex/repository/app suites and `go vet ./...` pass; `git diff --check` passes. `go test ./...` remains blocked only because sandbox policy prevents `internal/update` from binding `::1`; `make docs-lint` remains blocked because sandbox DNS cannot fetch its pinned linter. Required CI and independent final review remain closure evidence.
+- **Human gate:** no; the user explicitly authorized the remediation.
+
+### Cycle 8 — review-finding closure for fork, environment and Git-global-option paths
+
+- **Routing:** Bug Fix flow within FT-016. The findings contradict accepted fork-base selection, optional-provider fallback and private-index isolation behavior; the active `high-risk` validation profile remains applicable.
+- **Review scope:** reported regressions in `internal/repository/review.go` and `internal/codex/adapter.go`.
+- **Important:** reviewer `P1`: after a fork PR is found through `upstream`, same-named `fork/main` and `upstream/main` refs remain ambiguous despite the provider SHA. Reviewer `P1`: a Codex `shell_environment_policy.set.PATH` is overwritten with the Code-Converge process PATH. Reviewer `P1`: `git -c … -C <other>` and explicit `--git-dir`/`--work-tree` commands retain the review index. Reviewer `P2`: valid local or unsupported-provider push URLs abort local fallback.
+- **Changes:** carry the queried PR owner through base resolution and restrict matching remote refs to that owner; classify an all-non-provider push remote as unavailable provider discovery while still rejecting conflicting valid identities; retain only the private-index shell-policy override; parse Git global options before deciding whether a command remains in the reviewed worktree. Added end-to-end fork-base, non-provider fallback, PATH-policy and nested-repository regressions.
+- **Verification:** all non-update packages, `go vet ./...` and `git diff --check` pass with a workspace-local Go cache. `go test ./...` remains blocked only because the sandbox forbids the loopback listener used by `internal/update`; `make docs-lint` remains blocked because sandbox DNS cannot download its pinned linter. Required CI and independent final review remain high-risk gates.
+- **Human gate:** no; the user explicitly authorized the remediation.
+
+### Cycle 9 — wrapper-policy and repository-creation remediation
+
+- **Routing:** Bug Fix flow within FT-016. The findings violate the accepted private-index isolation invariant; the existing `high-risk` profile remains applicable.
+- **Review scope:** the Codex shell-policy boundary and temporary Git wrapper in `internal/codex/adapter.go` and `internal/repository/review.go`.
+- **Important:** reviewer `P1`: a configured or reconstructed Codex `PATH` can bypass the process-only wrapper while `GIT_INDEX_FILE` remains forced, allowing a nested Git command to alter the private snapshot. Reviewer `P2`: `clone` and worktree creation probe the current reviewed repository before their destination exists, so they retain the private index and can create a broken destination or overwrite the snapshot.
+- **Changes:** force the wrapper-prefixed `PATH` through the same per-invocation Codex shell policy as the private index; the wrapper now clears the index before `clone` and `worktree add`, before any current-root probe. Added adapter policy regression coverage and real-Git clone/worktree snapshot-isolation coverage.
+- **Verification:** focused Codex/repository/runner/app suites and `go vet ./...` pass with a writable temporary Go cache; `git diff --check` passes. `go test ./...` is blocked only because sandbox policy forbids the loopback listener used by `internal/update`; `make docs-lint` is blocked because sandbox DNS cannot download its pinned linter. Required CI and independent final review remain high-risk gates.
+- **Human gate:** no; the user explicitly authorized the remediation.
+
+### Cycle 10 — non-bypassable review-index environment remediation
+
+- **Routing:** Bug Fix flow within FT-016. The reported absolute-path, noexec-temporary-mount and separated-namespace behavior contradicts the accepted private-index isolation invariant; the active `high-risk` profile remains applicable.
+- **Review scope:** `internal/repository/review.go`, `cmd/code-converge/main.go` and `internal/codex/adapter.go`.
+- **Important:** reviewer `P1`: globally exporting `GIT_INDEX_FILE` lets `/usr/bin/git` or `xcrun git` use the review snapshot outside the reviewed repository. Reviewer `P2`: a shell wrapper placed on a noexec temporary mount cannot run. Reviewer `P2`: `--namespace <name>` was not consumed before later global options or repository-creation detection.
+- **Changes:** keep `GIT_INDEX_FILE` only in the snapshot operation and inside a scoped helper after it resolves the target repository. Codex receives a wrapper-prefixed `PATH` plus inert helper configuration, never `GIT_INDEX_FILE`; absolute Git paths therefore retain their normal index. The temporary `git` entry is a symlink to the running executable rather than a temporary script, and the helper parses both namespace forms. Added real-Git coverage for reviewed, nested and absolute Git commands plus namespace parser/creation cases.
+- **Verification:** `go test ./internal/repository ./internal/codex`, `go vet ./...` and `git diff --check` pass with a writable temporary Go cache. `go test ./...` and `make docs-lint` remain required closure evidence; known sandbox limitations are recorded in `brief.md`.
+- **Human gate:** no; the user explicitly authorized the remediation.
+
+### Cycle 11 — descendant Git and provider-case remediation
+
+- **Routing:** Bug Fix flow within FT-016. The findings violate `CTR-02` provider identity handling and the private-index isolation invariant; the active `high-risk` profile remains applicable.
+- **Review scope:** descendant Git commands from the scoped wrapper and case-variant GitHub remote identities in `internal/repository/review.go`.
+- **Important:** reviewer `P1`: a Git shell alias, hook or helper inherits `GIT_INDEX_FILE` and can bypass the wrapper after Git prepends its normal exec directory to `PATH`. Reviewer `P2`: host, owner and repository casing creates duplicate or conflicting identities for the same GitHub repository.
+- **Changes:** make the wrapper directory the temporary `GIT_EXEC_PATH`, forwarding normal Git helpers while returning descendant `git` invocations to the repository-checking wrapper; clear that execution path alongside the private index for non-review targets. Canonicalize GitHub identity components before map-key deduplication. Add real-Git shell-alias isolation and case-variant push-URL regressions.
+- **Verification:** focused repository suite, all non-update packages and `go vet ./...` pass with a writable temporary Go cache; `make docs-lint` and `git diff --check` pass. `go test ./...` remains blocked only because the sandbox forbids the loopback listener used by `internal/update`; required CI and independent final review remain high-risk gates.
+- **Human gate:** no; the user explicitly authorized the remediation.
+
+### Cycle 12 — restrictive-policy Git-exec and PATH remediation
+
+- **Routing:** Bug Fix flow within FT-016. The findings violate the accepted private-index isolation invariant and the existing promise to preserve the user's normal Codex shell environment; the active `high-risk` profile remains applicable.
+- **Review scope:** the forced Codex helper environment in `internal/codex/adapter.go`.
+- **Important:** reviewer `P1`: a restrictive `shell_environment_policy` can omit inherited `GIT_EXEC_PATH`, allowing descendant Git commands to bypass the wrapper while they retain the private review index. Reviewer `P2`: forcing `shell_environment_policy.set.PATH` replaces a user-configured Codex policy PATH with Code-Converge's launch PATH.
+- **Changes:** force and validate the temporary `GIT_EXEC_PATH` alongside scoped helper variables; leave `PATH` as the wrapper-prefixed launch environment rather than a Codex policy override, so an explicit Codex policy PATH remains intact. Added deterministic adapter coverage for forced `GIT_EXEC_PATH`, absence of a PATH policy override and a missing-exec-path failure.
+- **Verification:** focused Codex/repository/runner/app suites and `go vet ./...` pass with a writable temporary Go cache; `git diff --check` passes. `go test ./...` remains blocked only because the sandbox forbids the loopback listener used by `internal/update`; `make docs-lint` remains blocked because sandbox DNS cannot download its pinned linter. Required CI and independent final review remain high-risk gates.
+- **Human gate:** no; the user explicitly authorized the remediation.
+
+### Cycle 13 — effective-PATH and restrictive-allowlist remediation
+
+- **Routing:** Bug Fix flow within FT-016. The findings contradict the accepted complete-snapshot contract: a Codex policy `set.PATH` can bypass a launch-only wrapper, and an `include_only` policy can discard its environment-carried helper state. The active `high-risk` profile remains applicable.
+- **Review scope:** scoped-index transport in `internal/codex/adapter.go` and `internal/repository/review.go`, plus the FT-016 design and root CLI contract.
+- **Important:** reviewer `P1`: wrapper reachability must be forced through Codex's effective `PATH`, not just the Code-Converge launch environment. Reviewer `P1`: helper variables cannot survive a restrictive `include_only` policy without widening that user allowlist.
+- **Changes:** force only the wrapper-first `PATH` through `shell_environment_policy.set`. Move the scoped root, private index, real Git executable and wrapper directory into a private sidecar beside the noexec-safe symlink wrapper; the wrapper injects `GIT_EXEC_PATH` only into the Git child process to retain alias/hook routing. No helper variable, `GIT_EXEC_PATH` or private index is exported through Codex policy. Added a real-Git `PATH`-only regression, equivalent to `include_only = ["PATH"]`, covering the reviewed repository, nested repositories, shell aliases, clones and worktree creation.
+- **Verification:** focused Codex/repository/app/runner suites and `go vet ./...` pass with a writable temporary Go cache; `git diff --check` passes. `go test ./...` remains blocked only because the sandbox forbids the loopback listener used by `internal/update`; `make docs-lint` remains blocked because sandbox DNS cannot fetch its pinned linter. Required CI and independent final review remain high-risk gates.
+- **Human gate:** no; the user explicitly authorized the remediation.
+
+### Cycle 14 — complete PR-uniqueness and descendant-index remediation
+
+- **Routing:** Bug Fix flow within FT-016. The reported failures contradict `INV-01` (one safely established base) and the private-index isolation invariant; the active `high-risk` profile remains applicable.
+- **Review scope:** multi-target `gh` selection and the scoped Git child process in `internal/repository/review.go`.
+- **Important:** reviewer `P1`: a matching PR from one provider target was accepted even though another target query failed, leaving uniqueness unproven. Reviewer `P1`: a shell alias, hook or helper can invoke an absolute Git path after inheriting the review index and overwrite the stable snapshot.
+- **Changes:** reject any matching PR result if another provider target query failed; retain optional provider fallback only when no match exists. Every reviewed-root wrapper invocation now starts from a disposable command-local copy of the stable review index, so a descendant that bypasses `PATH` cannot modify the next review's snapshot. Added deterministic multi-target failure and real-Git absolute-alias regressions.
+- **Verification:** `GOCACHE=/private/tmp/code-converge-gocache go test ./internal/repository`, `go vet ./...`, `make docs-lint` and `git diff --check` pass. `go test ./...` is blocked only by the sandbox denying `internal/update` its IPv6 loopback listener; all other packages pass. Required CI remains to be recorded.
+- **Human gate:** no; the user explicitly authorized the remediation.
+
+### Cycle 15 — login-shell wrapper-bypass remediation
+
+- **Routing:** Bug Fix flow within FT-016. The supported login-shell behavior contradicts `CTR-04`: profile initialization can reorder `PATH` after the Codex policy is applied and bypass the private-index wrapper. The active `high-risk` profile remains applicable.
+- **Review scope:** `internal/codex/adapter.go` and the scoped Git transport contract.
+- **Important:** reviewer `P1`: macOS login-shell initialization such as `path_helper` can prepend `/usr/bin` ahead of the forced wrapper path, causing Git to use the normal index and omit untracked snapshot content.
+- **Changes:** force `allow_login_shell=false` for the review-only Codex invocation alongside its wrapper-first `PATH`. This keeps the wrapper active without re-exporting `GIT_INDEX_FILE`, preserving the already-established isolation of absolute and other-repository Git commands. Added deterministic argument coverage for the login-shell override while retaining the real-Git PATH-only snapshot regression.
+- **Verification:** `codex review --strict-config -c 'allow_login_shell=false' --help`, `go test ./internal/codex ./internal/repository` and `git diff --check` pass with a writable temporary Go cache. `make docs-lint` is blocked because sandbox DNS cannot download its pinned linter; full `go test ./...` remains blocked only by the sandbox denying `internal/update` its IPv6 loopback listener. Required CI and independent final review remain high-risk gates.
+- **Human gate:** no; the user explicitly authorized the remediation.
+
+### Cycle 16 — Git-global-option private-index remediation
+
+- **Routing:** Bug Fix flow within FT-016. Valid global Git flags that the scoped helper did not recognize could run against the real index, contradicting the accepted complete-snapshot and private-index isolation contracts. The active `high-risk` profile remains applicable.
+- **Review scope:** global-option parsing and target resolution in `internal/repository/review.go`.
+- **Important:** reviewer `P2`: `git -P diff --cached` and `git --no-lazy-fetch status` bypassed the private review index because unrecognized global flags were treated as commands targeting another repository.
+- **Changes:** recognize Git's supported short pager and target-neutral global flags, including `-P`, `--no-lazy-fetch` and `--no-advice`; reject unsupported or malformed global options from the wrapper rather than falling back to the real index. Added real-Git PATH-only snapshot coverage and parser coverage for those flags.
+- **Verification:** `GOCACHE=/private/tmp/code-converge-gocache go test ./internal/repository` and `go vet ./...` pass. `go test ./...` is blocked only because sandbox policy denies `internal/update` an IPv6 loopback listener; `make docs-lint` is blocked because sandbox DNS cannot resolve `proxy.golang.org` to download its pinned linter. `git diff --check`, required CI and independent final review remain closure evidence.
+- **Human gate:** no; the user explicitly authorized the remediation.
+
 ## Human Gate
 
 ### `HG-01` — Public review-base/scope contract

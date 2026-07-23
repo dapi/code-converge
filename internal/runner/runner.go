@@ -41,7 +41,7 @@ func (r Exec) Run(ctx context.Context, invocation Invocation) (Result, error) {
 	cmd := exec.Command(name, invocation.Args...)
 	configureProcessGroup(cmd)
 	cmd.Dir = r.Dir
-	cmd.Env = append(os.Environ(), invocation.Env...)
+	cmd.Env = mergeEnvironment(os.Environ(), invocation.Env)
 	cmd.Stdin = bytes.NewBufferString(invocation.Stdin)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -69,6 +69,33 @@ func (r Exec) Run(ctx context.Context, invocation Invocation) (Result, error) {
 		return result, formatRunError(name, err, result.Stderr)
 	}
 	return result, nil
+}
+
+// mergeEnvironment applies overrides without duplicate keys. Some process
+// launchers use the first duplicate environment entry, so appending an override
+// is not sufficient for values such as PATH and GIT_INDEX_FILE.
+func mergeEnvironment(base, overrides []string) []string {
+	environment := append([]string(nil), base...)
+	positions := make(map[string]int, len(environment))
+	for index, value := range environment {
+		if name, _, ok := strings.Cut(value, "="); ok {
+			positions[name] = index
+		}
+	}
+	for _, value := range overrides {
+		name, _, ok := strings.Cut(value, "=")
+		if !ok {
+			environment = append(environment, value)
+			continue
+		}
+		if index, exists := positions[name]; exists {
+			environment[index] = value
+			continue
+		}
+		positions[name] = len(environment)
+		environment = append(environment, value)
+	}
+	return environment
 }
 
 func formatRunError(name string, err error, stderr string) error {

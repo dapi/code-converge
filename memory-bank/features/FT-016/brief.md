@@ -79,7 +79,7 @@ The current review adapter invokes `codex review --uncommitted`. As documented a
 
 | Profile | Triggers / rationale | Downgrade approval |
 | --- | --- | --- |
-| `standard` | The executable review behavior, CLI/configuration and structured progress contract change. No documented security, persistent-data, financial, concurrency or migration trigger requires `high-risk`; documentation-only/low-risk are insufficient. | `none` |
+| `high-risk` | The remediation changes the shell-environment security boundary and provider-identity trust decision. User directive of 2026-07-22 explicitly authorizes fixing the reported security and repository-selection findings; all affected deterministic security/failure paths, full local suites and independent review remain required. | user directive: `fix findings` |
 
 ## Blocking Decisions
 
@@ -102,7 +102,7 @@ The current review adapter invokes `codex review --uncommitted`. As documented a
 
 - `SC-01` Given a selected base and a clean worktree containing commits since its merge-base, the default review covers that branch delta.
 - `SC-02` Given committed, staged, unstaged and untracked changes, one review covers the complete merge-base-to-worktree change exactly once.
-- `SC-03` Given a unique open PR targeting a non-default branch, discovery selects that target; before a PR exists, an accepted branch merge-base setting wins over the accepted default-base fallback.
+- `SC-03` Given a unique open PR whose head branch and repository match the current branch's configured provider identity (or conventional `origin` fallback), discovery selects its non-default target even when the PR is owned by an upstream remote rather than the fork push remote; an unrelated fork using the same branch name fails safely, and before a PR exists an accepted branch merge-base setting wins over the accepted default-base fallback.
 - `SC-04` Given an explicit override, it wins according to the established configuration precedence and `code-converge config` identifies its source.
 - `SC-05` Given multiple conflicting PR/base candidates, a detached HEAD, missing/stale ref or an already-merged branch, the run follows the accepted diagnostic/terminal policy without guessing.
 - `SC-06` Given unavailable `gh`/authentication and sufficient local Git configuration, review resolves locally and provider discovery creates or modifies no hosting object.
@@ -139,8 +139,8 @@ The current review adapter invokes `codex review --uncommitted`. As documented a
 
 | Evidence ID | Status | Concrete carrier |
 | --- | --- | --- |
-| `EVID-01` | pass | `TestReviewScopeExplicitBaseBuildsPrivateSnapshot`, `TestReviewScopeRejectsMultipleOpenPRs`, `TestReviewScopeUsesUniqueRemoteTrackingPRBase`, `TestReviewScopeUsesSlashContainingPRBase`, `TestReviewScopeRejectsStaleProviderBase`, `TestReviewScopePreservesCommittedChangesOutsideSparseCheckout`; `go test ./internal/repository` |
-| `EVID-02` | pass | `TestAdapterInvocations`, app fake-runner integration and `TestExecPassesInvocationEnvironment`; `go test ./internal/codex ./internal/app ./internal/runner` |
-| `EVID-03` | pass | `TestReviewBasePrecedence`, `TestConfigCommand`, `TestReviewMetadataUsesResolvedCommitForEventSafety` and workflow/app event assertions; `go test ./internal/config ./internal/app ./internal/workflow` |
-| `EVID-04` | pass | Root README, domain rules/states, engineering architecture and FT-016 converge; `make docs-lint` |
-| `EVID-05` | pass | `go test ./...`, `go vet ./...`, `make docs-lint`, `git diff --check`; PR [#19](https://github.com/dapi/code-converge/pull/19), required [Verify run](https://github.com/dapi/code-converge/actions/runs/29947500863) passed. |
+| `EVID-01` | pass | `TestReviewScopeExplicitBaseBuildsPrivateSnapshot`, `TestReviewScopeFindsForkPullRequestFromUpstreamRepository`, `TestReviewScopeUsesUpstreamTrackingBaseForForkPullRequest`, `TestReviewScopeRejectsMultipleOpenPRs`, `TestReviewScopeRejectsPRFromUnrelatedForkWithSameBranchName`, `TestReviewScopeQueriesProviderAgainstPushRepositoryHost`, `TestReviewScopeRejectsConflictingPushRepositoryIdentities`, `TestReviewScopeFallsBackWhenCurrentProviderCannotBeEstablished`, `TestReviewScopeFallsBackFromNonProviderPushRemote`, `TestReviewScopeUsesOriginWhenBranchHasNoConfiguredPushRemote`, `TestReviewScopeUsesUniqueRemoteTrackingPRBase`, `TestReviewScopeUsesSlashContainingPRBase`, `TestReviewScopeRejectsStaleProviderBase`, `TestReviewScopePreservesCommittedChangesOutsideSparseCheckout`, `TestReviewScopePrivateIndexDoesNotLeakOutsideReviewedRepository`, `TestReviewScopePrivateIndexSurvivesPathOnlyEnvironment`, `TestGitCreationAndTargetParsingConsumeNamespaceValue`, `TestSplitGitGlobalOptionsRecognizesSupportedTargetNeutralFlags`; `go test ./internal/repository` |
+| `EVID-02` | pass | `TestAdapterInvocations`, `TestScopedReviewArgsDisableLoginShellToPreserveWrapperPath`, `TestScopedReviewArgsRequireScopedGitEnvironment`, `TestReviewScopePrivateIndexSurvivesPathOnlyEnvironment`, app fake-runner integration, `TestExecPassesInvocationEnvironment` and `TestExecOverridesInheritedEnvironment`; `go test ./internal/codex ./internal/app ./internal/repository ./internal/runner` |
+| `EVID-03` | pass | `TestReviewBasePrecedence`, `TestConfigCommand`, `TestReviewMetadataUsesResolvedCommitForEventSafety` and workflow/app event assertions; affected suite passed. |
+| `EVID-04` | blocked | Root README, domain rules/states, engineering architecture and FT-016 converge by semantic read-through. `make docs-lint` is blocked because its pinned Go linter is absent from the cache and sandbox DNS cannot resolve `proxy.golang.org`. |
+| `EVID-05` | partial | Affected tests, all non-update packages, `go vet ./...` and `git diff --check` pass. `go test ./...` is blocked only by `internal/update` tests being unable to bind `::1`; `make docs-lint`, required CI and independent final review remain pending. |
