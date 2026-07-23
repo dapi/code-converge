@@ -87,7 +87,7 @@ func (s Status) Checkpoint(ctx context.Context, initialHead string, canCommit bo
 }
 
 func (s Status) status(ctx context.Context) (runner.Result, error) {
-	result, err := s.Runner.Run(ctx, runner.Invocation{Executable: "git", Args: []string{"status", "--porcelain"}})
+	result, err := s.Runner.Run(ctx, runner.Invocation{Executable: "git", Args: []string{"status", "--porcelain", "--untracked-files=all"}})
 	if err != nil {
 		return runner.Result{}, err
 	}

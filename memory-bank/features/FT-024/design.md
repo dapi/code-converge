@@ -40,7 +40,7 @@ must_not_define:
 
 ## Decisions, Contracts, and Failure Modes
 
-- `SD-01`: The safety boundary is a clean porcelain status immediately before each automatic findings-fix invocation. A dirty worktree does not prevent remediation; it disables the checkpoint so pre-existing user work cannot be committed automatically.
+- `SD-01`: The safety boundary is a clean porcelain status immediately before each automatic findings-fix invocation. Status explicitly requests all untracked files so `status.showUntrackedFiles` cannot hide pre-existing user work. A dirty worktree does not prevent remediation; it disables the checkpoint so pre-existing user work cannot be committed automatically.
 - `SD-02`: The stable checkpoint message is `chore: checkpoint review fixes`; unchanged post-fix status and `HEAD` do not commit, while a changed `HEAD` proves an agent-created local commit that must reach finalization.
 - `SD-03`: Checkpoints remain local. Only finalization pushes or coordinates external systems.
 - `CTR-01`: A checkpoint result is either no commit or `{branch, commit}` after a successful local commit. It is never a finalization verdict.

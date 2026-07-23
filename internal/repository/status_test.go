@@ -53,7 +53,7 @@ func TestStatusHasChanges(t *testing.T) {
 			if err != nil || got != test.want {
 				t.Fatalf("HasChanges() = %v, %v; want %v, nil", got, err, test.want)
 			}
-			wantInvocation := runner.Invocation{Executable: "git", Args: []string{"status", "--porcelain"}}
+			wantInvocation := runner.Invocation{Executable: "git", Args: []string{"status", "--porcelain", "--untracked-files=all"}}
 			if !reflect.DeepEqual(fake.invocations, []runner.Invocation{wantInvocation}) {
 				t.Fatalf("invocations = %#v", fake.invocations)
 			}
@@ -71,7 +71,7 @@ func TestStatusPropagatesRunnerError(t *testing.T) {
 func TestStatusCheckpointCommitsLocallyWithoutPush(t *testing.T) {
 	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
 		switch strings.Join(inv.Args, " ") {
-		case "status --porcelain":
+		case "status --porcelain --untracked-files=all":
 			return runner.Result{Stdout: " M fixed.go\n"}, nil
 		case "add -A", "commit -m chore: checkpoint review fixes":
 			return runner.Result{}, nil
@@ -108,7 +108,7 @@ func TestStatusCheckpointSkipsEmptyCommit(t *testing.T) {
 func TestStatusCheckpointPropagatesCommitFailure(t *testing.T) {
 	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
 		switch strings.Join(inv.Args, " ") {
-		case "status --porcelain":
+		case "status --porcelain --untracked-files=all":
 			return runner.Result{Stdout: " M fixed.go\n"}, nil
 		case "add -A":
 			return runner.Result{}, nil
@@ -128,7 +128,7 @@ func TestStatusCheckpointPropagatesCommitFailure(t *testing.T) {
 func TestStatusCheckpointDetectsAgentCommitOnCleanWorktree(t *testing.T) {
 	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
 		switch strings.Join(inv.Args, " ") {
-		case "status --porcelain":
+		case "status --porcelain --untracked-files=all":
 			return runner.Result{}, nil
 		case "rev-parse HEAD":
 			return runner.Result{Stdout: "new-sha\n"}, nil
