@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/dapi/code-converge/internal/config"
 	"github.com/dapi/code-converge/internal/event"
 	"github.com/dapi/code-converge/internal/repository"
+	"github.com/dapi/code-converge/internal/runner"
 )
 
 type fakeAgent struct {
@@ -31,6 +33,8 @@ type fakeAgent struct {
 	ciFixCalls           int
 	ciFixWait            bool
 	ciFixStarted         chan struct{}
+	finalizeStages       []runner.StageContext
+	ciFixStages          []runner.StageContext
 }
 
 type fakeRepository struct {
@@ -96,7 +100,10 @@ func (f *fakeAgent) FixFindings(_ context.Context, report string) error {
 	return f.fixErr
 }
 
-func (f *fakeAgent) Finalize(_ context.Context, checkpointed bool) (codex.Finalization, error) {
+func (f *fakeAgent) Finalize(ctx context.Context, checkpointed bool) (codex.Finalization, error) {
+	if stage, ok := runner.StageContextFrom(ctx); ok {
+		f.finalizeStages = append(f.finalizeStages, stage)
+	}
 	index := f.finalizeCalls
 	f.finalizeCalls++
 	f.checkpointedFinalize = append(f.checkpointedFinalize, checkpointed)
@@ -111,6 +118,9 @@ func (f *fakeAgent) Finalize(_ context.Context, checkpointed bool) (codex.Finali
 
 func (f *fakeAgent) FixCI(ctx context.Context) error {
 	f.ciFixCalls++
+	if stage, ok := runner.StageContextFrom(ctx); ok {
+		f.ciFixStages = append(f.ciFixStages, stage)
+	}
 	if f.ciFixStarted != nil {
 		close(f.ciFixStarted)
 	}
@@ -353,6 +363,23 @@ func TestCIRecoveryRestartsReviewPhase(t *testing.T) {
 	assertRecord(t, output, "event=stage_started", "stage=review", "review_phase=2", "cycle=1")
 }
 
+func TestLaterStagesReceiveReviewPhaseAndCycle(t *testing.T) {
+	agent := &fakeAgent{reviews: []codex.ReviewResult{clean(), clean()}, finalizations: []codex.Finalization{ciFailed(), success()}}
+	code, _, _ := run(t, config.Config{MaxCycles: 1, MaxCIRecoveries: 1}, agent)
+	if code != ExitSuccess {
+		t.Fatalf("code=%d", code)
+	}
+	if got, want := agent.finalizeStages, []runner.StageContext{
+		{Stage: "finalize", ReviewPhase: 1, Cycle: 1, Model: "gpt-5.3-codex-spark", ReasoningEffort: "agent-default"},
+		{Stage: "finalize", ReviewPhase: 2, Cycle: 1, Model: "gpt-5.3-codex-spark", ReasoningEffort: "agent-default"},
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("finalize stages=%#v want=%#v", got, want)
+	}
+	if got, want := agent.ciFixStages, []runner.StageContext{{Stage: "fix-ci", ReviewPhase: 1, Cycle: 1, Model: "agent-default", ReasoningEffort: "agent-default"}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("CI fix stages=%#v want=%#v", got, want)
+	}
+}
+
 func TestCIRecoveryClearsPublishedCheckpointBeforeNextPhase(t *testing.T) {
 	agent := &fakeAgent{
 		reviews:       []codex.ReviewResult{findings(), clean(), findings(), findings()},
@@ -371,8 +398,8 @@ func TestCIRecoveryClearsPublishedCheckpointBeforeNextPhase(t *testing.T) {
 
 func TestStageModelsAreLogged(t *testing.T) {
 	agent := &fakeAgent{reviews: []codex.ReviewResult{findings(), clean(), clean()}, finalizations: []codex.Finalization{ciFailed(), success()}}
-	_, output, _ := run(t, config.Config{MaxCycles: 1, MaxCIRecoveries: 1, ReviewModel: "review", ReviewEffort: "high", FixModel: "fix", FixEffort: "low", FinalizeModel: "final", CIFixModel: "ci"}, agent)
-	for _, stage := range []struct{ name, model, effort string }{{"review", "review", "high"}, {"fix-findings", "fix", "low"}, {"finalize", "final", "agent-default"}, {"fix-ci", "ci", "agent-default"}} {
+	_, output, _ := run(t, config.Config{MaxCycles: 1, MaxCIRecoveries: 1, ReviewModel: "review", ReviewEffort: "high", FixModel: "fix", FixEffort: "low", FinalizeModel: "final", FinalizeEffort: "medium", CIFixModel: "ci", CIFixEffort: "high"}, agent)
+	for _, stage := range []struct{ name, model, effort string }{{"review", "review", "high"}, {"fix-findings", "fix", "low"}, {"finalize", "final", "medium"}, {"fix-ci", "ci", "high"}} {
 		assertRecord(t, output, "event=stage_started", "stage="+stage.name, "model="+stage.model, "reasoning_effort="+stage.effort)
 	}
 }

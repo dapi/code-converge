@@ -11,6 +11,7 @@ import (
 	"github.com/dapi/code-converge/internal/config"
 	"github.com/dapi/code-converge/internal/event"
 	"github.com/dapi/code-converge/internal/repository"
+	"github.com/dapi/code-converge/internal/runner"
 )
 
 const (
@@ -68,7 +69,7 @@ func (w *Workflow) Run(ctx context.Context) int {
 		}
 		stageCtx, cancelStage := context.WithCancel(ctx)
 		liveness := w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "review", Model: w.stageModel("review"), ReasoningEffort: w.stageReasoningEffort("review"), ReviewPhase: phase, Cycle: cycle}, stageStarted, cancelStage)
-		review, err := w.Agent.Review(stageCtx)
+		review, err := w.Agent.Review(runner.WithStageContext(stageCtx, runner.StageContext{Stage: "review", ReviewPhase: phase, Cycle: cycle, Model: w.stageModel("review"), ReasoningEffort: w.stageReasoningEffort("review")}))
 		livenessErr := liveness.Stop()
 		cancelStage()
 		duration := durationField(now().Sub(stageStarted))
@@ -132,7 +133,7 @@ func (w *Workflow) Run(ctx context.Context) int {
 			}
 			stageCtx, cancelStage = context.WithCancel(ctx)
 			liveness = w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "fix-findings", Model: w.stageModel("fix-findings"), ReasoningEffort: w.stageReasoningEffort("fix-findings"), ReviewPhase: phase, Cycle: cycle}, stageStarted, cancelStage)
-			err = w.Agent.FixFindings(stageCtx, review.Report)
+			err = w.Agent.FixFindings(runner.WithStageContext(stageCtx, runner.StageContext{Stage: "fix-findings", ReviewPhase: phase, Cycle: cycle, Model: w.stageModel("fix-findings"), ReasoningEffort: w.stageReasoningEffort("fix-findings")}), review.Report)
 			livenessErr = liveness.Stop()
 			cancelStage()
 			if livenessErr != nil {
@@ -182,8 +183,8 @@ func (w *Workflow) Run(ctx context.Context) int {
 			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 		}
 		stageCtx, cancelStage = context.WithCancel(ctx)
-		liveness = w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "finalize", Model: w.stageModel("finalize"), ReasoningEffort: w.stageReasoningEffort("finalize")}, stageStarted, cancelStage)
-		finalization, err := w.Agent.Finalize(stageCtx, checkpointed)
+		liveness = w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "finalize", Model: w.stageModel("finalize"), ReasoningEffort: w.stageReasoningEffort("finalize"), ReviewPhase: phase, Cycle: cycle}, stageStarted, cancelStage)
+		finalization, err := w.Agent.Finalize(runner.WithStageContext(stageCtx, runner.StageContext{Stage: "finalize", ReviewPhase: phase, Cycle: cycle, Model: w.stageModel("finalize"), ReasoningEffort: w.stageReasoningEffort("finalize")}), checkpointed)
 		livenessErr = liveness.Stop()
 		cancelStage()
 		if livenessErr != nil {
@@ -220,8 +221,8 @@ func (w *Workflow) Run(ctx context.Context) int {
 				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 			}
 			stageCtx, cancelStage = context.WithCancel(ctx)
-			liveness = w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "fix-ci", Model: w.stageModel("fix-ci"), ReasoningEffort: w.stageReasoningEffort("fix-ci"), ReviewPhase: phase}, stageStarted, cancelStage)
-			err = w.Agent.FixCI(stageCtx)
+			liveness = w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "fix-ci", Model: w.stageModel("fix-ci"), ReasoningEffort: w.stageReasoningEffort("fix-ci"), ReviewPhase: phase, Cycle: cycle}, stageStarted, cancelStage)
+			err = w.Agent.FixCI(runner.WithStageContext(stageCtx, runner.StageContext{Stage: "fix-ci", ReviewPhase: phase, Cycle: cycle, Model: w.stageModel("fix-ci"), ReasoningEffort: w.stageReasoningEffort("fix-ci")}))
 			livenessErr = liveness.Stop()
 			cancelStage()
 			if livenessErr != nil {
@@ -315,7 +316,15 @@ func (w *Workflow) stageReasoningEffort(stage string) string {
 			return w.Config.FixEffort
 		}
 		return "medium"
-	case "finalize", "fix-ci":
+	case "finalize":
+		if w.Config.FinalizeEffort != "" {
+			return w.Config.FinalizeEffort
+		}
+		return "agent-default"
+	case "fix-ci":
+		if w.Config.CIFixEffort != "" {
+			return w.Config.CIFixEffort
+		}
 		return "agent-default"
 	default:
 		return "unknown"
