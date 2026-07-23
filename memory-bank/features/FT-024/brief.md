@@ -10,7 +10,7 @@ derived_from:
   - ../../../README.md
   - https://github.com/dapi/code-converge/issues/24
 status: active
-delivery_status: in_progress
+delivery_status: done
 audience: humans_and_agents
 must_not_define:
   - implementation_sequence
@@ -94,3 +94,11 @@ Downgrade approval: none.
 | `EVID-01` | `go test ./internal/repository ./internal/workflow ./internal/codex ./internal/event` output |
 | `EVID-02` | `make docs-lint` output and semantic owner read-through |
 | `EVID-03` | `go test ./...`, `go vet ./...`, `git diff --check` output |
+
+### Execution Evidence Status
+
+| Evidence ID | Status | Concrete carrier |
+| --- | --- | --- |
+| `EVID-01` | pass | `go test ./internal/repository ./internal/workflow ./internal/codex ./internal/event` covers changed, no-change, dirty-worktree, checkpoint-failure, exhausted-budget, finalization hand-off and terminal-rendering paths. |
+| `EVID-02` | pass | Root README, domain rules and engineering architecture converge on local-only checkpoints; `make docs-lint` passes. |
+| `EVID-03` | pass | `go test ./...`, `go vet ./...`, `make docs-lint` and `git diff --check` pass. Implementation was merged by [PR #27](https://github.com/dapi/code-converge/pull/27), which closed [issue #24](https://github.com/dapi/code-converge/issues/24). |

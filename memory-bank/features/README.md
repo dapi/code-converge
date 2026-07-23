@@ -45,4 +45,4 @@ audience: humans_and_agents
 - [`FT-016/README.md`](FT-016/README.md) — planned complete branch-and-worktree review scope for issue #16; blocked at a public-contract human gate.
 - [`FT-020/README.md`](FT-020/README.md) — complete conventional root `-h`/`--help` aliases for issue #20.
 - [`FT-022/README.md`](FT-022/README.md) — complete schema-constrained Codex review result channel for issue #22.
-- [`FT-024/README.md`](FT-024/README.md) — active local checkpoints for successful findings fixes, with publication deferred to clean-review finalization for issue #24.
+- [`FT-024/README.md`](FT-024/README.md) — completed local checkpoints for successful findings fixes, with publication deferred to clean-review finalization for issue #24.

@@ -6,7 +6,7 @@ purpose: "Grounded execution plan for FT-024."
 derived_from:
   - brief.md
   - design.md
-status: active
+status: archived
 audience: humans_and_agents
 must_not_define:
   - ft_024_scope
