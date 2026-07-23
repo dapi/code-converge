@@ -12,7 +12,7 @@ derived_from:
   - ../../../internal/runner/runner.go
   - https://github.com/dapi/code-converge/issues/14
 status: active
-delivery_status: in_progress
+delivery_status: done
 audience: humans_and_agents
 must_not_define:
   - selected_solution
@@ -154,4 +154,4 @@ When a Codex review cannot be classified, workflow diagnostics expose the classi
 | `EVID-02` | pass | `internal/config` table tests cover source precedence, absolute/tilde path handling, duration validation and `config` setting display. |
 | `EVID-03` | pass | `internal/session` tests cover retention boundary, direct-child cleanup, symlink exclusion and non-fatal record-write diagnostics. |
 | `EVID-04` | pass | `TestAppNoSessionLogCreatesNoArtifactsOrHandoff` proves the per-run opt-out creates neither directory nor human handoff. |
-| `EVID-05` | pass locally; CI pending | `go test ./...`, `go test -race ./internal/session ./internal/app ./internal/workflow`, `go vet ./...`, `make docs-lint`, `git diff --check`; PR CI/review remains required for closure. |
+| `EVID-05` | pass | `go test ./...`, `go test -race ./internal/session ./internal/app ./internal/workflow`, `go vet ./...`, `make docs-lint`, `git diff --check`; required [Verify run](https://github.com/dapi/code-converge/actions/runs/30015452719) passed for PR [#25](https://github.com/dapi/code-converge/pull/25). |
