@@ -17,6 +17,7 @@ import (
 	selfupdate "github.com/dapi/code-converge/internal/update"
 	"github.com/dapi/code-converge/internal/version"
 	"github.com/dapi/code-converge/internal/workflow"
+	"golang.org/x/term"
 )
 
 type optionalFlag struct{ target *config.OptionalString }
@@ -34,15 +35,16 @@ func (f optionalFlag) Set(value string) error {
 }
 
 type App struct {
-	Stdout     io.Writer
-	Stderr     io.Writer
-	Cwd        string
-	Home       string
-	Runner     runner.Runner
-	Now        func() time.Time
-	IsTerminal func(io.Writer) bool
-	LookupEnv  func(string) (string, bool)
-	Updater    selfupdate.Runner
+	Stdout        io.Writer
+	Stderr        io.Writer
+	Cwd           string
+	Home          string
+	Runner        runner.Runner
+	Now           func() time.Time
+	IsTerminal    func(io.Writer) bool
+	TerminalWidth func(io.Writer) (int, error)
+	LookupEnv     func(string) (string, bool)
+	Updater       selfupdate.Runner
 }
 
 func (a App) Run(ctx context.Context, args []string) int {
@@ -153,9 +155,13 @@ func (a App) Run(ctx context.Context, args []string) int {
 	reviewScope := &repository.ReviewScope{Runner: processRunner, Base: cfg.ReviewBase, Root: cfg.Root}
 	defer reviewScope.Close()
 	agent := codex.Adapter{Runner: processRunner, Config: cfg, ReviewScope: reviewScope}
+	interactive := a.isTerminal(stdout)
 	logger := event.Logger{
 		Out: stdout, Err: stderr, Now: a.Now, Format: cfg.LogFormat, Heartbeat: cfg.Heartbeat,
-		Interactive: a.isTerminal(stdout), ColorDepth: a.colorDepth(cfg, stdout),
+		Interactive: interactive, ColorDepth: a.colorDepth(cfg, stdout),
+	}
+	if interactive && cfg.LogFormat == "human" && cfg.Heartbeat == 0 {
+		logger.TerminalWidth = func() (int, error) { return a.terminalWidth(stdout) }
 	}
 	w := workflow.Workflow{Config: cfg, Agent: agent, Repository: repository.Status{Runner: processRunner}, Log: &logger, Err: stderr, Now: a.Now}
 	return w.Run(ctx)
@@ -185,6 +191,21 @@ func (a App) isTerminal(out io.Writer) bool {
 	}
 	info, err := file.Stat()
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+func (a App) terminalWidth(out io.Writer) (int, error) {
+	if a.TerminalWidth != nil {
+		return a.TerminalWidth(out)
+	}
+	file, ok := out.(*os.File)
+	if !ok {
+		return 0, fmt.Errorf("stdout is not a file")
+	}
+	width, _, err := term.GetSize(int(file.Fd()))
+	if err != nil {
+		return 0, err
+	}
+	return width, nil
 }
 
 func (a App) colorDepth(cfg config.Config, out io.Writer) int {

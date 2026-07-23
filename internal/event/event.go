@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/mattn/go-runewidth"
 )
 
 var keyPattern = regexp.MustCompile(`^[a-z0-9_]+$`)
@@ -32,13 +34,17 @@ type Logger struct {
 	Interactive bool
 	ColorDepth  int // 0=none, 1=basic, 2=ANSI-256, 3=true color
 	Tick        TickFactory
+	// TerminalWidth returns the current interactive stdout width in cells. It is
+	// used only for transient human liveness frames.
+	TerminalWidth func() (int, error)
 	// HumanMaxCycles and HumanMaxCIRecoveries provide the configured budgets for
 	// operator-facing progress only. They never affect workflow behavior or kv.
 	HumanMaxCycles       int
 	HumanMaxCIRecoveries int
 
-	mu        sync.Mutex
-	transient bool
+	mu             sync.Mutex
+	transient      bool
+	transientCells int
 }
 
 // StageContext supplies the facts needed by a liveness line. It deliberately
@@ -173,15 +179,27 @@ func (l *Logger) writeTransient(stage StageContext, elapsed time.Duration, frame
 		seconds = 0
 	}
 	line := fmt.Sprintf("%s%s... %s", l.humanPrefix(l.stageAttempt(stage), stage.Model, stage.ReasoningEffort), label, compoundSeconds(seconds))
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	width, err := l.terminalWidthLocked()
+	if err != nil {
+		return err
+	}
+	line, cells := truncateCells(line, width-1)
+	if cells == 0 {
+		return fmt.Errorf("liveness line does not fit terminal width %d", width)
+	}
+	if err := l.clearLocked(); err != nil {
+		return err
+	}
 	if l.ColorDepth > 0 {
 		line = shimmer(line, frame, l.ColorDepth)
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	if _, err := io.WriteString(l.Out, "\r\x1b[2K"+line); err != nil {
 		return err
 	}
 	l.transient = true
+	l.transientCells = cells
 	return nil
 }
 
@@ -189,11 +207,56 @@ func (l *Logger) clearLocked() error {
 	if !l.transient {
 		return nil
 	}
-	_, err := io.WriteString(l.Out, "\r\x1b[2K")
+	width, err := l.terminalWidthLocked()
+	if err != nil {
+		return err
+	}
+	rows := (l.transientCells + width - 1) / width
+	if rows < 1 {
+		return fmt.Errorf("invalid transient footprint %d", l.transientCells)
+	}
+	var output strings.Builder
+	output.WriteString("\r\x1b[2K")
+	for row := 1; row < rows; row++ {
+		output.WriteString("\x1b[1A\r\x1b[2K")
+	}
+	_, err = io.WriteString(l.Out, output.String())
 	if err == nil {
 		l.transient = false
+		l.transientCells = 0
 	}
 	return err
+}
+
+func (l *Logger) terminalWidthLocked() (int, error) {
+	if l.TerminalWidth == nil {
+		return 0, fmt.Errorf("interactive terminal width is unavailable")
+	}
+	width, err := l.TerminalWidth()
+	if err != nil {
+		return 0, fmt.Errorf("terminal width: %w", err)
+	}
+	if width < 2 {
+		return 0, fmt.Errorf("invalid terminal width %d", width)
+	}
+	return width, nil
+}
+
+func truncateCells(value string, limit int) (string, int) {
+	if limit < 1 {
+		return "", 0
+	}
+	width := 0
+	end := 0
+	for index, r := range value {
+		cells := runewidth.RuneWidth(r)
+		if cells < 0 || width+cells > limit {
+			break
+		}
+		width += cells
+		end = index + len(string(r))
+	}
+	return value[:end], width
 }
 
 func (l *Logger) ticker(interval time.Duration) (<-chan time.Time, func()) {

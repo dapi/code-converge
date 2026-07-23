@@ -169,7 +169,7 @@ func TestTransientClearedBeforePermanentAndDiagnostic(t *testing.T) {
 	writer := &signalWriter{writes: make(chan string, 8)}
 	var stderr bytes.Buffer
 	start := time.Date(2026, 7, 21, 0, 0, 0, 0, time.UTC)
-	logger := Logger{Out: writer, Err: &stderr, Format: "human", Interactive: true, ColorDepth: 0, Now: func() time.Time { return start }, Tick: func(time.Duration) (<-chan time.Time, func()) { return ticks, func() {} }}
+	logger := Logger{Out: writer, Err: &stderr, Format: "human", Interactive: true, ColorDepth: 0, Now: func() time.Time { return start }, TerminalWidth: fixedWidth(80), Tick: func(time.Duration) (<-chan time.Time, func()) { return ticks, func() {} }}
 	ctx, cancel := context.WithCancel(context.Background())
 	live := logger.StartLiveness(ctx, StageContext{Stage: "review", Model: "gpt-test", ReasoningEffort: "high", Cycle: 1}, start, cancel)
 	initial := <-writer.writes
@@ -194,7 +194,7 @@ func TestTransientClearedBeforePermanentAndDiagnostic(t *testing.T) {
 func TestLivenessWriterFailureCancelsStage(t *testing.T) {
 	writer := &signalWriter{writes: make(chan string, 1), fail: true}
 	start := time.Date(2026, 7, 21, 0, 0, 0, 0, time.UTC)
-	logger := Logger{Out: writer, Format: "human", Interactive: true, Now: func() time.Time { return start }}
+	logger := Logger{Out: writer, Format: "human", Interactive: true, Now: func() time.Time { return start }, TerminalWidth: fixedWidth(80)}
 	ctx, cancelContext := context.WithCancel(context.Background())
 	cancelled := make(chan struct{})
 	var once sync.Once
@@ -213,7 +213,7 @@ func TestLivenessWriterFailureCancelsStage(t *testing.T) {
 func TestCancelledStageDoesNotStartLiveness(t *testing.T) {
 	writer := &signalWriter{writes: make(chan string, 1)}
 	start := time.Date(2026, 7, 21, 0, 0, 0, 0, time.UTC)
-	logger := Logger{Out: writer, Format: "human", Interactive: true, Now: func() time.Time { return start }}
+	logger := Logger{Out: writer, Format: "human", Interactive: true, Now: func() time.Time { return start }, TerminalWidth: fixedWidth(80)}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	live := logger.StartLiveness(ctx, StageContext{Stage: "review", Model: "gpt-test", ReasoningEffort: "high", Cycle: 1}, start, func() {})
@@ -222,6 +222,58 @@ func TestCancelledStageDoesNotStartLiveness(t *testing.T) {
 	}
 	if got := writer.String(); got != "" {
 		t.Fatalf("cancelled stage wrote %q", got)
+	}
+}
+
+func fixedWidth(width int) func() (int, error) {
+	return func() (int, error) { return width, nil }
+}
+
+func TestTransientReflowClearsEveryOwnedRow(t *testing.T) {
+	writer := &signalWriter{writes: make(chan string, 8)}
+	start := time.Date(2026, 7, 21, 0, 0, 0, 0, time.UTC)
+	ticks := make(chan time.Time, 1)
+	width := 80
+	logger := Logger{
+		Out: writer, Format: "human", Interactive: true, ColorDepth: 0,
+		Now:           func() time.Time { return start },
+		TerminalWidth: func() (int, error) { return width, nil },
+		Tick:          func(time.Duration) (<-chan time.Time, func()) { return ticks, func() {} },
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	live := logger.StartLiveness(ctx, StageContext{Stage: "review", Model: strings.Repeat("m", 45), ReasoningEffort: "high", Cycle: 1}, start, cancel)
+	<-writer.writes
+	width = 40
+	ticks <- start.Add(time.Second)
+	if cleared := <-writer.writes; cleared != "\r\x1b[2K\x1b[1A\r\x1b[2K" {
+		t.Fatalf("reflow clear sequence = %q", cleared)
+	}
+	if refreshed := <-writer.writes; !strings.HasPrefix(refreshed, "\r\x1b[2K") {
+		t.Fatalf("reflow redraw = %q", refreshed)
+	}
+	if err := live.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	if err := logger.Emit("review_completed", F("stage", "review"), F("cycle", "1"), F("status", "clean"), F("duration_ms", "1000")); err != nil {
+		t.Fatal(err)
+	}
+	if got := writer.String(); !strings.Contains(got, "\r\x1b[2K00:00:00 [1/0] Review: clean (1s)\n") {
+		t.Fatalf("reflow clear sequence missing from %q", got)
+	}
+}
+
+func TestTransientRequiresTerminalWidth(t *testing.T) {
+	writer := &signalWriter{writes: make(chan string, 1)}
+	logger := Logger{Out: writer, Format: "human", Interactive: true}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancelled := make(chan struct{})
+	live := logger.StartLiveness(ctx, StageContext{Stage: "review"}, time.Now(), func() {
+		close(cancelled)
+		cancel()
+	})
+	<-cancelled
+	if err := live.Stop(); err == nil || !strings.Contains(err.Error(), "terminal width") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

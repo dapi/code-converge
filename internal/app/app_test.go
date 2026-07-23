@@ -413,3 +413,16 @@ func TestColorDepth(t *testing.T) {
 		})
 	}
 }
+
+func TestTerminalWidthUsesInjection(t *testing.T) {
+	var got io.Writer
+	want := &bytes.Buffer{}
+	app := App{TerminalWidth: func(out io.Writer) (int, error) {
+		got = out
+		return 123, nil
+	}}
+	width, err := app.terminalWidth(want)
+	if err != nil || width != 123 || got != want {
+		t.Fatalf("width=%d err=%v writer=%p, want 123 nil %p", width, err, got, want)
+	}
+}

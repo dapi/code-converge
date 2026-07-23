@@ -43,3 +43,4 @@ audience: humans_and_agents
 - [`FT-016/README.md`](FT-016/README.md) — planned complete branch-and-worktree review scope for issue #16; blocked at a public-contract human gate.
 - [`FT-020/README.md`](FT-020/README.md) — complete conventional root `-h`/`--help` aliases for issue #20.
 - [`FT-022/README.md`](FT-022/README.md) — complete schema-constrained Codex review result channel for issue #22.
+- [`FT-028/README.md`](FT-028/README.md) — active remediation of stale interactive liveness frames for issue #28 through footprint-aware clearing and deterministic reflow coverage.
