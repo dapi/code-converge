@@ -426,3 +426,34 @@ func TestTerminalWidthUsesInjection(t *testing.T) {
 		t.Fatalf("width=%d err=%v writer=%p, want 123 nil %p", width, err, got, want)
 	}
 }
+
+func TestIsTerminalRejectsNonTTYCharacterDevice(t *testing.T) {
+	device, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer device.Close()
+	if (App{}).isTerminal(device) {
+		t.Fatal("/dev/null was treated as an interactive terminal")
+	}
+}
+
+func TestAppHumanDevNullWorkflow(t *testing.T) {
+	root, home := testRepo(t)
+	device, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer device.Close()
+	var stderr bytes.Buffer
+	fake := &appFakeRunner{
+		t:           t,
+		review:      runner.Result{Stdout: "No findings.\n"},
+		reviewMsg:   `{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"no findings","overall_confidence_score":0.99}`,
+		finalizeMsg: `{"verdict":"SUCCESS","commit":"success","push":"success","change_request":"skipped","ci":"skipped"}`,
+	}
+	code := (App{Stdout: device, Stderr: &stderr, Cwd: root, Home: home, Runner: fake}).Run(context.Background(), nil)
+	if code != workflow.ExitSuccess || stderr.Len() != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+}

@@ -6,7 +6,7 @@ purpose: "Execution plan for FT-028 footprint-aware liveness clearing without re
 derived_from:
   - brief.md
   - design.md
-status: archived
+status: active
 audience: humans_and_agents
 must_not_define:
   - ft_028_scope

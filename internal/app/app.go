@@ -189,8 +189,7 @@ func (a App) isTerminal(out io.Writer) bool {
 	if !ok {
 		return false
 	}
-	info, err := file.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(int(file.Fd()))
 }
 
 func (a App) terminalWidth(out io.Writer) (int, error) {

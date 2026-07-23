@@ -125,6 +125,14 @@ must_not_define:
 - **Verification:** required GitHub Actions [Verify run](https://github.com/dapi/code-converge/actions/runs/30022661002) passed after the two review corrections.
 - **Result:** no critical/high review finding remains; feature delivery is done and the implementation plan is archived. A final documentation-only CI run records this lifecycle transition.
 
+### Iteration 6 — non-TTY character-device correction
+
+- **Critical:** none.
+- **High:** none.
+- **P1:** the prior terminal predicate accepted every character device, including `/dev/null`; this could install the width reader and turn a valid redirected run into an operational failure when `GetSize` returned `ENOTTY`.
+- **Fix:** `App.isTerminal` now delegates to `term.IsTerminal` for `*os.File`; `/dev/null` is regression-tested as non-interactive, so no transient liveness or width lookup is installed there.
+- **State:** feature is reopened pending local and hosted verification; the plan is active until the corrected PR is green.
+
 ## Human Gate
 
 No unresolved question currently requires a human decision. `HG-01` was resolved by the user's instruction to use FPF for the choice; `DL-02` records the selected scope and the evidence required to validate it.

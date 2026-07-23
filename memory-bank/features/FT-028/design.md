@@ -42,7 +42,7 @@ must_not_define:
 - `SD-01` Width is queried immediately before each transient clear/redraw, not cached across a resize. The supported scope is interactive POSIX stdout for which a positive terminal column count is available.
 - `SD-02` If a required width cannot be obtained or a footprint cannot be represented safely, return the liveness write error through the existing cancel/Stop path; do not emit an unsafe cursor sequence or silently switch to a newline heartbeat.
 - `SD-03` The existing `Logger.mu` remains the single presentation coordinator; footprint mutation, clearing, permanent writes, and diagnostics occur under it.
-- `SD-04` `internal/app` exposes an injectable width-reader seam alongside its existing `IsTerminal` seam. The production implementation obtains a current column count only from interactive `*os.File` stdout, using a Go dependency that supports both released POSIX targets (Linux and macOS); tests supply widths directly and do not require a real terminal.
+- `SD-04` `internal/app` exposes an injectable width-reader seam alongside its existing `IsTerminal` seam. The production implementation enables transient liveness only for TTY `*os.File` stdout and obtains its current column count there, using a Go dependency that supports both released POSIX targets (Linux and macOS); tests supply widths directly and do not require a real terminal.
 
 ## Contracts and invariants
 
