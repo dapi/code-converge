@@ -42,7 +42,7 @@ audience: humans_and_agents
 - [`FT-012/README.md`](FT-012/README.md) — active self-update command delivery for issue #12, including verified release replacement and its public CLI contract.
 - [`FT-014/README.md`](FT-014/README.md) — complete diagnostic session logs with retention, opt-out and private human path handoff for issue #14.
 - [`FT-015/README.md`](FT-015/README.md) — complete strict structured Codex review classification and successful no-change completion for issue #15.
-- [`FT-016/README.md`](FT-016/README.md) — planned complete branch-and-worktree review scope for issue #16; blocked at a public-contract human gate.
+- [`FT-016/README.md`](FT-016/README.md) — complete branch-and-worktree review scope for issue #16; public-contract human gate closed by `DL-03` and delivery merged in PR #19.
 - [`FT-020/README.md`](FT-020/README.md) — complete conventional root `-h`/`--help` aliases for issue #20.
 - [`FT-022/README.md`](FT-022/README.md) — complete schema-constrained Codex review result channel for issue #22.
 - [`FT-024/README.md`](FT-024/README.md) — completed local checkpoints for successful findings fixes, with publication deferred to clean-review finalization for issue #24.
