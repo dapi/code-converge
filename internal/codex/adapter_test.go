@@ -287,6 +287,39 @@ func TestScopedReviewArgsRequireScopedGitEnvironment(t *testing.T) {
 	}
 }
 
+func TestScopedReviewArgsUseTOMLCompatibleEnvironmentEncoding(t *testing.T) {
+	target := repository.ReviewTarget{BaseCommit: "base-sha", Env: []string{
+		"PATH=/review/\a\v\x1b/bin",
+		"SHELL=/bin/sh",
+		"ZDOTDIR=/review/\"quoted\"\\helper",
+		"BASH_ENV=",
+		"ENV=",
+	}}
+	args, err := scopedReviewArgs(config.Config{ReviewModel: "review-model"}, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(args, " ")
+	for _, want := range []string{
+		`shell_environment_policy.set.PATH="/review/\u0007\u000B\u001B/bin"`,
+		`shell_environment_policy.set.ZDOTDIR="/review/\"quoted\"\\helper"`,
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("args %#v do not contain %q", args, want)
+		}
+	}
+	for _, invalidEscape := range []string{`\a`, `\v`, `\x1b`} {
+		if strings.Contains(joined, invalidEscape) {
+			t.Errorf("args %#v contain non-TOML escape %q", args, invalidEscape)
+		}
+	}
+
+	target.Env[0] = "PATH=/review/" + string([]byte{0xff}) + "/bin"
+	if _, err := scopedReviewArgs(config.Config{ReviewModel: "review-model"}, target); err == nil || !strings.Contains(err.Error(), "PATH environment") || !strings.Contains(err.Error(), "valid UTF-8") {
+		t.Fatalf("invalid UTF-8 error = %v", err)
+	}
+}
+
 func TestFinalizationSchemaIsStrictJSON(t *testing.T) {
 	var schema map[string]any
 	if err := json.Unmarshal([]byte(finalizationSchema), &schema); err != nil {

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/dapi/code-converge/internal/config"
 	"github.com/dapi/code-converge/internal/repository"
@@ -144,13 +145,52 @@ func scopedReviewArgs(configuration config.Config, target repository.ReviewTarge
 		if !ok || item.nonEmpty && value == "" {
 			return nil, fmt.Errorf("review scope did not provide required %s environment", item.name)
 		}
-		args = append(args, "-c", "shell_environment_policy.set."+item.name+"="+strconv.Quote(value))
+		quoted, err := quoteTOMLString(value)
+		if err != nil {
+			return nil, fmt.Errorf("review scope %s environment: %w", item.name, err)
+		}
+		args = append(args, "-c", "shell_environment_policy.set."+item.name+"="+quoted)
 	}
 	// A login shell can prepend a system Git directory after Codex applies PATH.
 	// Disable it as a second layer after selecting a neutral non-login shell and
 	// neutralizing user-controlled non-interactive startup files.
 	args = append(args, "-c", "allow_login_shell=false")
 	return args, nil
+}
+
+func quoteTOMLString(value string) (string, error) {
+	if !utf8.ValidString(value) {
+		return "", errors.New("value is not valid UTF-8")
+	}
+	var quoted strings.Builder
+	quoted.Grow(len(value) + 2)
+	quoted.WriteByte('"')
+	for _, character := range value {
+		switch character {
+		case '\b':
+			quoted.WriteString(`\b`)
+		case '\t':
+			quoted.WriteString(`\t`)
+		case '\n':
+			quoted.WriteString(`\n`)
+		case '\f':
+			quoted.WriteString(`\f`)
+		case '\r':
+			quoted.WriteString(`\r`)
+		case '"':
+			quoted.WriteString(`\"`)
+		case '\\':
+			quoted.WriteString(`\\`)
+		default:
+			if character < 0x20 || character == 0x7f {
+				fmt.Fprintf(&quoted, `\u%04X`, character)
+				continue
+			}
+			quoted.WriteRune(character)
+		}
+	}
+	quoted.WriteByte('"')
+	return quoted.String(), nil
 }
 
 func environmentValue(environment []string, name string) (string, bool) {
