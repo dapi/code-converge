@@ -276,6 +276,15 @@ The reasoning bounds this feature to review-input selection, separates issue fac
 - **Verification:** `GOCACHE=/private/tmp/code-converge-test.XXXXXX go test ./...`, `GOCACHE=/private/tmp/code-converge-vet.XXXXXX go vet ./...`, `make docs-lint`, `gofmt -d` for the modified Go files and `git diff --check` pass. Required CI and independent final review remain high-risk gates.
 - **Human gate:** no; the user explicitly authorized the remediation.
 
+### Cycle 25 — external-subcommand isolation remediation
+
+- **Routing:** Bug Fix flow within FT-016. The review finding violates `CTR-04`: an external `git-*` command is neither a built-in nor a safely classifiable alias, so it must not receive the review index. The active `high-risk` profile remains applicable because the private-index security boundary is affected.
+- **Review scope:** scoped Git subcommand classification in `internal/repository/review.go`.
+- **Important:** reviewer `P2`: an unknown external command such as `git-foo` inherited the disposable review index; an absolute Git descendant could consequently operate on another repository or create one using the wrong index.
+- **Changes:** classify an unresolved non-built-in, non-alias subcommand as unclassifiable and run it with the normal index. Added a real-wrapper regression that installs an external helper which invokes an absolute Git executable against a nested repository, verifies its normal status, and confirms that the review index remains unchanged.
+- **Verification:** `GOCACHE=/private/tmp/code-converge-review-test.XXXXXX go test ./internal/repository`, `GOCACHE=/private/tmp/code-converge-full-test.XXXXXX go test ./...`, `GOCACHE=/private/tmp/code-converge-full-vet.XXXXXX go vet ./...`, `make docs-lint`, `gofmt -d` for modified Go files and `git diff --check` pass. Required CI and independent final review remain high-risk gates.
+- **Human gate:** no; this restores the documented fail-closed private-index isolation behavior without changing the public contract.
+
 ## Human Gate
 
 ### `HG-01` — Public review-base/scope contract

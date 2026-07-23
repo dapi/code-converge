@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1224,6 +1225,31 @@ func TestReviewScopePrivateIndexSurvivesPathOnlyEnvironment(t *testing.T) {
 	}
 	if !reflect.DeepEqual(afterOtherStatus, before) {
 		t.Fatal("other repository status changed the private review index")
+	}
+
+	// An external git-* command is not a built-in or an alias. It may invoke an
+	// absolute Git executable against another repository, so it must not inherit
+	// the disposable review index either.
+	externalHelper := filepath.Join(configuration.HelperDir, "git-external-other-status")
+	externalScript := fmt.Sprintf("#!/bin/sh\nexec %q -C \"$1\" status --porcelain\n", mustGitExecutable(t))
+	if err := os.WriteFile(externalHelper, []byte(externalScript), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	externalStatus, err := (runner.Exec{Dir: root}).Run(context.Background(), runner.Invocation{
+		Executable: "sh", Args: []string{"-c", "git external-other-status \"$1\"", "sh", nested}, Env: target.Env,
+	})
+	if err != nil {
+		t.Fatalf("other repository status through external Git command: %v", err)
+	}
+	if externalStatus.Stdout != string(wantOtherStatus) {
+		t.Fatalf("external Git command status = %q, want %q", externalStatus.Stdout, wantOtherStatus)
+	}
+	afterExternalStatus, err := os.ReadFile(privateIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(afterExternalStatus, before) {
+		t.Fatal("external Git command changed the private review index")
 	}
 
 	source := t.TempDir()

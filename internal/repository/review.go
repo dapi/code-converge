@@ -961,7 +961,10 @@ func gitCommandCreatesRepository(prefix []string, subcommand string, remainder [
 	visitedAliases[subcommand] = true
 	expansion, found := gitAliasExpansion(gitExecutable, directory, prefix, subcommand)
 	if !found {
-		return false
+		// External git-* commands are arbitrary executables. Without an alias
+		// expansion, the wrapper cannot prove that the command stays in the
+		// reviewed repository, so it must not inherit the disposable index.
+		return true
 	}
 	if strings.HasPrefix(strings.TrimSpace(expansion), "!") {
 		return shellAliasCreatesRepository(expansion)
