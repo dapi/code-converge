@@ -14,6 +14,7 @@ import (
 	"github.com/dapi/code-converge/internal/event"
 	"github.com/dapi/code-converge/internal/repository"
 	"github.com/dapi/code-converge/internal/runner"
+	"github.com/dapi/code-converge/internal/terminal"
 	selfupdate "github.com/dapi/code-converge/internal/update"
 	"github.com/dapi/code-converge/internal/version"
 	"github.com/dapi/code-converge/internal/workflow"
@@ -36,6 +37,7 @@ func (f optionalFlag) Set(value string) error {
 type App struct {
 	Stdout     io.Writer
 	Stderr     io.Writer
+	Stdin      *os.File
 	Cwd        string
 	Home       string
 	Runner     runner.Runner
@@ -152,11 +154,28 @@ func (a App) Run(ctx context.Context, args []string) int {
 	}
 	reviewScope := &repository.ReviewScope{Runner: processRunner, Base: cfg.ReviewBase, Root: cfg.Root}
 	defer reviewScope.Close()
-	agent := codex.Adapter{Runner: processRunner, Config: cfg, ReviewScope: reviewScope}
+	var view *terminal.View
+	stdin := a.Stdin
+	if stdin == nil {
+		stdin = os.Stdin
+	}
+	lookup := a.LookupEnv
+	if lookup == nil {
+		lookup = os.LookupEnv
+	}
+	termName, _ := lookup("TERM")
+	if cfg.LogFormat == "human" && a.isTerminal(stdout) && termName != "" && termName != "dumb" {
+		candidate := terminal.New(stdout, stdin)
+		if candidate.Eligible() && candidate.Start() == nil {
+			view = candidate
+			defer view.Stop()
+		}
+	}
 	logger := event.Logger{
 		Out: stdout, Err: stderr, Now: a.Now, Format: cfg.LogFormat, Heartbeat: cfg.Heartbeat,
-		Interactive: a.isTerminal(stdout), ColorDepth: a.colorDepth(cfg, stdout),
+		Interactive: a.isTerminal(stdout), ColorDepth: a.colorDepth(cfg, stdout), View: view,
 	}
+	agent := codex.Adapter{Runner: processRunner, Config: cfg, ReviewScope: reviewScope, Output: logger.AgentOutput}
 	w := workflow.Workflow{Config: cfg, Agent: agent, Repository: repository.Status{Runner: processRunner}, Log: &logger, Err: stderr, Now: a.Now}
 	return w.Run(ctx)
 }

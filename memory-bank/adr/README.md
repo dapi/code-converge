@@ -18,6 +18,10 @@ audience: humans_and_agents
 - Держи в этом каталоге только реальные decision records, а не заметки или черновые исследования.
 - Если ADR пока нет, этот индекс остается пустым и служит ожидаемой точкой размещения для будущих решений.
 
+## Current records
+
+- [ADR-001: Interactive terminal runtime](ADR-001-interactive-terminal-runtime.md) — accepted minimal cross-platform terminal capability and raw-mode boundary for FT-010.
+
 ## Naming
 
 - Формат файла: `ADR-XXX-short-decision-name.md`

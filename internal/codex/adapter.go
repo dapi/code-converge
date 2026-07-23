@@ -71,6 +71,7 @@ type Adapter struct {
 	Runner      runner.Runner
 	Config      config.Config
 	ReviewScope *repository.ReviewScope
+	Output      func(source string, data []byte)
 }
 
 func (a Adapter) Review(ctx context.Context) (ReviewResult, error) {
@@ -106,9 +107,10 @@ func (a Adapter) Review(ctx context.Context) (ReviewResult, error) {
 		"exec", "--output-schema", schemaPath, "--output-last-message", messagePath, "-",
 	)
 	if _, err := a.Runner.Run(ctx, runner.Invocation{
-		Args:  args,
-		Env:   target.Env,
-		Stdin: reviewPrompt(target, indexPath),
+		Args:   args,
+		Env:    target.Env,
+		Stdin:  reviewPrompt(target, indexPath),
+		Output: a.output(),
 	}); err != nil {
 		return ReviewResult{}, err
 	}
@@ -165,13 +167,13 @@ Return actionable code-review findings. Use an empty findings array when there a
 
 func (a Adapter) FixFindings(ctx context.Context, report string) error {
 	prompt := a.Config.FixPrompt + "\n\nReview findings to address:\n\n" + report
-	_, err := a.Runner.Run(ctx, runner.Invocation{Args: append(modelArgs(a.Config.FixModel, a.Config.FixEffort), "exec", "-"), Stdin: prompt})
+	_, err := a.Runner.Run(ctx, runner.Invocation{Args: append(modelArgs(a.Config.FixModel, a.Config.FixEffort), "exec", "-"), Stdin: prompt, Output: a.output()})
 	return err
 }
 
 func (a Adapter) FixCI(ctx context.Context) error {
 	args := append(modelArgs(a.Config.CIFixModel, a.Config.CIFixEffort), "exec", "-")
-	_, err := a.Runner.Run(ctx, runner.Invocation{Args: args, Stdin: a.Config.CIFixPrompt})
+	_, err := a.Runner.Run(ctx, runner.Invocation{Args: args, Stdin: a.Config.CIFixPrompt, Output: a.output()})
 	return err
 }
 
@@ -188,7 +190,7 @@ func (a Adapter) Finalize(ctx context.Context) (Finalization, error) {
 	}
 	prompt := a.Config.FinalizePrompt + "\n\nReturn only the JSON object required by the supplied output schema. Report the actual outcomes of commit, push, change_request, and ci."
 	args := append(modelArgs(a.Config.FinalizeModel, a.Config.FinalizeEffort), "exec", "--output-schema", schemaPath, "--output-last-message", messagePath, "-")
-	if _, err := a.Runner.Run(ctx, runner.Invocation{Args: args, Stdin: prompt}); err != nil {
+	if _, err := a.Runner.Run(ctx, runner.Invocation{Args: args, Stdin: prompt, Output: a.output()}); err != nil {
 		return Finalization{}, err
 	}
 	message, err := os.ReadFile(messagePath)
@@ -196,6 +198,13 @@ func (a Adapter) Finalize(ctx context.Context) (Finalization, error) {
 		return Finalization{}, fmt.Errorf("read finalization response: %w", err)
 	}
 	return ParseFinalization(message)
+}
+
+func (a Adapter) output() func(runner.Output) {
+	if a.Output == nil {
+		return nil
+	}
+	return func(chunk runner.Output) { a.Output(chunk.Source, chunk.Data) }
 }
 
 func modelArgs(model, effort string) []string {

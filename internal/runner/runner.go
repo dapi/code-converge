@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 )
 
 type Invocation struct {
@@ -14,6 +16,14 @@ type Invocation struct {
 	Args       []string
 	Stdin      string
 	Env        []string
+	Output     func(Output)
+}
+
+// Output is one observed process chunk. It is delivered while a process is
+// running and remains separate from the final captured Result.
+type Output struct {
+	Source string // stdout or stderr
+	Data   []byte
 }
 
 type Result struct {
@@ -44,16 +54,46 @@ func (r Exec) Run(ctx context.Context, invocation Invocation) (Result, error) {
 	cmd.Env = append(os.Environ(), invocation.Env...)
 	cmd.Stdin = bytes.NewBufferString(invocation.Stdin)
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return Result{}, fmt.Errorf("capture stdout: %w", err)
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return Result{}, fmt.Errorf("capture stderr: %w", err)
+	}
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
-	err := cmd.Start()
+	err = cmd.Start()
 	if err != nil {
 		result := Result{Stdout: stdout.String(), Stderr: stderr.String()}
 		return result, formatRunError(name, err, result.Stderr)
 	}
+	var copies sync.WaitGroup
+	var outputMu sync.Mutex
+	copyStream := func(source string, input io.Reader, capture *bytes.Buffer) {
+		defer copies.Done()
+		buffer := make([]byte, 32*1024)
+		for {
+			n, readErr := input.Read(buffer)
+			if n > 0 {
+				chunk := append([]byte(nil), buffer[:n]...)
+				_, _ = capture.Write(chunk)
+				if invocation.Output != nil {
+					outputMu.Lock()
+					invocation.Output(Output{Source: source, Data: chunk})
+					outputMu.Unlock()
+				}
+			}
+			if readErr != nil {
+				return
+			}
+		}
+	}
+	copies.Add(2)
+	go copyStream("stdout", stdoutPipe, &stdout)
+	go copyStream("stderr", stderrPipe, &stderr)
 	done := make(chan struct{})
 	go func() {
 		select {
@@ -64,6 +104,7 @@ func (r Exec) Run(ctx context.Context, invocation Invocation) (Result, error) {
 	}()
 	err = cmd.Wait()
 	close(done)
+	copies.Wait()
 	result := Result{Stdout: stdout.String(), Stderr: stderr.String()}
 	if err != nil {
 		return result, formatRunError(name, err, result.Stderr)

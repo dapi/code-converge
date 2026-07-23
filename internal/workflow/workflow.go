@@ -60,7 +60,13 @@ func (w *Workflow) Run(ctx context.Context) int {
 		}
 		stageCtx, cancelStage := context.WithCancel(ctx)
 		liveness := w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "review", Model: w.stageModel("review"), ReasoningEffort: w.stageReasoningEffort("review"), ReviewPhase: phase, Cycle: cycle}, stageStarted, cancelStage)
+		w.Log.StartAgent("review " + strconv.Itoa(phase) + "." + strconv.Itoa(cycle))
 		review, err := w.Agent.Review(stageCtx)
+		if err != nil {
+			w.Log.CompleteAgent("review failed")
+		} else {
+			w.Log.CompleteAgent("review completed")
+		}
 		livenessErr := liveness.Stop()
 		cancelStage()
 		duration := durationField(now().Sub(stageStarted))
@@ -104,7 +110,13 @@ func (w *Workflow) Run(ctx context.Context) int {
 			}
 			stageCtx, cancelStage = context.WithCancel(ctx)
 			liveness = w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "fix-findings", Model: w.stageModel("fix-findings"), ReasoningEffort: w.stageReasoningEffort("fix-findings"), ReviewPhase: phase, Cycle: cycle}, stageStarted, cancelStage)
+			w.Log.StartAgent("fix-findings " + strconv.Itoa(phase) + "." + strconv.Itoa(cycle))
 			err = w.Agent.FixFindings(stageCtx, review.Report)
+			if err != nil {
+				w.Log.CompleteAgent("fix-findings failed")
+			} else {
+				w.Log.CompleteAgent("fix-findings completed")
+			}
 			livenessErr = liveness.Stop()
 			cancelStage()
 			if livenessErr != nil {
@@ -144,7 +156,13 @@ func (w *Workflow) Run(ctx context.Context) int {
 		}
 		stageCtx, cancelStage = context.WithCancel(ctx)
 		liveness = w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "finalize", Model: w.stageModel("finalize"), ReasoningEffort: w.stageReasoningEffort("finalize")}, stageStarted, cancelStage)
+		w.Log.StartAgent("finalize")
 		finalization, err := w.Agent.Finalize(stageCtx)
+		if err != nil {
+			w.Log.CompleteAgent("finalize failed")
+		} else {
+			w.Log.CompleteAgent("finalize completed")
+		}
 		livenessErr = liveness.Stop()
 		cancelStage()
 		if livenessErr != nil {
@@ -177,7 +195,13 @@ func (w *Workflow) Run(ctx context.Context) int {
 			}
 			stageCtx, cancelStage = context.WithCancel(ctx)
 			liveness = w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "fix-ci", Model: w.stageModel("fix-ci"), ReasoningEffort: w.stageReasoningEffort("fix-ci"), ReviewPhase: phase}, stageStarted, cancelStage)
+			w.Log.StartAgent("fix-ci " + strconv.Itoa(phase))
 			err = w.Agent.FixCI(stageCtx)
+			if err != nil {
+				w.Log.CompleteAgent("fix-ci failed")
+			} else {
+				w.Log.CompleteAgent("fix-ci completed")
+			}
 			livenessErr = liveness.Stop()
 			cancelStage()
 			if livenessErr != nil {

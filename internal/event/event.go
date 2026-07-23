@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/dapi/code-converge/internal/terminal"
 )
 
 var keyPattern = regexp.MustCompile(`^[a-z0-9_]+$`)
@@ -32,6 +34,7 @@ type Logger struct {
 	Interactive bool
 	ColorDepth  int // 0=none, 1=basic, 2=ANSI-256, 3=true color
 	Tick        TickFactory
+	View        *terminal.View
 	// HumanMaxCycles and HumanMaxCIRecoveries provide the configured budgets for
 	// operator-facing progress only. They never affect workflow behavior or kv.
 	HumanMaxCycles       int
@@ -55,12 +58,30 @@ func (l *Logger) Emit(eventName string, fields ...Field) error {
 	if err := validate(eventName, fields); err != nil {
 		return err
 	}
+	if l.View != nil && l.normalizedFormat() == "human" && l.Interactive && eventName == "stage_started" {
+		line, err := renderHuman(eventName, fields, l.HumanMaxCycles, l.HumanMaxCIRecoveries)
+		if err != nil {
+			return err
+		}
+		line = l.humanPrefix(l.eventAttempt(fields), fieldValue(fields, "model"), fieldValue(fields, "reasoning_effort")) + line
+		l.View.AppendWorkflow(line)
+		if !l.View.Active() {
+			return nil
+		}
+		return nil
+	}
 	line, err := l.render(eventName, fields)
 	if err != nil || line == "" {
 		return err
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.View != nil {
+		l.View.AppendWorkflow(line)
+		if l.View.Active() {
+			return nil
+		}
+	}
 	if err := l.clearLocked(); err != nil {
 		return err
 	}
@@ -74,8 +95,33 @@ func (l *Logger) Diagnostic(message string, err error) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.View != nil && l.View.Active() {
+		l.View.AppendWorkflow("code-converge: " + message + ": " + err.Error())
+		return
+	}
 	_ = l.clearLocked()
 	fmt.Fprintf(l.Err, "code-converge: %s: %v\n", message, err)
+}
+
+// StartAgent marks a new Codex process as the only active pane stream.
+func (l *Logger) StartAgent(identity string) {
+	if l.View != nil {
+		l.View.StartAgent(identity)
+	}
+}
+
+// AgentOutput accepts runner output only for the interactive pane. It never
+// forwards raw bytes into the workflow's stdout event stream.
+func (l *Logger) AgentOutput(source string, data []byte) {
+	if l.View != nil {
+		l.View.AppendAgent(source, data)
+	}
+}
+
+func (l *Logger) CompleteAgent(state string) {
+	if l.View != nil {
+		l.View.CompleteAgent(state)
+	}
 }
 
 type Liveness struct {
@@ -164,6 +210,9 @@ func (l *Logger) writeHeartbeat(stage StageContext, elapsed time.Duration) error
 }
 
 func (l *Logger) writeTransient(stage StageContext, elapsed time.Duration, frame int) error {
+	if l.View != nil && l.View.Active() {
+		return nil
+	}
 	label := l.livenessLabel(stage, true)
 	if label == "" {
 		return fmt.Errorf("unknown liveness stage %q", stage.Stage)

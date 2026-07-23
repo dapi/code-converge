@@ -102,6 +102,15 @@ func TestInteractiveHumanStageStartIsOmitted(t *testing.T) {
 	}
 }
 
+func TestAgentOutputWithoutViewNeverWritesWorkflowStdout(t *testing.T) {
+	var out bytes.Buffer
+	logger := Logger{Out: &out, Format: "human"}
+	logger.AgentOutput("stdout", []byte("raw agent output"))
+	if got := out.String(); got != "" {
+		t.Fatalf("workflow stdout = %q", got)
+	}
+}
+
 func TestHumanFindingsRequiresNonZeroSeverity(t *testing.T) {
 	logger := Logger{Out: ioDiscard{}, Format: "human"}
 	err := logger.Emit("review_completed", F("stage", "review"), F("cycle", "1"), F("status", "findings"), F("findings_total", "0"), F("findings_high", "0"), F("duration_ms", "1"))
