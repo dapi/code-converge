@@ -30,7 +30,8 @@ type Agent interface {
 type Repository interface {
 	HasChanges(context.Context) (bool, error)
 	IsClean(context.Context) (bool, error)
-	Checkpoint(context.Context) (repository.Checkpoint, error)
+	Head(context.Context) (string, error)
+	Checkpoint(context.Context, string, bool) (repository.Checkpoint, error)
 }
 
 type Workflow struct {
@@ -106,6 +107,7 @@ func (w *Workflow) Run(ctx context.Context) int {
 				return w.completeFindingsRemaining(now().Sub(runStarted), lastCheckpoint, fixes > 0, checkpointSkipReason)
 			}
 			canCheckpoint := w.Repository != nil
+			initialHead := ""
 			if w.Repository != nil {
 				clean, err := w.Repository.IsClean(ctx)
 				if err != nil {
@@ -117,6 +119,11 @@ func (w *Workflow) Run(ctx context.Context) int {
 					checkpointSkipReason = "pre_existing_changes"
 				} else {
 					checkpointSkipReason = ""
+				}
+				initialHead, err = w.Repository.Head(ctx)
+				if err != nil {
+					w.diagnostic("checkpoint head failed", err)
+					return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 				}
 			}
 			stageStarted = now()
@@ -143,8 +150,8 @@ func (w *Workflow) Run(ctx context.Context) int {
 				w.diagnostic("fix-findings failed", err)
 				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 			}
-			if canCheckpoint {
-				checkpoint, checkpointErr := w.Repository.Checkpoint(ctx)
+			if w.Repository != nil {
+				checkpoint, checkpointErr := w.Repository.Checkpoint(ctx, initialHead, canCheckpoint)
 				if checkpointErr != nil {
 					w.diagnostic("findings checkpoint failed", checkpointErr)
 					return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))

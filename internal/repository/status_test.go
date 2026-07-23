@@ -75,6 +75,8 @@ func TestStatusCheckpointCommitsLocallyWithoutPush(t *testing.T) {
 			return runner.Result{Stdout: " M fixed.go\n"}, nil
 		case "add -A", "commit -m chore: checkpoint review fixes":
 			return runner.Result{}, nil
+		case "rev-parse HEAD":
+			return runner.Result{Stdout: "new-sha\n"}, nil
 		case "branch --show-current":
 			return runner.Result{Stdout: "feature/checkpoints\n"}, nil
 		case "rev-parse --short HEAD":
@@ -84,7 +86,7 @@ func TestStatusCheckpointCommitsLocallyWithoutPush(t *testing.T) {
 			return runner.Result{}, nil
 		}
 	}}
-	checkpoint, err := (Status{Runner: fake}).Checkpoint(context.Background())
+	checkpoint, err := (Status{Runner: fake}).Checkpoint(context.Background(), "old-sha", true)
 	if err != nil || checkpoint != (Checkpoint{Created: true, Branch: "feature/checkpoints", Commit: "abc1234"}) {
 		t.Fatalf("checkpoint=%#v err=%v", checkpoint, err)
 	}
@@ -97,8 +99,8 @@ func TestStatusCheckpointCommitsLocallyWithoutPush(t *testing.T) {
 
 func TestStatusCheckpointSkipsEmptyCommit(t *testing.T) {
 	fake := &fakeRunner{result: runner.Result{Stdout: ""}}
-	checkpoint, err := (Status{Runner: fake}).Checkpoint(context.Background())
-	if err != nil || checkpoint.Created || len(fake.invocations) != 1 {
+	checkpoint, err := (Status{Runner: fake}).Checkpoint(context.Background(), "", true)
+	if err != nil || checkpoint.Created || len(fake.invocations) != 2 {
 		t.Fatalf("checkpoint=%#v err=%v invocations=%#v", checkpoint, err, fake.invocations)
 	}
 }
@@ -117,9 +119,36 @@ func TestStatusCheckpointPropagatesCommitFailure(t *testing.T) {
 			return runner.Result{}, nil
 		}
 	}}
-	_, err := (Status{Runner: fake}).Checkpoint(context.Background())
+	_, err := (Status{Runner: fake}).Checkpoint(context.Background(), "old-sha", true)
 	if err == nil || !strings.Contains(err.Error(), "commit findings checkpoint") {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestStatusCheckpointDetectsAgentCommitOnCleanWorktree(t *testing.T) {
+	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
+		switch strings.Join(inv.Args, " ") {
+		case "status --porcelain":
+			return runner.Result{}, nil
+		case "rev-parse HEAD":
+			return runner.Result{Stdout: "new-sha\n"}, nil
+		case "branch --show-current":
+			return runner.Result{Stdout: "feature/fix\n"}, nil
+		case "rev-parse --short HEAD":
+			return runner.Result{Stdout: "abc1234\n"}, nil
+		default:
+			t.Fatalf("unexpected invocation: %#v", inv)
+			return runner.Result{}, nil
+		}
+	}}
+	checkpoint, err := (Status{Runner: fake}).Checkpoint(context.Background(), "old-sha", false)
+	if err != nil || checkpoint != (Checkpoint{Created: true, Branch: "feature/fix", Commit: "abc1234"}) {
+		t.Fatalf("checkpoint=%#v err=%v", checkpoint, err)
+	}
+	for _, invocation := range fake.invocations {
+		if len(invocation.Args) > 0 && (invocation.Args[0] == "add" || invocation.Args[0] == "commit") {
+			t.Fatalf("agent commit detection created an extra checkpoint: %#v", fake.invocations)
+		}
 	}
 }
 

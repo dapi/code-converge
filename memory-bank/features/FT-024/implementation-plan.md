@@ -31,7 +31,7 @@ must_not_define:
 
 | Surface | Refs | Automated coverage | Required commands |
 | --- | --- | --- | --- |
-| Repository Git sequence | `REQ-01`–`REQ-03`, `SC-01`, `SC-02`, `SC-05` | Scripted runner proves clean check, no empty commit, local add/commit, branch/SHA, and no push. | `go test ./internal/repository` |
+| Repository Git sequence | `REQ-01`–`REQ-03`, `SC-01`, `SC-02`, `SC-05` | Scripted runner proves clean check, before/after `HEAD`, no empty commit, local add/commit, branch/SHA, direct agent commit detection, and no push. | `go test ./internal/repository` |
 | Workflow transition | `REQ-04`–`REQ-06`, `SC-03`–`SC-05` | Fake agent/repository tests for hand-off, failures, budget exhaustion, and output fields. | `go test ./internal/workflow ./internal/event ./internal/codex` |
 | Documentation | `REQ-08`, `CHK-02` | Lint and semantic owner read-through. | `make docs-lint` |
 

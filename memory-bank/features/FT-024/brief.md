@@ -34,7 +34,7 @@ When the review-fix budget is exhausted, successful prior repairs can remain onl
 ### Scope
 
 - `REQ-01` Detect a clean worktree before an automated findings-fix stage. Continue remediation for pre-existing worktree changes, but skip the automatic checkpoint so it cannot capture them.
-- `REQ-02` After a successful fix, skip empty commits; otherwise stage and create the stable local commit `chore: checkpoint review fixes`.
+- `REQ-02` Record `HEAD` around every successful fix. Skip empty commits; otherwise stage and create the stable local commit `chore: checkpoint review fixes`, while treating a direct agent-created commit as a checkpoint for finalization.
 - `REQ-03` Do not push a checkpoint. Push, change-request creation, and CI remain finalization responsibilities after a clean review.
 - `REQ-04` Run finalization after a clean review when this run created a checkpoint, even if Git status has no remaining worktree changes; tell the finalizer not to create an empty commit.
 - `REQ-05` Fail operationally and do not start another review if checkpoint preparation or commit fails.
@@ -76,7 +76,7 @@ Downgrade approval: none.
 | Scenario | Requirements | Observable result |
 | --- | --- | --- |
 | `SC-01` Changed fix | `REQ-01`–`REQ-03` | A clean worktree changes during a successful fix; one local commit is made and no `git push` is invoked before the next review. |
-| `SC-02` No-change fix | `REQ-02` | A successful fix with no status change makes no commit. |
+| `SC-02` No-change and agent-commit fixes | `REQ-02` | A successful fix with no status or `HEAD` change makes no commit; a direct agent-created commit reaches finalization after a clean review. |
 | `SC-03` Clean after checkpoint | `REQ-04` | A verification review is clean; finalization runs despite an otherwise clean worktree and receives checkpoint context. |
 | `SC-04` Exhausted budget | `REQ-06` | Exit `1` states budget exhaustion and skipped finalization; `kv` includes local checkpoint branch/commit when one exists. |
 | `SC-05` Safety and failures | `REQ-01`, `REQ-05` | Dirty initial status still permits fixing but skips checkpointing; status, staging, commit or identifier failure exits `2` without another review. |

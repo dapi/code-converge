@@ -39,21 +39,37 @@ func (s Status) IsClean(ctx context.Context) (bool, error) {
 	return strings.TrimSpace(result.Stdout) == "", nil
 }
 
-// Checkpoint commits all changes made by a fix stage. Callers must first use
-// IsClean, which defines the safety boundary for this operation.
-func (s Status) Checkpoint(ctx context.Context) (Checkpoint, error) {
+// Head returns the current commit identity for a fix-stage boundary.
+func (s Status) Head(ctx context.Context) (string, error) {
+	result, err := s.Runner.Run(ctx, runner.Invocation{Executable: "git", Args: []string{"rev-parse", "HEAD"}})
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(result.Stdout), nil
+}
+
+// Checkpoint records a commit made during a fix stage and, when allowed,
+// creates one for remaining worktree changes. initialHead must be captured
+// immediately before the agent starts fixing findings.
+func (s Status) Checkpoint(ctx context.Context, initialHead string, canCommit bool) (Checkpoint, error) {
 	hasChanges, err := s.HasChanges(ctx)
 	if err != nil {
 		return Checkpoint{}, err
 	}
-	if !hasChanges {
+	if hasChanges && canCommit {
+		if _, err := s.Runner.Run(ctx, runner.Invocation{Executable: "git", Args: []string{"add", "-A"}}); err != nil {
+			return Checkpoint{}, fmt.Errorf("stage findings checkpoint: %w", err)
+		}
+		if _, err := s.Runner.Run(ctx, runner.Invocation{Executable: "git", Args: []string{"commit", "-m", "chore: checkpoint review fixes"}}); err != nil {
+			return Checkpoint{}, fmt.Errorf("commit findings checkpoint: %w", err)
+		}
+	}
+	head, err := s.Runner.Run(ctx, runner.Invocation{Executable: "git", Args: []string{"rev-parse", "HEAD"}})
+	if err != nil {
+		return Checkpoint{}, fmt.Errorf("resolve findings-fix head: %w", err)
+	}
+	if strings.TrimSpace(head.Stdout) == strings.TrimSpace(initialHead) {
 		return Checkpoint{}, nil
-	}
-	if _, err := s.Runner.Run(ctx, runner.Invocation{Executable: "git", Args: []string{"add", "-A"}}); err != nil {
-		return Checkpoint{}, fmt.Errorf("stage findings checkpoint: %w", err)
-	}
-	if _, err := s.Runner.Run(ctx, runner.Invocation{Executable: "git", Args: []string{"commit", "-m", "chore: checkpoint review fixes"}}); err != nil {
-		return Checkpoint{}, fmt.Errorf("commit findings checkpoint: %w", err)
 	}
 	branch, err := s.Runner.Run(ctx, runner.Invocation{Executable: "git", Args: []string{"branch", "--show-current"}})
 	if err != nil {
