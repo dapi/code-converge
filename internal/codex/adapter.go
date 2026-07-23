@@ -175,7 +175,7 @@ func (a Adapter) FixCI(ctx context.Context) error {
 	return err
 }
 
-func (a Adapter) Finalize(ctx context.Context) (Finalization, error) {
+func (a Adapter) Finalize(ctx context.Context, checkpointed bool) (Finalization, error) {
 	dir, err := os.MkdirTemp("", "code-converge-finalize-")
 	if err != nil {
 		return Finalization{}, fmt.Errorf("create finalization workspace: %w", err)
@@ -186,7 +186,11 @@ func (a Adapter) Finalize(ctx context.Context) (Finalization, error) {
 	if err := os.WriteFile(schemaPath, []byte(finalizationSchema), 0o600); err != nil {
 		return Finalization{}, fmt.Errorf("write finalization schema: %w", err)
 	}
-	prompt := a.Config.FinalizePrompt + "\n\nReturn only the JSON object required by the supplied output schema. Report the actual outcomes of commit, push, change_request, and ci."
+	prompt := a.Config.FinalizePrompt
+	if checkpointed {
+		prompt += "\n\nSuccessful findings fixes were already committed as local checkpoints. Do not create an empty commit; publish the current branch, create a change request if needed, and verify applicable CI."
+	}
+	prompt += "\n\nReturn only the JSON object required by the supplied output schema. Report the actual outcomes of commit, push, change_request, and ci."
 	args := append(modelArgs(a.Config.FinalizeModel, a.Config.FinalizeEffort), "exec", "--output-schema", schemaPath, "--output-last-message", messagePath, "-")
 	if _, err := a.Runner.Run(ctx, runner.Invocation{Args: args, Stdin: prompt}); err != nil {
 		return Finalization{}, err

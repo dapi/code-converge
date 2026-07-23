@@ -68,6 +68,69 @@ func TestStatusPropagatesRunnerError(t *testing.T) {
 	}
 }
 
+func TestStatusCheckpointCommitsLocallyWithoutPush(t *testing.T) {
+	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
+		switch strings.Join(inv.Args, " ") {
+		case "status --porcelain":
+			return runner.Result{Stdout: " M fixed.go\n"}, nil
+		case "add -A", "commit -m chore: checkpoint review fixes":
+			return runner.Result{}, nil
+		case "branch --show-current":
+			return runner.Result{Stdout: "feature/checkpoints\n"}, nil
+		case "rev-parse --short HEAD":
+			return runner.Result{Stdout: "abc1234\n"}, nil
+		default:
+			t.Fatalf("unexpected invocation: %#v", inv)
+			return runner.Result{}, nil
+		}
+	}}
+	checkpoint, err := (Status{Runner: fake}).Checkpoint(context.Background())
+	if err != nil || checkpoint != (Checkpoint{Created: true, Branch: "feature/checkpoints", Commit: "abc1234"}) {
+		t.Fatalf("checkpoint=%#v err=%v", checkpoint, err)
+	}
+	for _, invocation := range fake.invocations {
+		if len(invocation.Args) > 0 && invocation.Args[0] == "push" {
+			t.Fatalf("checkpoint pushed unexpectedly: %#v", fake.invocations)
+		}
+	}
+}
+
+func TestStatusCheckpointSkipsEmptyCommit(t *testing.T) {
+	fake := &fakeRunner{result: runner.Result{Stdout: ""}}
+	checkpoint, err := (Status{Runner: fake}).Checkpoint(context.Background())
+	if err != nil || checkpoint.Created || len(fake.invocations) != 1 {
+		t.Fatalf("checkpoint=%#v err=%v invocations=%#v", checkpoint, err, fake.invocations)
+	}
+}
+
+func TestStatusCheckpointPropagatesCommitFailure(t *testing.T) {
+	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
+		switch strings.Join(inv.Args, " ") {
+		case "status --porcelain":
+			return runner.Result{Stdout: " M fixed.go\n"}, nil
+		case "add -A":
+			return runner.Result{}, nil
+		case "commit -m chore: checkpoint review fixes":
+			return runner.Result{}, errors.New("author identity unknown")
+		default:
+			t.Fatalf("unexpected invocation: %#v", inv)
+			return runner.Result{}, nil
+		}
+	}}
+	_, err := (Status{Runner: fake}).Checkpoint(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "commit findings checkpoint") {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestStatusRequireCleanRejectsExistingWork(t *testing.T) {
+	fake := &fakeRunner{result: runner.Result{Stdout: " M user-work.go\n"}}
+	err := (Status{Runner: fake}).RequireClean(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "pre-existing changes") {
+		t.Fatalf("error=%v", err)
+	}
+}
+
 func TestReviewScopeExplicitBaseBuildsPrivateSnapshot(t *testing.T) {
 	fake := &scriptedRunner{t: t}
 	fake.run = func(inv runner.Invocation) (runner.Result, error) {

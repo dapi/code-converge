@@ -350,7 +350,16 @@ func renderHuman(eventName string, fields []Field, maxCycles, maxCIRecoveries in
 		case "success":
 			return fmt.Sprintf("Done (%s)", d), nil
 		case "findings_remaining":
-			return fmt.Sprintf("Stopped: review findings remain (%s, exit 1)", d), nil
+			switch values["checkpoint_status"] {
+			case "committed_local":
+				return fmt.Sprintf("Stopped: fix budget exhausted; finalization was not reached; checkpoint committed locally on %s at %s and not pushed (%s, exit 1)", values["checkpoint_branch"], values["checkpoint_commit"], d), nil
+			case "no_changes":
+				return fmt.Sprintf("Stopped: fix budget exhausted; finalization was not reached; no checkpoint was needed (%s, exit 1)", d), nil
+			case "not_attempted":
+				return fmt.Sprintf("Stopped: fix budget exhausted; finalization was not reached; checkpoint was not attempted (%s, exit 1)", d), nil
+			default:
+				return fmt.Sprintf("Stopped: review findings remain (%s, exit 1)", d), nil
+			}
 		case "operational_failure":
 			return fmt.Sprintf("Failed due to an operational error (%s, exit 2)", d), nil
 		case "ci_failure":
