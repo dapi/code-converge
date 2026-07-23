@@ -238,6 +238,47 @@ func TestReviewScopeExplicitBaseBuildsPrivateSnapshot(t *testing.T) {
 	}
 }
 
+func TestReviewScopeFallsBackForGitWithoutSparseAddOutsideSparseCheckout(t *testing.T) {
+	addSparseErr := errors.New("git add does not support --sparse")
+	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
+		switch strings.Join(inv.Args, " ") {
+		case "-c " + disableSplitIndexConfig + " add --sparse -A":
+			return runner.Result{Stderr: "error: unknown option `sparse'", ExitCode: 129}, addSparseErr
+		case "config --bool core.sparseCheckout":
+			return runner.Result{ExitCode: 1}, errors.New("git config key is unset")
+		case "-c " + disableSplitIndexConfig + " add -A":
+			return runner.Result{}, nil
+		default:
+			t.Fatalf("unexpected invocation: %#v", inv)
+			return runner.Result{}, nil
+		}
+	}}
+	scope := &ReviewScope{Runner: fake, tempDir: t.TempDir()}
+	if err := scope.snapshotWorktree(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReviewScopeRequiresSparseAddForSparseCheckout(t *testing.T) {
+	addSparseErr := errors.New("git add does not support --sparse")
+	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
+		switch strings.Join(inv.Args, " ") {
+		case "-c " + disableSplitIndexConfig + " add --sparse -A":
+			return runner.Result{Stderr: "error: unknown option `sparse'", ExitCode: 129}, addSparseErr
+		case "config --bool core.sparseCheckout":
+			return runner.Result{Stdout: "true", ExitCode: 0}, nil
+		default:
+			t.Fatalf("unexpected invocation: %#v", inv)
+			return runner.Result{}, nil
+		}
+	}}
+	scope := &ReviewScope{Runner: fake, tempDir: t.TempDir()}
+	err := scope.snapshotWorktree(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "sparse checkout requires Git with git add --sparse support") {
+		t.Fatalf("snapshotWorktree() error = %v", err)
+	}
+}
+
 func TestReviewScopeMakesTemporaryDirectoryAbsolute(t *testing.T) {
 	workingDirectory, err := os.Getwd()
 	if err != nil {

@@ -293,6 +293,16 @@ The reasoning bounds this feature to review-input selection, separates issue fac
 - **Changes:** accept both documented `--attr-source` forms and the `--list-cmds=<group>` probe while retaining unknown/malformed-option rejection. Added parser coverage and real PATH-only wrapper assertions for each accepted form.
 - **Verification:** `GOCACHE=/private/tmp/code-converge-global-options.XXXXXX go test ./internal/repository`, `GOCACHE=/private/tmp/code-converge-options-test.XXXXXX go test ./...`, `GOCACHE=/private/tmp/code-converge-options-vet.XXXXXX go vet ./...`, `make docs-lint`, `gofmt -d` for modified Go files and `git diff --check` pass. Required CI and independent final review remain high-risk gates.
 - **Human gate:** no; this restores supported Git invocation behavior without widening the parser to unknown options or changing the public contract.
+
+### Cycle 27 — master reconciliation and independent-review remediation
+
+- **Routing:** Bug Fix flow within FT-016. Reconciling PR #30 with the structured-result work already merged to `master` preserved both accepted contracts; the independent integration reviews then found valid provider, wrapper-parser and older-Git inputs that contradicted `CTR-02`–`CTR-04`. The active `high-risk` profile remains applicable.
+- **Review scope:** PR #30 merged with current `master`, including provider identity parsing, scoped Git global-option parsing, private-index snapshot compatibility and FT-022's schema-constrained result channel.
+- **Important:** first independent review reported two `P2` findings: userless SCP-style remotes were parsed as URI schemes before SCP syntax, and the documented `--exec-path=<path>` Git form was rejected. The second review confirmed those fixes and reported one `P1`: unconditional `git add --sparse -A` made every review fail on older supported Linux Git installations, even outside sparse checkout.
+- **Changes:** try SCP syntax before URI parsing while excluding `://` transports; accept `--exec-path=<path>`; and fall back to plain `git add -A` after a failed sparse-aware add only when `core.sparseCheckout` is confirmed disabled. An active sparse checkout fails actionably when the installed Git lacks the required option. Added deterministic regressions for all three findings and retained the current FT-022 final-message-only classification path during conflict resolution.
+- **Verification:** focused repository tests, `go test ./...`, `go vet ./...`, `make docs-lint`, `git diff --check` and the selected race suites pass before this final compatibility update; the focused older-Git and sparse-checkout tests pass afterward. Full local rerun, independent final review and required PR #30 CI remain closure evidence.
+- **Human gate:** no; these changes restore already accepted provider, compatibility and fail-closed snapshot contracts.
+
 ### 2026-07-23 Original-delivery closure and evidence-convergence review
 
 ### 2026-07-23 Cycle 1 — closure and evidence-convergence review

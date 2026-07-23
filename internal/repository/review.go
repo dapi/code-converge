@@ -96,10 +96,49 @@ func (s *ReviewScope) Prepare(ctx context.Context) (ReviewTarget, error) {
 	if err := s.clearHiddenSnapshotIndexFlags(ctx); err != nil {
 		return ReviewTarget{}, fmt.Errorf("prepare review index flags: %w", err)
 	}
-	if _, err := s.git(ctx, s.snapshotEnvironment(), s.rootGitArgs("add", "--sparse", "-A")...); err != nil {
+	if err := s.snapshotWorktree(ctx); err != nil {
 		return ReviewTarget{}, fmt.Errorf("snapshot worktree for review: %w", err)
 	}
 	return ReviewTarget{Base: s.base, BaseCommit: s.baseCommit, MergeBase: s.mergeBase, Source: s.source, Env: env}, nil
+}
+
+func (s *ReviewScope) snapshotWorktree(ctx context.Context) error {
+	environment := s.snapshotEnvironment()
+	if _, err := s.git(ctx, environment, s.rootGitArgs("add", "--sparse", "-A")...); err == nil {
+		return nil
+	} else {
+		sparse, detectionErr := s.sparseCheckoutEnabled(ctx)
+		if detectionErr != nil {
+			return fmt.Errorf("git add --sparse failed: %v; determine sparse-checkout state: %w", err, detectionErr)
+		}
+		if sparse {
+			return fmt.Errorf("this sparse checkout requires Git with git add --sparse support: %w", err)
+		}
+		// --sparse is newer than the oldest Git installations supported by the
+		// general Linux contract. Outside a sparse checkout, plain add -A has
+		// equivalent snapshot semantics and is the compatible fallback.
+		if _, fallbackErr := s.git(ctx, environment, s.rootGitArgs("add", "-A")...); fallbackErr != nil {
+			return fmt.Errorf("git add --sparse failed: %v; compatible git add -A fallback failed: %w", err, fallbackErr)
+		}
+		return nil
+	}
+}
+
+func (s *ReviewScope) sparseCheckoutEnabled(ctx context.Context) (bool, error) {
+	result, err := s.runGit(ctx, nil, s.rootGitArgs("config", "--bool", "core.sparseCheckout")...)
+	value := strings.TrimSpace(result.Stdout)
+	if err == nil {
+		return value == "true", nil
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return false, ctxErr
+	}
+	// Git exits 1 with no diagnostic when the key is unset. That is the normal
+	// non-sparse repository state, not a discovery failure.
+	if result.ExitCode == 1 && value == "" && strings.TrimSpace(result.Stderr) == "" {
+		return false, nil
+	}
+	return false, err
 }
 
 func (s *ReviewScope) Close() error {
@@ -1196,14 +1235,22 @@ func hasGitOptionValue(argument string) bool {
 }
 
 func (s *ReviewScope) git(ctx context.Context, env []string, args ...string) (string, error) {
+	result, err := s.runGit(ctx, env, args...)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(result.Stdout), nil
+}
+
+func (s *ReviewScope) runGit(ctx context.Context, env []string, args ...string) (runner.Result, error) {
 	if reviewIndexEnvironment(env) {
 		args = append([]string{"-c", disableSplitIndexConfig}, args...)
 	}
 	result, err := s.Runner.Run(ctx, runner.Invocation{Executable: "git", Args: args, Env: env})
 	if err != nil {
-		return "", err
+		return result, err
 	}
-	return strings.TrimSpace(result.Stdout), nil
+	return result, nil
 }
 
 func reviewIndexEnvironment(environment []string) bool {
