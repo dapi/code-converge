@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -230,7 +231,8 @@ func TestReviewScopeExplicitBaseBuildsPrivateSnapshot(t *testing.T) {
 		return os.WriteFile(target, []byte("index"), 0o600)
 	}}
 	target, err := scope.Prepare(context.Background())
-	if err != nil || target.Source != "explicit" || target.Base != "develop" || target.MergeBase != "deadbeef" || len(target.Env) != 1 || !strings.HasPrefix(target.Env[0], "PATH=") {
+	wrapperPath, hasWrapperPath := reviewEnvironmentValue(target.Env, "PATH")
+	if err != nil || target.Source != "explicit" || target.Base != "develop" || target.MergeBase != "deadbeef" || !hasWrapperPath || wrapperPath == "" {
 		t.Fatalf("target=%#v err=%v", target, err)
 	}
 	if err := scope.Close(); err != nil {
@@ -1177,7 +1179,7 @@ func TestReviewScopeStagesHiddenTrackedWorktreeChanges(t *testing.T) {
 	}
 }
 
-func TestReviewScopePrivateIndexSurvivesPathOnlyEnvironment(t *testing.T) {
+func TestReviewScopePrivateIndexSurvivesScopedShellEnvironment(t *testing.T) {
 	root := t.TempDir()
 	runGit := func(dir string, args ...string) {
 		t.Helper()
@@ -1203,8 +1205,16 @@ func TestReviewScopePrivateIndexSurvivesPathOnlyEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer scope.Close()
-	if len(target.Env) != 1 || !strings.HasPrefix(target.Env[0], "PATH=") {
-		t.Fatalf("review environment is not PATH-only: %#v", target.Env)
+	for name, want := range map[string]string{
+		"SHELL":    "/bin/sh",
+		"ZDOTDIR":  scope.gitWrapperDir,
+		"BASH_ENV": "",
+		"ENV":      "",
+	} {
+		value, ok := reviewEnvironmentValue(target.Env, name)
+		if !ok || value != want {
+			t.Fatalf("review environment %s = %q, %v; want %q", name, value, ok, want)
+		}
 	}
 	privateIndex := filepath.Join(scope.tempDir, "index")
 	wrapperPath, ok := reviewEnvironmentValue(target.Env, "PATH")
@@ -1238,9 +1248,9 @@ func TestReviewScopePrivateIndexSurvivesPathOnlyEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// This is the effective environment of a non-login Codex shell with an
-	// include_only = ["PATH"] policy. No scoped helper variable is available to
-	// the wrapper.
+	// This is the effective environment of a non-login Codex shell. It contains
+	// only the wrapper path and neutral shell-startup guards; no private Git
+	// transport variable is available to the wrapper.
 	for _, gitCommand := range []string{
 		"git diff --cached --name-only HEAD",
 		"git -P diff --cached --name-only HEAD",
@@ -1254,6 +1264,42 @@ func TestReviewScopePrivateIndexSurvivesPathOnlyEnvironment(t *testing.T) {
 		if err != nil || !strings.Contains(string(output), "change.txt") {
 			t.Fatalf("reviewed repository did not use private index for %q: output=%q err=%v", gitCommand, output, err)
 		}
+	}
+	for _, gitCommand := range []string{
+		"git update-index --split-index",
+		"git -c core.splitIndex status --short",
+		"SPLIT_INDEX=true git --config-env=core.splitIndex=SPLIT_INDEX status --short",
+	} {
+		command := exec.Command("sh", "-c", gitCommand)
+		command.Dir = root
+		command.Env = target.Env
+		output, err := command.CombinedOutput()
+		if err == nil || !strings.Contains(string(output), "split-index-enabling Git commands are not permitted") {
+			t.Fatalf("split-index command was not rejected for %q: output=%q err=%v", gitCommand, output, err)
+		}
+	}
+	runGit(root, "config", "alias.force-split", "-c core.splitIndex=true update-index --split-index")
+	aliasCommand := exec.Command("sh", "-c", "git force-split")
+	aliasCommand.Dir = root
+	aliasCommand.Env = target.Env
+	aliasOutput, aliasErr := aliasCommand.CombinedOutput()
+	if aliasErr == nil || !strings.Contains(string(aliasOutput), "split-index-enabling Git commands are not permitted") {
+		t.Fatalf("split-index alias was not rejected: output=%q err=%v", aliasOutput, aliasErr)
+	}
+	runGit(root, "config", "alias.shell-split", `!git -c "core.splitIndex=true" update-index "--split-index"`)
+	shellAliasCommand := exec.Command("sh", "-c", "git shell-split")
+	shellAliasCommand.Dir = root
+	shellAliasCommand.Env = target.Env
+	shellAliasOutput, shellAliasErr := shellAliasCommand.CombinedOutput()
+	if shellAliasErr == nil || !strings.Contains(string(shellAliasOutput), "split-index-enabling Git commands are not permitted") {
+		t.Fatalf("split-index shell alias was not rejected: output=%q err=%v", shellAliasOutput, shellAliasErr)
+	}
+	sharedIndexes, err := filepath.Glob(filepath.Join(root, ".git", "sharedindex.*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sharedIndexes) != 0 {
+		t.Fatalf("review commands wrote shared indexes in the real repository: %#v", sharedIndexes)
 	}
 	for _, gitCommand := range []string{
 		"git --attr-source=HEAD check-attr --all -- change.txt",
@@ -1316,6 +1362,18 @@ func TestReviewScopePrivateIndexSurvivesPathOnlyEnvironment(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(nested, ".git", "index")); err != nil {
 		t.Fatalf("nested repository index was not created: %v", err)
+	}
+	if _, err := (runner.Exec{Dir: root}).Run(context.Background(), runner.Invocation{
+		Executable: "sh", Args: []string{"-c", "git -C \"$1\" update-index --split-index", "sh", nested}, Env: target.Env,
+	}); err != nil {
+		t.Fatalf("nested repository split-index command was rejected: %v", err)
+	}
+	nestedSharedIndexes, err := filepath.Glob(filepath.Join(nested, ".git", "sharedindex.*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nestedSharedIndexes) == 0 {
+		t.Fatal("nested repository split-index command did not use its normal index")
 	}
 	after, err := os.ReadFile(privateIndex)
 	if err != nil {
@@ -1524,6 +1582,21 @@ func TestReviewScopeRemovesInheritedGitTransportEnvironment(t *testing.T) {
 	t.Setenv("GIT_INDEX_FILE", filepath.Join(t.TempDir(), "foreign-index"))
 	t.Setenv("GIT_EXEC_PATH", t.TempDir())
 	t.Setenv("GIT_DIR", filepath.Join(t.TempDir(), "foreign-git-dir"))
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "core.splitIndex")
+	t.Setenv("GIT_CONFIG_VALUE_0", "true")
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "foreign-gitconfig"))
+	t.Setenv("BASH_FUNC_git%%", "() { /usr/bin/git \"$@\"; }")
+	startupDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(startupDir, ".zshenv"), []byte("PATH=/usr/bin:/bin\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bashEnv := filepath.Join(startupDir, "bash-env")
+	if err := os.WriteFile(bashEnv, []byte("PATH=/usr/bin:/bin\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ZDOTDIR", startupDir)
+	t.Setenv("BASH_ENV", bashEnv)
 
 	scope := &ReviewScope{Runner: runner.Exec{Dir: root}, Root: root, Base: "HEAD"}
 	target, err := scope.Prepare(context.Background())
@@ -1531,19 +1604,43 @@ func TestReviewScopeRemovesInheritedGitTransportEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer scope.Close()
-	if !reflect.DeepEqual(target.UnsetEnv, gitTransportEnvironment) {
-		t.Fatalf("review environment removals = %#v, want %#v", target.UnsetEnv, gitTransportEnvironment)
+	for _, name := range append(append([]string{}, gitTransportEnvironment...), "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "BASH_FUNC_git%%") {
+		if !slices.Contains(target.UnsetEnv, name) {
+			t.Errorf("review environment removals %#v do not contain %q", target.UnsetEnv, name)
+		}
 	}
 	result, err := (runner.Exec{Dir: root}).Run(context.Background(), runner.Invocation{
 		Executable: "sh",
 		Args: []string{"-c",
-			"test -z \"$GIT_INDEX_FILE\" && test -z \"$GIT_EXEC_PATH\" && test -z \"$GIT_DIR\" && git diff --cached --name-only HEAD",
+			"test -z \"$GIT_INDEX_FILE\" && test -z \"$GIT_EXEC_PATH\" && test -z \"$GIT_DIR\" && test -z \"$GIT_CONFIG_COUNT\" && test -z \"$GIT_CONFIG_KEY_0\" && test -z \"$GIT_CONFIG_VALUE_0\" && test -z \"$GIT_CONFIG_GLOBAL\" && git diff --cached --name-only HEAD",
 		},
 		Env:      target.Env,
 		UnsetEnv: target.UnsetEnv,
 	})
 	if err != nil || !strings.Contains(result.Stdout, "change.txt") {
 		t.Fatalf("sanitized scoped review = %#v, %v; want change.txt", result, err)
+	}
+	wrapperPath, ok := reviewEnvironmentValue(target.Env, "PATH")
+	if !ok {
+		t.Fatalf("review environment has no wrapper PATH: %#v", target.Env)
+	}
+	wrapperGit := filepath.Join(strings.Split(wrapperPath, string(os.PathListSeparator))[0], "git")
+	for _, shell := range []string{"bash", "zsh"} {
+		if _, err := exec.LookPath(shell); err != nil {
+			continue
+		}
+		shellResult, err := (runner.Exec{Dir: root}).Run(context.Background(), runner.Invocation{
+			Executable: shell,
+			Args: []string{"-c",
+				`test "$(command -v git)" = "$1" && git diff --cached --name-only HEAD`,
+				shell, wrapperGit,
+			},
+			Env:      target.Env,
+			UnsetEnv: target.UnsetEnv,
+		})
+		if err != nil || !strings.Contains(shellResult.Stdout, "change.txt") {
+			t.Fatalf("%s startup bypassed scoped review: %#v, %v", shell, shellResult, err)
+		}
 	}
 }
 

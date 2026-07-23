@@ -128,15 +128,27 @@ func (a Adapter) Review(ctx context.Context) (ReviewResult, error) {
 }
 
 func scopedReviewArgs(configuration config.Config, target repository.ReviewTarget) ([]string, error) {
-	path, ok := environmentValue(target.Env, "PATH")
-	if !ok || path == "" {
-		return nil, errors.New("review scope did not provide wrapper PATH")
+	required := []struct {
+		name     string
+		nonEmpty bool
+	}{
+		{name: "PATH", nonEmpty: true},
+		{name: "SHELL", nonEmpty: true},
+		{name: "ZDOTDIR", nonEmpty: true},
+		{name: "BASH_ENV"},
+		{name: "ENV"},
 	}
 	args := modelArgs(configuration.ReviewModel, configuration.ReviewEffort)
+	for _, item := range required {
+		value, ok := environmentValue(target.Env, item.name)
+		if !ok || item.nonEmpty && value == "" {
+			return nil, fmt.Errorf("review scope did not provide required %s environment", item.name)
+		}
+		args = append(args, "-c", "shell_environment_policy.set."+item.name+"="+strconv.Quote(value))
+	}
 	// A login shell can prepend a system Git directory after Codex applies PATH.
-	// Disable login-shell startup for the review so its wrapper remains first
-	// without exporting GIT_INDEX_FILE beyond the scoped Git helper.
-	args = append(args, "-c", "shell_environment_policy.set.PATH="+strconv.Quote(path))
+	// Disable it as a second layer after selecting a neutral non-login shell and
+	// neutralizing user-controlled non-interactive startup files.
 	args = append(args, "-c", "allow_login_shell=false")
 	return args, nil
 }

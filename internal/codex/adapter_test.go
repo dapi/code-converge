@@ -253,21 +253,36 @@ func TestScopedReviewArgsDisableLoginShellToPreserveWrapperPath(t *testing.T) {
 	wrapperPath := filepath.Join(t.TempDir(), "bin") + ":/user-configured/bin"
 	target := repository.ReviewTarget{BaseCommit: "base-sha", Env: []string{
 		"PATH=" + wrapperPath,
+		"SHELL=/bin/sh",
+		"ZDOTDIR=/review/helper",
+		"BASH_ENV=",
+		"ENV=",
 	}}
 	args, err := scopedReviewArgs(config.Config{ReviewModel: "review-model", ReviewEffort: "high"}, target)
 	if err != nil {
 		t.Fatal(err)
 	}
 	joined := strings.Join(args, " ")
-	wantPathPolicy := "shell_environment_policy.set.PATH=" + strconv.Quote(wrapperPath)
-	if !strings.Contains(joined, "-c "+wantPathPolicy) || !strings.Contains(joined, "-c allow_login_shell=false") || strings.Contains(joined, "GIT_INDEX_FILE") || strings.Contains(joined, "CODE_CONVERGE_SCOPED_GIT") || strings.Contains(joined, "GIT_EXEC_PATH") || strings.Contains(joined, "shell_environment_policy.include_only") {
-		t.Fatalf("args = %#v", args)
+	for name, value := range map[string]string{
+		"PATH":     wrapperPath,
+		"SHELL":    "/bin/sh",
+		"ZDOTDIR":  "/review/helper",
+		"BASH_ENV": "",
+		"ENV":      "",
+	} {
+		want := "shell_environment_policy.set." + name + "=" + strconv.Quote(value)
+		if !strings.Contains(joined, "-c "+want) {
+			t.Errorf("args %#v do not contain %q", args, want)
+		}
+	}
+	if !strings.Contains(joined, "-c allow_login_shell=false") || strings.Contains(joined, "GIT_INDEX_FILE") || strings.Contains(joined, "CODE_CONVERGE_SCOPED_GIT") || strings.Contains(joined, "GIT_EXEC_PATH") || strings.Contains(joined, "shell_environment_policy.include_only") {
+		t.Errorf("args = %#v", args)
 	}
 }
 
 func TestScopedReviewArgsRequireScopedGitEnvironment(t *testing.T) {
 	_, err := scopedReviewArgs(config.Config{ReviewModel: "review-model"}, repository.ReviewTarget{BaseCommit: "base-sha"})
-	if err == nil || !strings.Contains(err.Error(), "wrapper PATH") {
+	if err == nil || !strings.Contains(err.Error(), "required PATH environment") {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -393,13 +408,22 @@ func TestReviewUsesOnlyFinalResponseAndPreservesTarget(t *testing.T) {
 		t.Fatalf("codex invocations = %#v", invocations)
 	}
 	invocation := invocations[0]
-	if len(invocation.Env) != 1 || !strings.HasPrefix(invocation.Env[0], "PATH=") {
+	wrapperPath, ok := environmentValue(invocation.Env, "PATH")
+	if !ok || wrapperPath == "" {
 		t.Fatalf("review env = %#v", invocation.Env)
 	}
-	wrapperPath := strings.TrimPrefix(invocation.Env[0], "PATH=")
 	args := strings.Join(invocation.Args, " ")
-	override := "shell_environment_policy.set.PATH=" + strconv.Quote(wrapperPath)
-	for _, want := range []string{"exec", "--output-schema", "--output-last-message", override, "allow_login_shell=false"} {
+	for _, want := range []string{
+		"exec",
+		"--output-schema",
+		"--output-last-message",
+		"shell_environment_policy.set.PATH=" + strconv.Quote(wrapperPath),
+		"shell_environment_policy.set.SHELL=" + strconv.Quote("/bin/sh"),
+		"shell_environment_policy.set.ZDOTDIR=",
+		"shell_environment_policy.set.BASH_ENV=" + strconv.Quote(""),
+		"shell_environment_policy.set.ENV=" + strconv.Quote(""),
+		"allow_login_shell=false",
+	} {
 		if !strings.Contains(args, want) {
 			t.Errorf("review args %q do not contain %q", args, want)
 		}
@@ -557,16 +581,20 @@ printf 'untrusted stderr' >&2
 		t.Errorf("cwd = %q, want %q", gotCWD, wantCWD)
 	}
 	indexPath := read("index")
-	if indexPath != "" || len(result.Scope.Env) != 1 || !strings.HasPrefix(result.Scope.Env[0], "PATH=") {
+	wrapperPath, ok := environmentValue(result.Scope.Env, "PATH")
+	if indexPath != "" || !ok || wrapperPath == "" {
 		t.Fatalf("index = %q scope = %#v", indexPath, result.Scope)
 	}
-	wrapperPath := strings.TrimPrefix(result.Scope.Env[0], "PATH=")
 	args := read("args")
 	for _, want := range []string{
 		"exec",
 		"--output-schema",
 		"--output-last-message",
 		"shell_environment_policy.set.PATH=" + strconv.Quote(wrapperPath),
+		"shell_environment_policy.set.SHELL=" + strconv.Quote("/bin/sh"),
+		"shell_environment_policy.set.ZDOTDIR=",
+		"shell_environment_policy.set.BASH_ENV=" + strconv.Quote(""),
+		"shell_environment_policy.set.ENV=" + strconv.Quote(""),
 		"allow_login_shell=false",
 	} {
 		if !strings.Contains(args, want) {

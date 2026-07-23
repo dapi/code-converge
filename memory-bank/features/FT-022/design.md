@@ -65,7 +65,7 @@ flowchart LR
 ## Selected Solution
 
 - `SOL-01` For each review, the adapter prepares a private `0700` temporary directory, writes the canonical review JSON Schema to a `0600` file and reserves a separate final-response path.
-- `SOL-02` The adapter requires a configured `ReviewScope`, calls `ReviewScope.Prepare`, validates the selected base commit/computed merge base and wrapper-first `PATH`, and invokes `codex exec` with the resolved review model/effort, the target's inherited-Git-environment removals, an invocation-local Codex shell-environment override for that `PATH`, login-shell startup disabled, the schema path, the final-response path and a stdin review instruction tied to the merge-base-to-private-snapshot comparison.
+- `SOL-02` The adapter requires a configured `ReviewScope`, calls `ReviewScope.Prepare`, validates the selected base commit/computed merge base and scoped shell environment, and invokes `codex exec` with the resolved review model/effort, the target's inherited-Git/shell-environment removals, invocation-local Codex shell-environment overrides for the wrapper-first `PATH` and neutral startup settings, login-shell startup disabled, the schema path, the final-response path and a stdin review instruction tied to the merge-base-to-private-snapshot comparison.
 - `SOL-03` After a zero Codex exit, the adapter reads only the final-response file, applies the existing exact structured-review validation and preserves the normalized JSON as `ReviewResult.Report` for fix-findings.
 - `SOL-04` Captured terminal stdout and stderr are never classification input and are never merged into the report. Runner error handling may use stderr to enrich a non-zero invocation diagnostic, preserving its existing diagnostic role.
 - `SOL-05` The adapter returns the same `ReviewResult` categories and `ReviewTarget` metadata to the workflow, so workflow counters, transitions, events, budgets and exit meanings do not change.
@@ -107,7 +107,7 @@ flowchart LR
 - `SD-04` A final-response file is considered only after a zero process exit; partial/stale output from a failed invocation is never classified.
 - `SD-05` Codex compatibility is capability-based: versions supporting the required `exec` flags can participate; an unsupported invocation fails through the existing exit-2 operational path with no legacy fallback.
 - `SD-06` A missing `ReviewScope` is an adapter configuration error. The adapter does not synthesize an unscoped review target or retain a legacy invocation branch.
-- `SD-07` A wrapper-first `PATH` is supplied to the Codex process through `ReviewTarget.Env` and forced for Codex-spawned tool commands through invocation-local `shell_environment_policy.set.PATH`, with login-shell startup disabled. `ReviewTarget.UnsetEnv` removes inherited Git repository/index transports before Codex starts. The wrapper reads the private index from its sidecar and injects it only after confirming that a Git command targets the reviewed repository; Codex never receives `GIT_INDEX_FILE`.
+- `SD-07` A wrapper-first `PATH` plus neutral `SHELL`, `ZDOTDIR`, `BASH_ENV`, and `ENV` values are supplied to the Codex process through `ReviewTarget.Env` and forced for Codex-spawned tool commands through invocation-local `shell_environment_policy.set` values, with login-shell startup disabled. `ReviewTarget.UnsetEnv` removes inherited Git repository/index/config transports and exported shell functions before Codex starts. The wrapper reads the private index from its sidecar, rejects reviewed-root split-index enabling commands, and injects the private index only after confirming that a Git command targets the reviewed repository; Codex never receives `GIT_INDEX_FILE`.
 - `SD-08` The selected base commit is review provenance, while `ReviewTarget.MergeBase` is the comparison start. The instruction directs `git diff --cached <merge-base>` so FT-022 preserves the existing merge-base-to-worktree scope on diverged branches.
 
 ## Contracts
@@ -117,10 +117,10 @@ flowchart LR
 With a non-nil `ReviewScope` that has successfully returned a `ReviewTarget`, the adapter invokes:
 
 ```text
-codex <resolved model/effort args> -c shell_environment_policy.set.PATH=<TOML-quoted-wrapper-path> -c allow_login_shell=false exec --output-schema <schema-path> --output-last-message <message-path> -
+codex <resolved model/effort args> -c shell_environment_policy.set.PATH=<TOML-quoted-wrapper-path> -c shell_environment_policy.set.SHELL="/bin/sh" -c shell_environment_policy.set.ZDOTDIR=<TOML-quoted-helper-path> -c shell_environment_policy.set.BASH_ENV="" -c shell_environment_policy.set.ENV="" -c allow_login_shell=false exec --output-schema <schema-path> --output-last-message <message-path> -
 ```
 
-The review instruction is supplied on stdin. The invocation uses the existing repository cwd through the runner, the exact `ReviewTarget.Env` containing one non-empty wrapper-first `PATH`, and the exact `ReviewTarget.UnsetEnv` that removes inherited Git repository/index transports. The adapter quotes the path using the same TOML-safe value convention as model/effort overrides, forces it through Codex's invocation-local shell policy and disables login-shell startup. There is no adapter retry or new timeout; existing context cancellation/process-group behavior remains authoritative.
+The review instruction is supplied on stdin. The invocation uses the existing repository cwd through the runner, the exact `ReviewTarget.Env` containing one non-empty wrapper-first `PATH` and the four neutral shell-startup values, and the exact `ReviewTarget.UnsetEnv` that removes inherited Git repository/index/config transports and exported shell functions. The adapter quotes every value using the same TOML-safe convention as model/effort overrides, forces them through Codex's invocation-local shell policy and disables login-shell startup. There is no adapter retry or new timeout; existing context cancellation/process-group behavior remains authoritative.
 
 ### `CTR-02` — Strict final-response schema
 
@@ -199,7 +199,7 @@ Exact prose is implementation-local provided these semantics and tests remain tr
 | Channel / carrier | Owner and use | Classification rule |
 | --- | --- | --- |
 | stdin | Adapter → Codex review instruction | Input only |
-| wrapper-first `PATH` plus Git transport removals | Repository scope → Codex process and spawned review tools through exact invocation-local override/runner contract | Input only; exposes scoped Git without exporting or inheriting `GIT_INDEX_FILE` and without depending on user shell-environment filters |
+| wrapper-first `PATH`, neutral shell startup and Git/shell removals | Repository scope → Codex process and spawned review tools through exact invocation-local override/runner contract | Input only; exposes scoped Git without exporting or inheriting `GIT_INDEX_FILE` and without depending on user shell startup or environment filters |
 | `--output-schema` file | Adapter → Codex response constraint | Input only |
 | `--output-last-message` file | Codex → adapter review result | Sole classification/report carrier after zero exit |
 | process stdout | Runner-captured Codex terminal output | Never review data; never copied to workflow stdout |

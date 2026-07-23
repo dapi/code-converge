@@ -331,14 +331,21 @@ func TestAppWorkflowSuccessWithFakeRunner(t *testing.T) {
 		}
 	}
 	wrapperPath := ""
-	if len(review.Env) == 1 && strings.HasPrefix(review.Env[0], "PATH=") {
-		wrapperPath = strings.TrimPrefix(review.Env[0], "PATH=")
+	for _, value := range review.Env {
+		if strings.HasPrefix(value, "PATH=") {
+			wrapperPath = strings.TrimPrefix(value, "PATH=")
+			break
+		}
 	}
 	reviewArgs := strings.Join(review.Args, " ")
 	if len(review.Args) == 0 ||
 		!strings.Contains(reviewArgs, " exec --output-schema ") ||
 		!strings.Contains(reviewArgs, "--output-last-message") ||
 		!strings.Contains(reviewArgs, "shell_environment_policy.set.PATH="+strconv.Quote(wrapperPath)) ||
+		!strings.Contains(reviewArgs, "shell_environment_policy.set.SHELL="+strconv.Quote("/bin/sh")) ||
+		!strings.Contains(reviewArgs, "shell_environment_policy.set.ZDOTDIR=") ||
+		!strings.Contains(reviewArgs, "shell_environment_policy.set.BASH_ENV="+strconv.Quote("")) ||
+		!strings.Contains(reviewArgs, "shell_environment_policy.set.ENV="+strconv.Quote("")) ||
 		!strings.Contains(reviewArgs, "allow_login_shell=false") ||
 		strings.Contains(reviewArgs, "GIT_INDEX_FILE") ||
 		!strings.Contains(review.Stdin, "0123456789012345678901234567890123456789") ||

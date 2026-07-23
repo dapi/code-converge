@@ -41,6 +41,8 @@ var gitTransportEnvironment = []string{
 	"GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
 	"GIT_NAMESPACE", "GIT_CEILING_DIRECTORIES", "GIT_EXEC_PATH",
 	"GIT_DISCOVERY_ACROSS_FILESYSTEM", "GIT_IMPLICIT_WORK_TREE",
+	"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_SYSTEM",
+	"GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM",
 }
 
 // ReviewScope discovers a base once and refreshes a private index before each review.
@@ -109,7 +111,7 @@ func (s *ReviewScope) Prepare(ctx context.Context) (ReviewTarget, error) {
 	}
 	return ReviewTarget{
 		Base: s.base, BaseCommit: s.baseCommit, MergeBase: s.mergeBase, Source: s.source,
-		Env: env, UnsetEnv: append([]string(nil), gitTransportEnvironment...),
+		Env: env, UnsetEnv: reviewEnvironmentRemovals(),
 	}, nil
 }
 
@@ -395,7 +397,7 @@ func (s *ReviewScope) currentBranchProvider(ctx context.Context, branch string) 
 		Executable: "git",
 		Args:       []string{"remote", "get-url", "--push", "--all", remote},
 		Env:        []string{"LC_ALL=C"},
-		UnsetEnv:   gitTransportEnvironment,
+		UnsetEnv:   gitTransportEnvironmentNames(),
 	})
 	if err != nil {
 		if ctx.Err() != nil {
@@ -811,6 +813,10 @@ func (s *ReviewScope) scopedGitConfiguration(gitExecutable string) scopedGitConf
 func (s *ReviewScope) scopedGitEnvironment() []string {
 	return []string{
 		"PATH=" + s.gitWrapperDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"SHELL=/bin/sh",
+		"ZDOTDIR=" + s.gitWrapperDir,
+		"BASH_ENV=",
+		"ENV=",
 	}
 }
 
@@ -848,7 +854,14 @@ func RunScopedGitWrapper(args []string) int {
 		fmt.Fprintf(os.Stderr, "code-converge scoped git helper: determine working directory: %v\n", err)
 		return 125
 	}
-	if !gitCreatesRepository(args, configuration.Executable, workingDirectory) && gitTargetsReviewRoot(args, configuration.Executable, configuration.Root) {
+	targetsReviewRoot := gitTargetsReviewRoot(args, configuration.Executable, configuration.Root)
+	if targetsReviewRoot {
+		if gitMayWriteSplitIndex(args, configuration.Executable, workingDirectory) {
+			fmt.Fprintln(os.Stderr, "code-converge scoped git helper: split-index-enabling Git commands are not permitted")
+			return 125
+		}
+	}
+	if targetsReviewRoot && !gitCreatesRepository(args, configuration.Executable, workingDirectory) {
 		return runScopedGit(configuration.Executable, args, configuration.Index, configuration.HelperDir)
 	}
 	return runScopedGit(configuration.Executable, args, "", configuration.HelperDir)
@@ -995,6 +1008,125 @@ func gitCreatesRepository(args []string, gitExecutable, directory string) bool {
 		return false
 	}
 	return gitCommandCreatesRepository(prefix, subcommand, remainder, gitExecutable, directory, map[string]bool{})
+}
+
+func gitMayWriteSplitIndex(args []string, gitExecutable, directory string) bool {
+	prefix, subcommand, remainder, ok := splitGitGlobalOptions(args)
+	if !ok {
+		return false
+	}
+	return gitCommandMayWriteSplitIndex(prefix, subcommand, remainder, gitExecutable, directory, map[string]bool{})
+}
+
+func gitCommandMayWriteSplitIndex(prefix []string, subcommand string, remainder []string, gitExecutable, directory string, visitedAliases map[string]bool) bool {
+	if gitPrefixEnablesSplitIndex(prefix) || gitUpdateIndexRequestsSplitIndex(subcommand, remainder) {
+		return true
+	}
+	if gitCommandIsBuiltIn(gitExecutable, directory, subcommand) || gitExecutable == "" || visitedAliases[subcommand] {
+		return false
+	}
+	visitedAliases[subcommand] = true
+	expansion, found := gitAliasExpansion(gitExecutable, directory, prefix, subcommand)
+	if !found {
+		return false
+	}
+	if strings.HasPrefix(strings.TrimSpace(expansion), "!") {
+		return shellAliasMayWriteSplitIndex(expansion, gitExecutable, directory, visitedAliases)
+	}
+	expandedArgs, ok := splitGitAliasArguments(expansion)
+	if !ok || len(expandedArgs) == 0 {
+		return false
+	}
+	expandedPrefix, expandedSubcommand, expandedRemainder, ok := splitGitGlobalOptions(expandedArgs)
+	if !ok {
+		return false
+	}
+	expandedPrefix = append(append([]string{}, prefix...), expandedPrefix...)
+	expandedRemainder = append(expandedRemainder, remainder...)
+	return gitCommandMayWriteSplitIndex(expandedPrefix, expandedSubcommand, expandedRemainder, gitExecutable, directory, visitedAliases)
+}
+
+func shellAliasMayWriteSplitIndex(expansion, gitExecutable, directory string, visitedAliases map[string]bool) bool {
+	command := strings.TrimSpace(strings.TrimPrefix(expansion, "!"))
+	if command == "" {
+		return false
+	}
+	if strings.ContainsAny(command, "|&;<>($`\\\"'*?[]{}~\r\n") {
+		lower := strings.ToLower(command)
+		return strings.Contains(lower, "--split-index") || strings.Contains(lower, "core.splitindex")
+	}
+	fields := strings.Fields(command)
+	if len(fields) < 2 || filepath.Base(fields[0]) != "git" {
+		return false
+	}
+	prefix, subcommand, remainder, ok := splitGitGlobalOptions(fields[1:])
+	if !ok {
+		return false
+	}
+	return gitCommandMayWriteSplitIndex(prefix, subcommand, remainder, gitExecutable, directory, visitedAliases)
+}
+
+func gitPrefixEnablesSplitIndex(prefix []string) bool {
+	for index := 0; index < len(prefix); index++ {
+		argument := prefix[index]
+		switch argument {
+		case "-c", "--config":
+			if index+1 < len(prefix) && gitConfigEnablesSplitIndex(prefix[index+1]) {
+				return true
+			}
+			index++
+		case "--config-env":
+			if index+1 < len(prefix) && gitConfigEnvTargetsSplitIndex(prefix[index+1]) {
+				return true
+			}
+			index++
+		default:
+			if strings.HasPrefix(argument, "-c") && len(argument) > 2 && gitConfigEnablesSplitIndex(argument[2:]) {
+				return true
+			}
+			if strings.HasPrefix(argument, "--config=") && gitConfigEnablesSplitIndex(strings.TrimPrefix(argument, "--config=")) {
+				return true
+			}
+			if strings.HasPrefix(argument, "--config-env=") && gitConfigEnvTargetsSplitIndex(strings.TrimPrefix(argument, "--config-env=")) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func gitConfigEnablesSplitIndex(configuration string) bool {
+	key, value, ok := strings.Cut(configuration, "=")
+	if !ok {
+		return strings.EqualFold(configuration, "core.splitIndex")
+	}
+	return strings.EqualFold(key, "core.splitIndex") && gitBooleanTrue(value)
+}
+
+func gitConfigEnvTargetsSplitIndex(configuration string) bool {
+	key, _, ok := strings.Cut(configuration, "=")
+	return ok && strings.EqualFold(key, "core.splitIndex")
+}
+
+func gitBooleanTrue(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true", "yes", "on", "1":
+		return true
+	default:
+		return false
+	}
+}
+
+func gitUpdateIndexRequestsSplitIndex(subcommand string, remainder []string) bool {
+	if subcommand != "update-index" {
+		return false
+	}
+	for _, argument := range remainder {
+		if argument == "--split-index" {
+			return true
+		}
+	}
+	return false
 }
 
 func gitCommandCreatesRepository(prefix []string, subcommand string, remainder []string, gitExecutable, directory string, visitedAliases map[string]bool) bool {
@@ -1297,8 +1429,9 @@ func gitTransportEnvironmentExcept(exceptions ...string) []string {
 	for _, name := range exceptions {
 		allowed[name] = true
 	}
-	unset := make([]string, 0, len(gitTransportEnvironment))
-	for _, name := range gitTransportEnvironment {
+	transport := gitTransportEnvironmentNames()
+	unset := make([]string, 0, len(transport))
+	for _, name := range transport {
 		if !allowed[name] {
 			unset = append(unset, name)
 		}
@@ -1307,8 +1440,9 @@ func gitTransportEnvironmentExcept(exceptions ...string) []string {
 }
 
 func sanitizedGitProcessEnvironment() []string {
-	remove := make(map[string]bool, len(gitTransportEnvironment))
-	for _, name := range gitTransportEnvironment {
+	transport := gitTransportEnvironmentNames()
+	remove := make(map[string]bool, len(transport))
+	for _, name := range transport {
 		remove[name] = true
 	}
 	var environment []string
@@ -1320,6 +1454,28 @@ func sanitizedGitProcessEnvironment() []string {
 		environment = append(environment, value)
 	}
 	return environment
+}
+
+func gitTransportEnvironmentNames() []string {
+	names := append([]string(nil), gitTransportEnvironment...)
+	for _, value := range os.Environ() {
+		name, _, ok := strings.Cut(value, "=")
+		if ok && (strings.HasPrefix(name, "GIT_CONFIG_KEY_") || strings.HasPrefix(name, "GIT_CONFIG_VALUE_")) {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func reviewEnvironmentRemovals() []string {
+	names := gitTransportEnvironmentNames()
+	for _, value := range os.Environ() {
+		name, _, ok := strings.Cut(value, "=")
+		if ok && strings.HasPrefix(name, "BASH_FUNC_") {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 func reviewIndexEnvironment(environment []string) bool {
