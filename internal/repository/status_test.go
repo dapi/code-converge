@@ -406,6 +406,41 @@ func TestReviewScopeStoresAbsoluteGitExecutable(t *testing.T) {
 	}
 }
 
+func TestScopedGitConfigurationRejectsNonUTF8Paths(t *testing.T) {
+	valid := scopedGitConfiguration{
+		Executable: "/usr/bin/git",
+		Root:       "/review/root",
+		Index:      "/tmp/review/index",
+		WrapperDir: "/tmp/review/bin",
+		HelperDir:  "/tmp/review/git-exec",
+	}
+	if err := validateScopedGitConfiguration(valid); err != nil {
+		t.Fatalf("valid scoped Git configuration was rejected: %v", err)
+	}
+
+	invalidPath := "/review/" + string([]byte{0xff})
+	tests := []struct {
+		name   string
+		mutate func(*scopedGitConfiguration)
+	}{
+		{name: "executable", mutate: func(configuration *scopedGitConfiguration) { configuration.Executable = invalidPath }},
+		{name: "root", mutate: func(configuration *scopedGitConfiguration) { configuration.Root = invalidPath }},
+		{name: "index", mutate: func(configuration *scopedGitConfiguration) { configuration.Index = invalidPath }},
+		{name: "wrapper directory", mutate: func(configuration *scopedGitConfiguration) { configuration.WrapperDir = invalidPath }},
+		{name: "helper directory", mutate: func(configuration *scopedGitConfiguration) { configuration.HelperDir = invalidPath }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			configuration := valid
+			test.mutate(&configuration)
+			err := validateScopedGitConfiguration(configuration)
+			if err == nil || !strings.Contains(err.Error(), "not valid UTF-8") {
+				t.Fatalf("validateScopedGitConfiguration() error = %v, want invalid UTF-8 diagnostic", err)
+			}
+		})
+	}
+}
+
 func TestReviewScopeRejectsMultipleOpenPRs(t *testing.T) {
 	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
 		args := strings.Join(inv.Args, " ")

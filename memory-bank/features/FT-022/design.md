@@ -237,7 +237,7 @@ Exact prose is implementation-local provided these semantics and tests remain tr
 | `FM-05` | Future Codex emits an incompatible result shape or lacks required capabilities | Fail closed with exit `2`; add support only through a separately evidenced contract change. |
 | `FM-06` | Temporary cleanup fails after result/error construction | Cleanup remains best-effort and cannot change the review verdict; the `0700` directory limits exposure and no path becomes a public artifact. |
 | `FM-07` | Adapter is called without `ReviewScope` | Return a contextual configuration error before temp setup or Codex invocation. |
-| `FM-08` | Prepared target has no single non-empty wrapper-first `PATH` entry | Return a contextual target error before temp setup or Codex invocation; do not review a different index. |
+| `FM-08` | Prepared target has no single non-empty wrapper-first `PATH` entry, or a scoped path cannot be represented losslessly as UTF-8 | Return a contextual target error before wrapper creation or Codex invocation; do not review a different index. |
 | `FM-09` | Prepared target lacks a pinned selected-base commit or computed merge base | Return a contextual target error before temp setup or Codex invocation; do not infer a replacement comparison point. |
 
 ## Rollout / Backout

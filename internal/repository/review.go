@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/dapi/code-converge/internal/runner"
 )
@@ -714,6 +715,10 @@ func (s *ReviewScope) reviewEnvironment() ([]string, error) {
 		if err := validatePathListEntry(helperDir); err != nil {
 			return nil, err
 		}
+		configuration := s.scopedGitConfiguration(gitExecutable, wrapperDir, helperDir)
+		if err := validateScopedGitConfiguration(configuration); err != nil {
+			return nil, err
+		}
 		if err := os.Mkdir(wrapperDir, 0o700); err != nil {
 			return nil, fmt.Errorf("create scoped git wrapper: %w", err)
 		}
@@ -734,13 +739,11 @@ func (s *ReviewScope) reviewEnvironment() ([]string, error) {
 		if err := linkGitHelpers(gitExecPath, helperDir); err != nil {
 			return nil, err
 		}
-		s.gitWrapperDir = wrapperDir
-		s.gitHelperDir = helperDir
-		configuration, err := json.Marshal(s.scopedGitConfiguration(gitExecutable))
+		encodedConfiguration, err := json.Marshal(configuration)
 		if err != nil {
 			return nil, fmt.Errorf("encode scoped git configuration: %w", err)
 		}
-		if err := os.WriteFile(filepath.Join(wrapperDir, scopedGitConfigurationFile), configuration, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(wrapperDir, scopedGitConfigurationFile), encodedConfiguration, 0o600); err != nil {
 			return nil, fmt.Errorf("write scoped git configuration: %w", err)
 		}
 		if err := os.Chmod(wrapperDir, 0o700); err != nil {
@@ -749,6 +752,8 @@ func (s *ReviewScope) reviewEnvironment() ([]string, error) {
 		if err := os.Chmod(helperDir, 0o700); err != nil {
 			return nil, err
 		}
+		s.gitWrapperDir = wrapperDir
+		s.gitHelperDir = helperDir
 		return s.scopedGitEnvironment(), nil
 	}
 	return s.scopedGitEnvironment(), nil
@@ -796,7 +801,7 @@ func validatePathListEntry(path string) error {
 
 const scopedGitConfigurationFile = ".code-converge-scoped-git.json"
 
-func (s *ReviewScope) scopedGitConfiguration(gitExecutable string) scopedGitConfiguration {
+func (s *ReviewScope) scopedGitConfiguration(gitExecutable, wrapperDir, helperDir string) scopedGitConfiguration {
 	reviewRoot := s.Root
 	if reviewRoot == "" {
 		reviewRoot, _ = os.Getwd()
@@ -805,9 +810,28 @@ func (s *ReviewScope) scopedGitConfiguration(gitExecutable string) scopedGitConf
 		Executable: gitExecutable,
 		Root:       reviewRoot,
 		Index:      filepath.Join(s.tempDir, "index"),
-		WrapperDir: s.gitWrapperDir,
-		HelperDir:  s.gitHelperDir,
+		WrapperDir: wrapperDir,
+		HelperDir:  helperDir,
 	}
+}
+
+func validateScopedGitConfiguration(configuration scopedGitConfiguration) error {
+	paths := []struct {
+		name  string
+		value string
+	}{
+		{name: "Git executable", value: configuration.Executable},
+		{name: "review root", value: configuration.Root},
+		{name: "review index", value: configuration.Index},
+		{name: "wrapper directory", value: configuration.WrapperDir},
+		{name: "Git helper directory", value: configuration.HelperDir},
+	}
+	for _, path := range paths {
+		if !utf8.ValidString(path.value) {
+			return fmt.Errorf("create scoped git wrapper: %s path is not valid UTF-8", path.name)
+		}
+	}
+	return nil
 }
 
 func (s *ReviewScope) scopedGitEnvironment() []string {
