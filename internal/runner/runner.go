@@ -102,9 +102,9 @@ func (r Exec) Run(ctx context.Context, invocation Invocation) (Result, error) {
 		case <-done:
 		}
 	}()
+	copies.Wait()
 	err = cmd.Wait()
 	close(done)
-	copies.Wait()
 	result := Result{Stdout: stdout.String(), Stderr: stderr.String()}
 	if err != nil {
 		return result, formatRunError(name, err, result.Stderr)
