@@ -118,6 +118,13 @@ must_not_define:
 - **P2 — diagnostic after failed clear:** `Diagnostic` ignored an error from `clearLocked` and could write stderr after a stale transient frame. It now returns without writing the diagnostic when clearing fails; a deterministic liveness width-failure test covers that path.
 - **State:** feature is reopened pending local and hosted verification; the plan is active until the corrected PR is green.
 
+### Iteration 5 — corrected hosted convergence
+
+- **Critical:** none.
+- **High:** none.
+- **Verification:** required GitHub Actions [Verify run](https://github.com/dapi/code-converge/actions/runs/30022661002) passed after the two review corrections.
+- **Result:** no critical/high review finding remains; feature delivery is done and the implementation plan is archived. A final documentation-only CI run records this lifecycle transition.
+
 ## Human Gate
 
 No unresolved question currently requires a human decision. `HG-01` was resolved by the user's instruction to use FPF for the choice; `DL-02` records the selected scope and the evidence required to validate it.
