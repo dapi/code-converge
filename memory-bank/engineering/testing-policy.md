@@ -20,7 +20,7 @@ When implementation begins, it must use deterministic tests with a fake runner a
 | --- | --- |
 | Workflow transition or exit code | Table-driven state-machine tests for positive, terminal, and malformed/error cases. |
 | Codex command boundary | Fake-executable tests for arguments, model/reasoning configuration, prompt/stdin, cwd, stdout/stderr capture, exit status, and malformed output; timeout and cancellation tests become required if those policies are selected. |
-| Review report classification | Plain-text fixtures for clean, findings with every supported priority, unknown priority, ambiguous report, and non-zero exit. |
+| Review result classification | Strict-schema final-file fixtures for clean and every supported priority; missing, empty, malformed, incomplete, duplicate/unknown-field, invalid-priority, trailing-data and non-zero cases; conflicting stdout/stderr must prove that terminal streams are not classified. |
 | Configuration | Table tests covering every source and precedence conflict. |
 | Stdout event schema | Golden tests proving one line per record and required fields. |
 | Repository documentation | `make docs-lint`. |

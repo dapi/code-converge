@@ -42,3 +42,4 @@ audience: humans_and_agents
 - [`FT-015/README.md`](FT-015/README.md) — complete strict structured Codex review classification and successful no-change completion for issue #15.
 - [`FT-016/README.md`](FT-016/README.md) — planned complete branch-and-worktree review scope for issue #16; blocked at a public-contract human gate.
 - [`FT-020/README.md`](FT-020/README.md) — complete conventional root `-h`/`--help` aliases for issue #20.
+- [`FT-022/README.md`](FT-022/README.md) — planned schema-constrained Codex review result channel for issue #22.
