@@ -6,6 +6,8 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-24
+
 ### Added
 
 - Hardened branch-and-worktree review isolation with provider-aware pull-request base selection and a scoped Git helper that keeps the disposable review snapshot out of other repositories and repository-creating commands.
