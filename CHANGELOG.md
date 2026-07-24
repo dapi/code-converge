@@ -6,6 +6,8 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-07-24
+
 ### Fixed
 
 - Fixed human terminal records being indented after raw-mode interactive output, and announce the `i` shortcut for opening the interactive view at startup.
