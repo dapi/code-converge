@@ -6,6 +6,8 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-07-25
+
 ### Fixed
 
 - Fixed interactive terminal key polling so it does not make shared terminal output non-blocking.
