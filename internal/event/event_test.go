@@ -107,22 +107,29 @@ func TestInteractiveHumanStageStartIsOmitted(t *testing.T) {
 	}
 }
 
-func TestInteractiveHumanStageStartIsWrittenWhenViewIsClosed(t *testing.T) {
+func TestInteractiveHumanStageStartIsRetainedOnlyForTheView(t *testing.T) {
 	var out bytes.Buffer
 	view := terminal.New(&out, nil)
 	logger := Logger{Out: &out, Format: "human", Interactive: true, View: view, Now: func() time.Time { return time.Date(2026, 7, 21, 10, 4, 5, 0, time.UTC) }, HumanMaxCycles: 10}
 	if err := logger.Emit("stage_started", F("stage", "review"), F("model", "gpt-test"), F("reasoning_effort", "high"), F("review_phase", "1"), F("cycle", "1")); err != nil {
 		t.Fatal(err)
 	}
-	want := "10:04:05 [1/10] [gpt-test/high] Review started\n"
-	if got := out.String(); got != want {
-		t.Fatalf("closed-view stage start = %q, want %q", got, want)
+	if got := out.String(); got != "" {
+		t.Fatalf("closed-view stage start = %q, want no primary-screen record", got)
 	}
 	if err := view.Toggle(); err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Count(out.String(), want); got != 2 {
-		t.Fatalf("stage start rendered %d times, want one stdout record and one pane record", got)
+	want := "10:04:05 [1/10] [gpt-test/high] Review started"
+	if got := strings.Count(out.String(), want); got != 1 {
+		t.Fatalf("stage start rendered %d times, want one view record", got)
+	}
+}
+
+func TestLineEndingUsesCRLFOnlyWhileTheViewIsRaw(t *testing.T) {
+	logger := Logger{}
+	if got := logger.lineEndingLocked(); got != "\n" {
+		t.Fatalf("default ending = %q", got)
 	}
 }
 

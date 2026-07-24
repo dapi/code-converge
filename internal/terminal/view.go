@@ -159,6 +159,18 @@ func (v *View) Active() bool {
 	return v.open
 }
 
+// RawMode reports whether Start has put the input terminal into raw mode.
+// Raw mode disables the terminal's usual LF-to-CRLF expansion, so permanent
+// records must explicitly return to column zero before their next line.
+func (v *View) RawMode() bool {
+	if v == nil {
+		return false
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.restore != nil
+}
+
 func (v *View) AppendWorkflow(line string) error {
 	if v == nil || line == "" {
 		return nil

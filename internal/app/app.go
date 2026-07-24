@@ -187,6 +187,10 @@ func (a App) Run(ctx context.Context, args []string) int {
 		// be corrupted by terminal control sequences.
 		Interactive: interactiveTerminal, ColorDepth: a.colorDepth(cfg, stdout), View: view,
 	}
+	if err := logger.InteractiveHint(); err != nil {
+		fmt.Fprintf(stderr, "code-converge: interactive hint: %v\n", err)
+		return workflow.ExitOperational
+	}
 	if logger.Interactive && cfg.LogFormat == "human" && cfg.Heartbeat == 0 {
 		logger.TerminalWidth = func() (int, error) { return a.terminalWidth(stdout) }
 	}

@@ -552,14 +552,13 @@ func TestEmitStepsFailure(t *testing.T) {
 type failOnLivenessWriter struct{ bytes.Buffer }
 
 func (w *failOnLivenessWriter) Write(p []byte) (int, error) {
-	if strings.Contains(string(p), "still running") {
+	if strings.Contains(string(p), "CI recovery still running") {
 		return 0, errors.New("closed stdout")
 	}
 	return w.Buffer.Write(p)
 }
 
 func TestCIFixLivenessWriteFailureIsOperational(t *testing.T) {
-	ticks := make(chan time.Time, 1)
 	started := make(chan struct{})
 	agent := &fakeAgent{
 		reviews:       []codex.ReviewResult{clean()},
@@ -570,16 +569,19 @@ func TestCIFixLivenessWriteFailureIsOperational(t *testing.T) {
 	writer := &failOnLivenessWriter{}
 	var stderr bytes.Buffer
 	logger := &event.Logger{
-		Out: writer, Format: "human", Heartbeat: time.Second,
-		Tick: func(time.Duration) (<-chan time.Time, func()) { return ticks, func() {} },
+		Out: writer, Format: "human", Heartbeat: time.Millisecond,
 	}
-	w := Workflow{Config: config.Config{LogFormat: "human", Heartbeat: time.Second, MaxCIRecoveries: 1}, Agent: agent, Log: logger, Err: &stderr}
+	w := Workflow{Config: config.Config{LogFormat: "human", Heartbeat: time.Millisecond, MaxCIRecoveries: 1}, Agent: agent, Log: logger, Err: &stderr}
 	result := make(chan int, 1)
 	go func() { result <- w.Run(context.Background()) }()
 	<-started
-	ticks <- time.Now().Add(time.Second)
-	if code := <-result; code != ExitOperational {
-		t.Fatalf("code=%d output=%q stderr=%q", code, writer.String(), stderr.String())
+	select {
+	case code := <-result:
+		if code != ExitOperational {
+			t.Fatalf("code=%d output=%q stderr=%q", code, writer.String(), stderr.String())
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("CI liveness write failure did not stop the workflow: output=%q stderr=%q", writer.String(), stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "write liveness") {
 		t.Fatalf("stderr=%q", stderr.String())

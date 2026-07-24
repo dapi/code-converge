@@ -7,7 +7,20 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"golang.org/x/term"
 )
+
+func TestRawModeReportsTerminalState(t *testing.T) {
+	v := New(&bytes.Buffer{}, nil)
+	if v.RawMode() {
+		t.Fatal("new view unexpectedly reports raw mode")
+	}
+	v.restore = &term.State{}
+	if !v.RawMode() {
+		t.Fatal("view with saved terminal state does not report raw mode")
+	}
+}
 
 func TestSanitize(t *testing.T) {
 	got := Sanitize([]byte("one\x1b[31mtwo\x1b[0m\r\nthree\x00\x9b"))

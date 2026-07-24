@@ -83,10 +83,10 @@ func (l *Logger) Emit(eventName string, fields ...Field) error {
 		if err := l.View.AppendWorkflow(line); err != nil {
 			return fmt.Errorf("render interactive view: %w", err)
 		}
-		viewRecorded = true
-		if l.View.Active() {
-			return nil
-		}
+		// The transient liveness line is the sole primary-screen start
+		// indication while raw mode is active. Keep this record for a view that
+		// opens later, but do not write a duplicate permanent stage-start line.
+		return nil
 	}
 	line, err := l.render(eventName, fields)
 	if err != nil || line == "" {
@@ -107,8 +107,7 @@ func (l *Logger) Emit(eventName string, fields ...Field) error {
 	if err := l.clearLocked(); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(l.Out, line)
-	return err
+	return l.writeLineLocked(l.Out, line)
 }
 
 func (l *Logger) Diagnostic(message string, err error) {
@@ -124,7 +123,7 @@ func (l *Logger) Diagnostic(message string, err error) {
 	if l.clearLocked() != nil {
 		return
 	}
-	fmt.Fprintf(l.Err, "code-converge: %s: %v\n", message, err)
+	_ = l.writeLineLocked(l.Err, fmt.Sprintf("code-converge: %s: %v", message, err))
 }
 
 // StartAgent marks a new Codex process as the only active pane stream.
@@ -161,8 +160,21 @@ func (l *Logger) SessionLog(path string) error {
 	if err := l.clearLocked(); err != nil {
 		return err
 	}
-	_, err := fmt.Fprintf(l.Out, "%sSession log: %s\n", l.now().Format("15:04:05 "), path)
-	return err
+	return l.writeLineLocked(l.Out, fmt.Sprintf("%sSession log: %s", l.now().Format("15:04:05 "), path))
+}
+
+// InteractiveHint writes the one-time control discovery line after the view
+// enters raw mode. It is human-only and never affects kv output.
+func (l *Logger) InteractiveHint() error {
+	if l.normalizedFormat() != "human" || l.View == nil || !l.View.RawMode() {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if err := l.clearLocked(); err != nil {
+		return err
+	}
+	return l.writeLineLocked(l.Out, fmt.Sprintf("%sInteractive view available: press i to open", l.now().Format("15:04:05 ")))
 }
 
 type Liveness struct {
@@ -255,8 +267,7 @@ func (l *Logger) writeHeartbeat(stage StageContext, elapsed time.Duration) error
 			return nil
 		}
 	}
-	_, err := fmt.Fprintln(l.Out, line)
-	return err
+	return l.writeLineLocked(l.Out, line)
 }
 
 func (l *Logger) writeTransient(stage StageContext, elapsed time.Duration, frame int) error {
@@ -342,6 +353,18 @@ func (l *Logger) clearLocked() error {
 		l.transientCells = 0
 	}
 	return err
+}
+
+func (l *Logger) writeLineLocked(out io.Writer, line string) error {
+	_, err := out.Write([]byte(line + l.lineEndingLocked()))
+	return err
+}
+
+func (l *Logger) lineEndingLocked() string {
+	if l.View != nil && l.View.RawMode() {
+		return "\r\n"
+	}
+	return "\n"
 }
 
 func (l *Logger) transientLineLocked(stage StageContext, label, elapsed string, limit int) (string, int) {

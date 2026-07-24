@@ -41,7 +41,7 @@ The current workflow stdout contract is stable and machine-readable, but operato
 - `REQ-01` Provide `human` and structured `kv` workflow log formats, with `human` as the built-in default and no TTY-selected semantic format.
 - `REQ-02` Specify and implement human rendering for every current workflow event/result, including local timestamps, `[attempt/max]` retry context before stage model/reasoning context, fixed `P0`–`P2` findings counters with conditional `P3`/`Unknown`, readable durations, finalization steps and every terminal exit path.
 - `REQ-03` Preserve the current stable `key=value` event stream for automation and compatibility when structured mode is selected and heartbeat is disabled.
-- `REQ-04` Provide an in-place elapsed-time liveness line with full-line color shimmer for long-running stages when human mode writes to an interactive terminal.
+- `REQ-04` Provide an in-place elapsed-time liveness line with full-line color shimmer for long-running stages when human mode writes to an interactive terminal, preserve column-zero permanent records while raw mode is active, and announce the `i` control for the optional interactive view once at startup.
 - `REQ-05` Keep non-TTY output newline-safe and ANSI-free by default, and allow an explicit bounded heartbeat for callers that need liveness in redirected output or CI.
 - `REQ-06` Stop liveness promptly and serialize progress writes across completion, failure, cancellation and output-write failure paths.
 - `REQ-07` Preserve stderr diagnostics and raw Codex-output isolation.
@@ -92,7 +92,7 @@ The current workflow stdout contract is stable and machine-readable, but operato
 - `EC-01` `human` and `kv` are explicitly selectable through the documented CLI/config/environment contract, with the documented default and precedence.
 - `EC-02` Every current event/result and terminal path matches its canonical human rendering: each line has a local timestamp, retryable stage lines put `[attempt/max] [model/reasoning-effort]` before the message, review/fix/CI recovery show their real configured budgets, durations contain no milliseconds, and review findings always show `P0`–`P2` while `P3` and `Unknown` appear only when non-zero.
 - `EC-03` Existing `kv` records remain machine-safe and compatible when heartbeat is disabled.
-- `EC-04` Human TTY liveness updates in place with elapsed time and full-line shimmer, while no-color behavior retains the timer without color.
+- `EC-04` Human TTY liveness updates in place with elapsed time and full-line shimmer, while no-color behavior retains the timer without color; raw mode cannot leave later permanent records indented, and an eligible terminal announces `press i to open` once at startup.
 - `EC-05` Human non-TTY output is ANSI-free and silent between permanent records unless heartbeat is explicitly enabled; enabled heartbeats are bounded and newline-safe.
 - `EC-06` Completion, failure, cancellation and write errors stop the liveness worker before subsequent permanent output and do not produce races or late writes.
 - `EC-07` Diagnostics remain on stderr and raw Codex output is absent from workflow stdout.
@@ -115,7 +115,7 @@ The current workflow stdout contract is stable and machine-readable, but operato
 
 - `SC-01` An operator uses the default format for a normal findings/fix/clean/finalize run and receives concise permanent lines with non-zero severities, readable durations, finalization steps and `Done`.
 - `SC-02` An automation caller explicitly selects `kv` mode and receives the existing stable event records without heartbeat additions.
-- `SC-03` Human mode on a TTY shows one updating elapsed line during each Codex-backed stage, clears it before permanent completion/diagnostic output and respects no-color behavior.
+- `SC-03` Human mode on a TTY announces the optional `i` view once, shows one updating elapsed line during each Codex-backed stage, clears it before permanent completion/diagnostic output, begins every permanent record at column zero and respects no-color behavior.
 - `SC-04` Human mode with redirected output emits no implicit liveness or ANSI sequences; an explicit heartbeat emits bounded newline records at the configured interval.
 - `SC-05` Review findings exhaustion, operational failure and exhausted CI recovery each render the documented terminal line and preserve exit codes `1`, `2` and `3` respectively.
 - `SC-06` Stage completion racing a timer tick, context cancellation and output-write failure leave no liveness goroutine or late write and preserve the applicable terminal semantics.

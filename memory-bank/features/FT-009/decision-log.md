@@ -149,6 +149,14 @@ Each material question uses the canonical reasoning cycle: frame the bounded cla
 - **Result:** Human review completion always renders total findings plus `P0`, `P1` and `P2`; it adds non-zero `P3` and `Unknown` in that order. No workflow state, review classification or `kv` schema changes.
 - **Confidence:** high; direct product decision.
 
+### `DL-14` — Raw-mode permanent records and interactive-view discovery
+
+- **Status:** resolved by the user; promoted to `brief.md`, `design.md` and the root README.
+- **Question:** How should the optional interactive view be discoverable, and how must permanent human records behave after raw mode starts?
+- **Facts:** The user observed permanent records beginning at an existing terminal column after a long/transient line. `term.MakeRaw` disables the terminal's normal LF-to-CRLF output conversion, while permanent records were emitted with LF only. The user also requested a startup hint explaining how to enter the interactive view.
+- **Result:** On an eligible interactive terminal, emit one human-only hint: `Interactive view available: press i to open`. The primary screen omits the duplicate stage-start line because liveness supplies that indication. While raw mode is active, permanent stdout and stderr records use CRLF; structured and non-TTY output remain unchanged.
+- **Confidence:** high; direct reproduction from the observed output and terminal-mode semantics.
+
 ## Review-Improve Cycles
 
 Cycle records are appended after each complete review. A cycle lists only `critical` and `important` findings for remediation; `minor` findings are recorded but not changed unless they block a higher-severity correction.
