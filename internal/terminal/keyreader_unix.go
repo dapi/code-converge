@@ -3,6 +3,7 @@
 package terminal
 
 import (
+	"os"
 	"sync/atomic"
 
 	"golang.org/x/sys/unix"
@@ -14,22 +15,35 @@ type keyReader interface {
 }
 
 type pollingKeyReader struct {
-	in       interface{ Read([]byte) (int, error) }
+	in       *os.File
 	fd       int
 	original int
 	closed   atomic.Bool
 }
 
-func newKeyReader(in interface {
+var openKeyReaderInput = func() (*os.File, error) {
+	return os.OpenFile("/dev/tty", os.O_RDONLY, 0)
+}
+
+func newKeyReader(_ interface {
 	Fd() uintptr
 	Read([]byte) (int, error)
 }) (keyReader, error) {
-	fd := int(in.Fd())
-	original, err := unix.FcntlInt(uintptr(fd), unix.F_GETFL, 0)
+	// O_NONBLOCK is an open-file-description flag. A dup of stdin would still
+	// share it with stdout when their descriptors refer to the same terminal,
+	// so reopen the controlling terminal for the polling reader instead.
+	in, err := openKeyReaderInput()
 	if err != nil {
 		return nil, err
 	}
+	fd := int(in.Fd())
+	original, err := unix.FcntlInt(uintptr(fd), unix.F_GETFL, 0)
+	if err != nil {
+		_ = in.Close()
+		return nil, err
+	}
 	if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFL, original|unix.O_NONBLOCK); err != nil {
+		_ = in.Close()
 		return nil, err
 	}
 	return &pollingKeyReader{in: in, fd: fd, original: original}, nil
@@ -56,5 +70,9 @@ func (r *pollingKeyReader) Close() error {
 		return nil
 	}
 	_, err := unix.FcntlInt(uintptr(r.fd), unix.F_SETFL, r.original)
-	return err
+	closeErr := r.in.Close()
+	if err != nil {
+		return err
+	}
+	return closeErr
 }
