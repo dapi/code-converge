@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -485,21 +486,39 @@ func renderHuman(eventName string, fields []Field, maxCycles, maxCIRecoveries in
 		case "failed":
 			return fmt.Sprintf("%s failed (%s)", prefix, d), nil
 		case "findings":
-			parts := make([]string, 0, 5)
-			for _, severity := range []string{"critical", "high", "medium", "low", "unknown"} {
-				if count := values["findings_"+severity]; count != "" && count != "0" {
-					parts = append(parts, count+" "+severity)
+			total, err := humanFindingCount(values, "findings_total", true)
+			if err != nil {
+				return "", err
+			}
+			if total == 0 {
+				return "", errors.New("findings status has no findings")
+			}
+			priorities := []struct {
+				label    string
+				field    string
+				required bool
+			}{
+				{label: "P0", field: "findings_critical", required: true},
+				{label: "P1", field: "findings_high", required: true},
+				{label: "P2", field: "findings_medium", required: true},
+				{label: "P3", field: "findings_low"},
+				{label: "Unknown", field: "findings_unknown"},
+			}
+			parts := make([]string, 0, len(priorities))
+			for _, priority := range priorities {
+				count, err := humanFindingCount(values, priority.field, priority.required)
+				if err != nil {
+					return "", err
+				}
+				if priority.required || count > 0 {
+					parts = append(parts, fmt.Sprintf("%s:%d", priority.label, count))
 				}
 			}
-			if len(parts) == 0 {
-				return "", fmt.Errorf("findings status has no non-zero severity counts")
-			}
-			total := values["findings_total"]
 			noun := "findings"
-			if total == "1" {
+			if total == 1 {
 				noun = "finding"
 			}
-			return fmt.Sprintf("%s: %s %s — %s (%s)", prefix, total, noun, strings.Join(parts, ", "), d), nil
+			return fmt.Sprintf("%s: %d %s [%s] (%s)", prefix, total, noun, strings.Join(parts, "; "), d), nil
 		}
 	case "stage_completed":
 		d, err := duration("duration_ms")
@@ -581,6 +600,21 @@ func renderHuman(eventName string, fields []Field, maxCycles, maxCIRecoveries in
 		}
 	}
 	return "", fmt.Errorf("unsupported human event %s with fields %#v", eventName, fields)
+}
+
+func humanFindingCount(values map[string]string, field string, required bool) (int, error) {
+	value, found := values[field]
+	if !found || value == "" {
+		if required {
+			return 0, fmt.Errorf("findings status is missing %s", field)
+		}
+		return 0, nil
+	}
+	count, err := strconv.Atoi(value)
+	if err != nil || count < 0 {
+		return 0, fmt.Errorf("invalid %s %q", field, value)
+	}
+	return count, nil
 }
 
 func (l *Logger) humanPrefix(attempt, model, effort string) string {

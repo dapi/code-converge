@@ -57,7 +57,8 @@ func TestHumanEventCatalog(t *testing.T) {
 		{"run started omitted", "run_started", nil, ""},
 		{"review start", "stage_started", []Field{F("stage", "review"), F("review_phase", "1"), F("cycle", "1")}, "10:04:05 [1/10] [gpt-test/high] Review started\n"},
 		{"review after ci", "stage_started", []Field{F("stage", "review"), F("review_phase", "2"), F("cycle", "1")}, "10:04:05 [1/10] [gpt-test/high] Review started (phase 2 after CI recovery 1)\n"},
-		{"review findings", "review_completed", []Field{F("stage", "review"), F("review_phase", "1"), F("cycle", "2"), F("status", "findings"), F("findings_total", "3"), F("findings_critical", "0"), F("findings_high", "1"), F("findings_medium", "2"), F("findings_low", "0"), F("findings_unknown", "0"), F("duration_ms", "133000")}, "10:04:05 [2/10] [gpt-test/high] Review: 3 findings — 1 high, 2 medium (2m 13s)\n"},
+		{"review findings", "review_completed", []Field{F("stage", "review"), F("review_phase", "1"), F("cycle", "2"), F("status", "findings"), F("findings_total", "3"), F("findings_critical", "0"), F("findings_high", "1"), F("findings_medium", "2"), F("findings_low", "0"), F("findings_unknown", "0"), F("duration_ms", "133000")}, "10:04:05 [2/10] [gpt-test/high] Review: 3 findings [P0:0; P1:1; P2:2] (2m 13s)\n"},
+		{"review findings with optional priorities", "review_completed", []Field{F("stage", "review"), F("cycle", "2"), F("status", "findings"), F("findings_total", "5"), F("findings_critical", "1"), F("findings_high", "0"), F("findings_medium", "2"), F("findings_low", "1"), F("findings_unknown", "1"), F("duration_ms", "1")}, "10:04:05 [2/10] [gpt-test/high] Review: 5 findings [P0:1; P1:0; P2:2; P3:1; Unknown:1] (0s)\n"},
 		{"review clean", "review_completed", []Field{F("stage", "review"), F("cycle", "3"), F("status", "clean"), F("duration_ms", "87000")}, "10:04:05 [3/10] [gpt-test/high] Review: clean (1m 27s)\n"},
 		{"review failed", "review_completed", []Field{F("stage", "review"), F("cycle", "1"), F("status", "failed"), F("duration_ms", "12500")}, "10:04:05 [1/10] [gpt-test/high] Review failed (12.5s)\n"},
 		{"fix start", "stage_started", []Field{F("stage", "fix-findings"), F("cycle", "2")}, "10:04:05 [2/10] [gpt-test/high] Fixing findings\n"},
@@ -134,10 +135,14 @@ func TestAgentOutputWithoutViewNeverWritesWorkflowStdout(t *testing.T) {
 	}
 }
 
-func TestHumanFindingsRequiresNonZeroSeverity(t *testing.T) {
+func TestHumanFindingsRequiresPriorityCountersAndPositiveTotal(t *testing.T) {
 	logger := Logger{Out: ioDiscard{}, Format: "human"}
-	err := logger.Emit("review_completed", F("stage", "review"), F("cycle", "1"), F("status", "findings"), F("findings_total", "0"), F("findings_high", "0"), F("duration_ms", "1"))
-	if err == nil || !strings.Contains(err.Error(), "no non-zero") {
+	err := logger.Emit("review_completed", F("stage", "review"), F("cycle", "1"), F("status", "findings"), F("findings_total", "1"), F("findings_high", "0"), F("duration_ms", "1"))
+	if err == nil || !strings.Contains(err.Error(), "findings_critical") {
+		t.Fatalf("error = %v", err)
+	}
+	err = logger.Emit("review_completed", F("stage", "review"), F("cycle", "1"), F("status", "findings"), F("findings_total", "0"), F("findings_critical", "0"), F("findings_high", "0"), F("findings_medium", "0"), F("duration_ms", "1"))
+	if err == nil || !strings.Contains(err.Error(), "no findings") {
 		t.Fatalf("error = %v", err)
 	}
 }

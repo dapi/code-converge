@@ -171,7 +171,7 @@ func TestHumanHappyPath(t *testing.T) {
 		t.Fatalf("code=%d stderr=%q", code, stderr)
 	}
 	for _, want := range []string{
-		"10:00:00 [1/1] [gpt-5.6-sol/medium] Review started\n", "10:00:00 [1/1] [gpt-5.6-sol/medium] Review: 3 findings — 1 high, 2 medium (0s)\n",
+		"10:00:00 [1/1] [gpt-5.6-sol/medium] Review started\n", "10:00:00 [1/1] [gpt-5.6-sol/medium] Review: 3 findings [P0:0; P1:1; P2:2] (0s)\n",
 		"10:00:00 [1/1] [gpt-5.6-luna/medium] Fixing findings\n", "10:00:00 [1/1] [gpt-5.6-luna/medium] Findings fixed (0s)\n", "10:00:00 [2/1] [gpt-5.6-sol/medium] Review: clean (0s)\n",
 		"10:00:00 [gpt-5.3-codex-spark/agent-default] Finalizing\n", "10:00:00 [gpt-5.3-codex-spark/agent-default]   Commit: done\n", "10:00:00 [gpt-5.3-codex-spark/agent-default]   Change request: not needed\n", "10:00:00 [gpt-5.3-codex-spark/agent-default] Finalized successfully (0s)\n", "10:00:00 Done (0s)\n",
 	} {

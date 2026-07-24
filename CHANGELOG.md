@@ -6,6 +6,10 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Made human review summaries always show `P0`, `P1`, and `P2` counts, with `P3` and `Unknown` shown when non-zero.
+
 ## [0.6.0] - 2026-07-24
 
 ### Added

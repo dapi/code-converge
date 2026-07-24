@@ -141,6 +141,14 @@ Each material question uses the canonical reasoning cycle: frame the bounded cla
 - **Result:** Every human permanent and liveness line begins with local `HH:MM:SS`; retryable stage lines continue with `[attempt/max] [model/reasoning-effort]` and a single space before the message. Review/fix use cycle/max-cycles; CI recovery uses phase/max-ci-recoveries. Interactive human output omits permanent stage-start lines in favour of liveness; non-TTY retains them. The run terminal line retains the timestamp but no stage context.
 - **Confidence:** high; direct product decision.
 
+### `DL-13` — Review findings summary counters
+
+- **Status:** resolved by the user; promoted to `brief.md`, `design.md` and the root README.
+- **Question:** Which review-priority counters remain visible when their values are zero?
+- **Facts:** The user selected the exact human form `Review: <total> findings [P0:<count>; P1:<count>; P2:<count>]`, with `P3` and `Unknown` appended only when non-zero. The existing `kv` record already carries every counter and remains unchanged.
+- **Result:** Human review completion always renders total findings plus `P0`, `P1` and `P2`; it adds non-zero `P3` and `Unknown` in that order. No workflow state, review classification or `kv` schema changes.
+- **Confidence:** high; direct product decision.
+
 ## Review-Improve Cycles
 
 Cycle records are appended after each complete review. A cycle lists only `critical` and `important` findings for remediation; `minor` findings are recorded but not changed unless they block a higher-severity correction.

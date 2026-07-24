@@ -39,7 +39,7 @@ The current workflow stdout contract is stable and machine-readable, but operato
 ### Scope
 
 - `REQ-01` Provide `human` and structured `kv` workflow log formats, with `human` as the built-in default and no TTY-selected semantic format.
-- `REQ-02` Specify and implement human rendering for every current workflow event/result, including local timestamps, `[attempt/max]` retry context before stage model/reasoning context, non-zero severity summaries, readable durations, finalization steps and every terminal exit path.
+- `REQ-02` Specify and implement human rendering for every current workflow event/result, including local timestamps, `[attempt/max]` retry context before stage model/reasoning context, fixed `P0`–`P2` findings counters with conditional `P3`/`Unknown`, readable durations, finalization steps and every terminal exit path.
 - `REQ-03` Preserve the current stable `key=value` event stream for automation and compatibility when structured mode is selected and heartbeat is disabled.
 - `REQ-04` Provide an in-place elapsed-time liveness line with full-line color shimmer for long-running stages when human mode writes to an interactive terminal.
 - `REQ-05` Keep non-TTY output newline-safe and ANSI-free by default, and allow an explicit bounded heartbeat for callers that need liveness in redirected output or CI.
@@ -90,7 +90,7 @@ The current workflow stdout contract is stable and machine-readable, but operato
 ### Exit Criteria
 
 - `EC-01` `human` and `kv` are explicitly selectable through the documented CLI/config/environment contract, with the documented default and precedence.
-- `EC-02` Every current event/result and terminal path matches its canonical human rendering: each line has a local timestamp, retryable stage lines put `[attempt/max] [model/reasoning-effort]` before the message, review/fix/CI recovery show their real configured budgets, durations contain no milliseconds, and zero severity counters are omitted.
+- `EC-02` Every current event/result and terminal path matches its canonical human rendering: each line has a local timestamp, retryable stage lines put `[attempt/max] [model/reasoning-effort]` before the message, review/fix/CI recovery show their real configured budgets, durations contain no milliseconds, and review findings always show `P0`–`P2` while `P3` and `Unknown` appear only when non-zero.
 - `EC-03` Existing `kv` records remain machine-safe and compatible when heartbeat is disabled.
 - `EC-04` Human TTY liveness updates in place with elapsed time and full-line shimmer, while no-color behavior retains the timer without color.
 - `EC-05` Human non-TTY output is ANSI-free and silent between permanent records unless heartbeat is explicitly enabled; enabled heartbeats are bounded and newline-safe.

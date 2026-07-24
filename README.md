@@ -277,7 +277,7 @@ This makes the trend across cycles directly measurable without requiring it to b
 
 ### Human format
 
-Human is the built-in format for concise operator output. Every permanent line starts with local `HH:MM:SS`; retryable stage lines then include `[attempt/max] [model/reasoning-effort]` with no separator before the message. The overall terminal line has no attempt or model because it does not belong to a single stage. Human lines omit raw event keys, zero-valued severity buckets, and the redundant `run_started` record. Durations below one minute use seconds rounded to a tenth with a trailing `.0` removed; longer durations use rounded whole seconds in compact `h m s` form. Select `--log-format=kv` when an integration requires the machine-readable event stream.
+Human is the built-in format for concise operator output. Every permanent line starts with local `HH:MM:SS`; retryable stage lines then include `[attempt/max] [model/reasoning-effort]` with no separator before the message. The overall terminal line has no attempt or model because it does not belong to a single stage. Human lines omit raw event keys and the redundant `run_started` record. A findings summary always shows `P0`, `P1` and `P2`, while `P3` and `Unknown` appear only when non-zero. Durations below one minute use seconds rounded to a tenth with a trailing `.0` removed; longer durations use rounded whole seconds in compact `h m s` form. Select `--log-format=kv` when an integration requires the machine-readable event stream.
 
 When diagnostic session logging is enabled and its record directory has been created, human output first writes exactly one permanent path handoff such as `22:14:05 Session log: /Users/me/.code-converge/session-logs/session-...`. It contains no session content. `kv` output and `--no-session-log` omit this line.
 
@@ -286,7 +286,7 @@ When diagnostic session logging is enabled and its record directory has been cre
 | Review starts in the initial phase (non-TTY) | `22:14:05 [1/10] [gpt-5.6-sol/high] Review started` |
 | Review starts after the first CI recovery (non-TTY) | `22:14:05 [1/10] [gpt-5.6-sol/high] Review started (phase 2 after CI recovery 1)` |
 | Review is clean | `22:14:05 [2/10] [gpt-5.6-sol/high] Review: clean (1m 27s)` |
-| Review has findings | `22:14:05 [2/10] [gpt-5.6-sol/high] Review: 3 findings — 1 high, 2 medium (2m 13s)` |
+| Review has findings | `22:14:05 [2/10] [gpt-5.6-sol/high] Review: 3 findings [P0:0; P1:1; P2:2] (2m 13s)` |
 | Review fails | `22:14:05 [2/10] [gpt-5.6-sol/high] Review failed (2m 13s)` |
 | Fix findings starts / succeeds / fails | `22:14:05 [2/10] [gpt-5.6-luna/medium] Fixing findings` / `22:14:05 [2/10] [gpt-5.6-luna/medium] Findings fixed (4m 23s)` / `22:14:05 [2/10] [gpt-5.6-luna/medium] Fixing findings failed (4m 23s)` |
 | Finalization starts | `22:14:05 [gpt-5.3-codex-spark/agent-default] Finalizing` |
@@ -300,7 +300,7 @@ When diagnostic session logging is enabled and its record directory has been cre
 | Operational failure | `22:14:05 Failed due to an operational error (8m 45s, exit 2)` |
 | CI remains red | `22:14:05 Stopped: CI is still failing (8m 45s, exit 3)` |
 
-A findings summary always includes the total and only its non-zero severity counts, ordered critical, high, medium, low, unknown. Successful terminal lines omit exit `0`; failure terminal lines retain exit codes `1`, `2`, and `3`.
+A findings summary always includes the total. It always renders `P0`, `P1` and `P2`, then appends non-zero `P3` and `Unknown` counts. Successful terminal lines omit exit `0`; failure terminal lines retain exit codes `1`, `2`, and `3`.
 
 ### Liveness
 
