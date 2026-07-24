@@ -39,6 +39,9 @@ audience: humans_and_agents
 - [`ops/README.md`](ops/README.md)
   Читать, когда нужно: описать локальную разработку, окружения, релизы, конфигурацию и runbooks.
 
+- [`research/README.md`](research/README.md)
+  Читать, когда нужно: провести evidence-backed research до решения о product, marketing или technical direction.
+
 - [`engineering/README.md`](engineering/README.md)
   Читать, когда нужно: задать architecture patterns, frontend rules, testing policy, coding style, git workflow и границы автономии агента.
 

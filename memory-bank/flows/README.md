@@ -26,6 +26,7 @@ audience: humans_and_agents
 - [Task Routing](routing.md) — порядок выбора flow, routing predicates, повторный routing и Human Routing.
 - [Incident And PIR Flow](incident.md) — containment, recovery, timeline, RCA, PIR и prevention work.
 - [Bug Fix Flow](bug-fix.md) — reproduction, analysis, fix, regression coverage и closure.
+- [Research And Discovery Flow](research.md) — evidence-backed research from a decision question to disposition and handoff.
 - [Small Change Flow](small-change.md) — direct delivery без feature package, design и execution plan, но с обязательным routing record.
 - [Refactoring Flow](refactoring.md) — behavior-preserving restructuring, characterization coverage, checkpoints и closure gates.
 - [Epic Flow](epic.md) — Epic Intake/Proposal, lifecycle крупных инициатив, roadmap, decision log, risks и handoff в feature packages.

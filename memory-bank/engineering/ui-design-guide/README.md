@@ -25,3 +25,5 @@ must_not_define:
 N/A. `code-converge` has no graphical UI, UI kit, surface-specific components, screenshots, or frontend source paths. The current user interface is the CLI contract documented in the root [`README.md`](../../../README.md); frontend applicability is owned by [`../frontend.md`](../frontend.md).
 
 No web, admin, mobile, or shared-component reference is kept in this project-specific Memory Bank. If a graphical surface is explicitly introduced later, replace this N/A record with references grounded in the implemented code and update [`../frontend.md`](../frontend.md). Do not copy generic surface templates into an active project document merely as placeholders.
+
+- [Shared UI Components Guide](shared-components.md) — draft reference to adapt only after reusable UI assets exist.
