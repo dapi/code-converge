@@ -587,9 +587,40 @@ func (s *ReviewScope) resolveOpenPRBase(ctx context.Context, candidate, provider
 		return "", err
 	}
 	if actual != providerCommit {
-		return "", fmt.Errorf("local base %q is stale (have %s, provider has %s); fetch the target remote or set --review-base", base, actual, providerCommit)
+		remote, ok := remoteForTrackingRef(base, candidate)
+		if !ok {
+			return "", fmt.Errorf("local base %q is stale (have %s, provider has %s); fetch the target remote or set --review-base", base, actual, providerCommit)
+		}
+		refspec := "+refs/heads/" + candidate + ":" + base
+		if _, err := s.git(ctx, nil, "fetch", "--no-tags", remote, refspec); err != nil {
+			return "", fmt.Errorf("refresh stale PR base %q from remote %q: %w", base, remote, err)
+		}
+		actual, err = s.git(ctx, nil, "rev-parse", "--verify", base+"^{commit}")
+		if err != nil {
+			return "", err
+		}
+		if actual != providerCommit {
+			return "", fmt.Errorf("local base %q remains stale after fetching remote %q (have %s, provider has %s); set --review-base", base, remote, actual, providerCommit)
+		}
 	}
 	return base, nil
+}
+
+// remoteForTrackingRef returns the configured remote that owns a selected
+// tracking ref. candidate is used as a suffix because both remote and branch
+// names may contain slashes.
+func remoteForTrackingRef(base, candidate string) (string, bool) {
+	const prefix = "refs/remotes/"
+	if !strings.HasPrefix(base, prefix) || candidate == "" {
+		return "", false
+	}
+	remainder := strings.TrimPrefix(base, prefix)
+	suffix := "/" + candidate
+	if !strings.HasSuffix(remainder, suffix) {
+		return "", false
+	}
+	remote := strings.TrimSuffix(remainder, suffix)
+	return remote, remote != ""
 }
 
 func (s *ReviewScope) remoteTrackingRefs(ctx context.Context, candidate, target string) ([]string, error) {
