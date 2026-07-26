@@ -595,29 +595,96 @@ func TestReviewScopeUsesSlashContainingBranchMergeBase(t *testing.T) {
 	}
 }
 
-func TestReviewScopeRejectsStaleProviderBase(t *testing.T) {
+func TestReviewScopeRefreshesStaleProviderBase(t *testing.T) {
+	ref := "refs/remotes/origin/release/1.0"
+	var resolveCalls int
 	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
 		args := strings.Join(inv.Args, " ")
-		if result, err, ok := currentProviderResult(args); ok {
-			return result, err
-		}
-		switch {
-		case inv.Executable == "gh":
-			return runner.Result{Stdout: `[{"baseRefName":"main","baseRefOid":"provider-sha","headRefName":"feature","headRepository":{"nameWithOwner":"dapi/code-converge"}}]`}, nil
-		case args == "symbolic-ref --quiet --short HEAD":
-			return runner.Result{Stdout: "feature"}, nil
-		case args == "remote":
+		switch args {
+		case "remote":
 			return runner.Result{Stdout: "origin"}, nil
-		case args == "rev-parse --verify refs/remotes/origin/main^{commit}":
-			return runner.Result{Stdout: "stale-sha"}, nil
+		case "remote get-url --all origin":
+			return runner.Result{Stdout: "git@github.com:dapi/code-converge.git"}, nil
+		case "rev-parse --verify " + ref + "^{commit}":
+			resolveCalls++
+			if resolveCalls == 1 {
+				return runner.Result{Stdout: "stale-sha"}, nil
+			}
+			return runner.Result{Stdout: "provider-sha"}, nil
+		case "fetch --no-tags origin +refs/heads/release/1.0:" + ref:
+			return runner.Result{}, nil
 		default:
 			t.Fatalf("unexpected invocation: %#v", inv)
 			return runner.Result{}, nil
 		}
 	}}
-	_, err := (&ReviewScope{Runner: fake}).Prepare(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "is stale") || !strings.Contains(err.Error(), "fetch") {
+	base, err := (&ReviewScope{Runner: fake}).resolveOpenPRBase(context.Background(), "release/1.0", "provider-sha", "github.com/dapi/code-converge")
+	if err != nil || base != ref || resolveCalls != 2 {
+		t.Fatalf("base=%q resolveCalls=%d err=%v", base, resolveCalls, err)
+	}
+}
+
+func TestReviewScopeFailsWhenStaleProviderBaseCannotBeRefreshed(t *testing.T) {
+	ref := "refs/remotes/origin/main"
+	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
+		switch args := strings.Join(inv.Args, " "); args {
+		case "remote":
+			return runner.Result{Stdout: "origin"}, nil
+		case "remote get-url --all origin":
+			return runner.Result{Stdout: "git@github.com:dapi/code-converge.git"}, nil
+		case "rev-parse --verify " + ref + "^{commit}":
+			return runner.Result{Stdout: "stale-sha"}, nil
+		case "fetch --no-tags origin +refs/heads/main:" + ref:
+			return runner.Result{Stderr: "network unavailable"}, errors.New("git exited unsuccessfully")
+		default:
+			t.Fatalf("unexpected invocation: %#v", inv)
+			return runner.Result{}, nil
+		}
+	}}
+	_, err := (&ReviewScope{Runner: fake}).resolveOpenPRBase(context.Background(), "main", "provider-sha", "github.com/dapi/code-converge")
+	if err == nil || !strings.Contains(err.Error(), "refresh stale PR base") || !strings.Contains(err.Error(), "origin") {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestReviewScopeFailsWhenProviderBaseRemainsStaleAfterRefresh(t *testing.T) {
+	ref := "refs/remotes/origin/main"
+	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
+		switch args := strings.Join(inv.Args, " "); args {
+		case "remote":
+			return runner.Result{Stdout: "origin"}, nil
+		case "remote get-url --all origin":
+			return runner.Result{Stdout: "git@github.com:dapi/code-converge.git"}, nil
+		case "rev-parse --verify " + ref + "^{commit}":
+			return runner.Result{Stdout: "still-stale-sha"}, nil
+		case "fetch --no-tags origin +refs/heads/main:" + ref:
+			return runner.Result{}, nil
+		default:
+			t.Fatalf("unexpected invocation: %#v", inv)
+			return runner.Result{}, nil
+		}
+	}}
+	_, err := (&ReviewScope{Runner: fake}).resolveOpenPRBase(context.Background(), "main", "provider-sha", "github.com/dapi/code-converge")
+	if err == nil || !strings.Contains(err.Error(), "remains stale after fetching") || !strings.Contains(err.Error(), "provider-sha") {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestRemoteForTrackingRef(t *testing.T) {
+	for _, test := range []struct {
+		base, candidate, remote string
+		ok                      bool
+	}{
+		{"refs/remotes/origin/main", "main", "origin", true},
+		{"refs/remotes/upstream/release/1.0", "release/1.0", "upstream", true},
+		{"refs/remotes/team/upstream/release/1.0", "release/1.0", "team/upstream", true},
+		{"main", "main", "", false},
+		{"refs/remotes/origin/main", "release/1.0", "", false},
+	} {
+		remote, ok := remoteForTrackingRef(test.base, test.candidate)
+		if remote != test.remote || ok != test.ok {
+			t.Errorf("remoteForTrackingRef(%q, %q) = %q, %v; want %q, %v", test.base, test.candidate, remote, ok, test.remote, test.ok)
+		}
 	}
 }
 

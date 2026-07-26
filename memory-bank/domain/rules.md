@@ -24,6 +24,6 @@ canonical_for:
 - `RULE-07`: Each successfully classified review emits total findings and zero-filled counts for `critical`, `high`, `medium`, `low`, and `unknown`. A failed or ambiguous review emits no unreliable counters.
 - `RULE-08`: Each completed stage emits an elapsed duration; the terminal event emits total run duration and exit code.
 - `RULE-09`: Effective configuration follows the precedence contract owned by [`../../README.md`](../../README.md).
-- `RULE-10`: Each review resolves exactly one intended base and snapshots merge-base through the current worktree in a private index. Ambiguous or unresolved bases are operational failures; discovery never mutates the real index, worktree, remote refs or pull requests.
+- `RULE-10`: Each review resolves exactly one intended base and snapshots merge-base through the current worktree in a private index. Ambiguous or unresolved bases are operational failures; discovery preserves the real index, worktree and pull requests; only a uniquely selected stale remote-tracking PR base may be refreshed and must match the provider SHA afterwards.
 
 Detailed user-facing values remain owned by [`../../README.md`](../../README.md); this document defines their domain interpretation rather than maintaining a second option or exit-code table.

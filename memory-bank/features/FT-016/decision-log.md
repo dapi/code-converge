@@ -323,6 +323,14 @@ The reasoning bounds this feature to review-input selection, separates issue fac
 - **Changes:** none; stopped review-improve early because no critical or important finding remained.
 - **Human gate:** no.
 
+### 2026-07-26 — stale PR-base refresh follow-up
+
+- **Routing:** Feature-contract follow-up within FT-016. The user explicitly requested automatic refresh after a normal review run stopped on a stale, uniquely selected PR base. The active high-risk profile remains applicable because this adds a bounded Git network mutation.
+- **Decision:** When provider discovery selected exactly one remote-tracking PR base and its SHA differs from `baseRefOid`, fetch only `refs/heads/<base>` into that existing tracking ref, then revalidate the SHA. Explicit overrides, local-only or ambiguous candidates, and all non-PR sources never fetch.
+- **Why:** A stale tracking ref makes the review target incorrect; `git pull` would also alter the current branch, whereas the refspec-limited fetch changes only the known base ref.
+- **Failure behavior:** Failed fetch or a post-fetch SHA mismatch remains an operational error before Codex starts.
+- **Evidence:** deterministic refresh, failed-refresh, slash-containing branch/remote parsing tests; full verification and required CI are pending this delivery.
+
 ## Human Gate
 
 ### `HG-01` — Public review-base/scope contract
