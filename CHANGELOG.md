@@ -6,6 +6,8 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-07-27
+
 ### Fixed
 
 - Automatically refresh a stale, uniquely identified pull-request base before review.
