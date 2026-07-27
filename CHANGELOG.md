@@ -6,6 +6,8 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-07-27
+
 ### Fixed
 
 - Restored reliable `Ctrl-C` cancellation while the interactive terminal view is enabled.
