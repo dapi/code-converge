@@ -603,7 +603,7 @@ func TestCancellationStopsActiveLivenessWithoutLateWrites(t *testing.T) {
 	go func() { result <- w.Run(ctx) }()
 	<-started
 	cancel()
-	if code := <-result; code != ExitOperational {
+	if code := <-result; code != ExitInterrupted {
 		t.Fatalf("code=%d output=%q stderr=%q", code, output.String(), stderr.String())
 	}
 	before := output.String()
@@ -611,8 +611,27 @@ func TestCancellationStopsActiveLivenessWithoutLateWrites(t *testing.T) {
 	if after := output.String(); after != before {
 		t.Fatalf("late output after cancellation: before=%q after=%q", before, after)
 	}
-	if !strings.Contains(before, "[1/0] [gpt-5.6-sol/medium] Review failed") || !strings.Contains(before, "Failed due to an operational error") {
+	if !strings.Contains(before, "Cancelled") || strings.Contains(before, "Review failed") || strings.Contains(before, "Failed due to an operational error") {
 		t.Fatalf("missing cancellation terminal output: %q", before)
+	}
+}
+
+func TestCancellationEmitsCancelledKVResult(t *testing.T) {
+	started := make(chan struct{})
+	agent := &fakeAgent{reviewWait: true, reviewStarted: started}
+	var output, stderr bytes.Buffer
+	w := Workflow{Config: config.Config{}, Agent: agent, Log: &event.Logger{Out: &output}, Err: &stderr}
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan int, 1)
+	go func() { result <- w.Run(ctx) }()
+	<-started
+	cancel()
+	if code := <-result; code != ExitInterrupted {
+		t.Fatalf("code=%d output=%q stderr=%q", code, output.String(), stderr.String())
+	}
+	assertRecord(t, output.String(), "event=run_completed", "status=cancelled", "exit_code=130")
+	if strings.Contains(output.String(), "event=review_completed") || stderr.Len() != 0 {
+		t.Fatalf("output=%q stderr=%q", output.String(), stderr.String())
 	}
 }
 

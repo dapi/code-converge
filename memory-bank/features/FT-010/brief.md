@@ -37,7 +37,7 @@ An interactive terminal run can show the continuing workflow log and the active 
 - `REQ-03` The lower pane presents output from the currently active Codex process as it arrives.
 - `REQ-04` A stage change clearly identifies or replaces the active agent stream so output from separate processes is not mixed.
 - `REQ-05` The feature defines behavior for resize, pane scrolling, long lines, ANSI/control sequences, process completion/errors, and pressing `i` when no agent is active.
-- `REQ-06` Terminal state is restored cleanly on exit, interruption, and panic; returning from the view leaves the invoking shell usable. `Ctrl-C` remains a reliable normal workflow interruption while one-key input is enabled.
+- `REQ-06` Terminal state is restored cleanly on exit, interruption, and panic; returning from the view leaves the invoking shell usable. `Ctrl-C` remains a reliable normal workflow interruption while one-key input is enabled: it reports cancellation and exits 130, not an operational failure.
 - `REQ-07` Non-interactive execution preserves the existing workflow stdout event format, does not require a TTY, and keeps agent output excluded from machine-readable workflow stdout.
 - `REQ-08` Tests and documentation describe interactive-mode prerequisites and key bindings.
 

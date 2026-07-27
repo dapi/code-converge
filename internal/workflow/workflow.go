@@ -19,6 +19,7 @@ const (
 	ExitFindingsRemaining = 1
 	ExitOperational       = 2
 	ExitCI                = 3
+	ExitInterrupted       = 130
 )
 
 type Agent interface {
@@ -63,6 +64,9 @@ func (w *Workflow) Run(ctx context.Context) int {
 	lastCheckpoint := repository.Checkpoint{}
 	checkpointSkipReason := ""
 	for {
+		if ctx.Err() != nil {
+			return w.complete("cancelled", ExitInterrupted, now().Sub(runStarted))
+		}
 		stageStarted := now()
 		if !w.emit("stage_started", event.F("stage", "review"), event.F("model", w.stageModel("review")), event.F("reasoning_effort", w.stageReasoningEffort("review")), intField("review_phase", phase), intField("cycle", cycle)) {
 			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
@@ -77,7 +81,9 @@ func (w *Workflow) Run(ctx context.Context) int {
 		}
 		review, err := w.Agent.Review(runner.WithStageContext(stageCtx, runner.StageContext{Stage: "review", ReviewPhase: phase, Cycle: cycle, Model: w.stageModel("review"), ReasoningEffort: w.stageReasoningEffort("review")}))
 		var presentationErr error
-		if err != nil {
+		if err != nil && ctx.Err() != nil {
+			presentationErr = w.Log.CompleteAgent("review cancelled")
+		} else if err != nil {
 			presentationErr = w.Log.CompleteAgent("review failed")
 		} else {
 			presentationErr = w.Log.CompleteAgent("review completed")
@@ -94,11 +100,17 @@ func (w *Workflow) Run(ctx context.Context) int {
 			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 		}
 		if err != nil {
+			if ctx.Err() != nil {
+				return w.complete("cancelled", ExitInterrupted, now().Sub(runStarted))
+			}
 			if !w.emit("review_completed", event.F("stage", "review"), event.F("model", w.stageModel("review")), event.F("reasoning_effort", w.stageReasoningEffort("review")), intField("review_phase", phase), intField("cycle", cycle), event.F("status", "failed"), duration) {
 				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 			}
 			w.diagnostic("review failed", err)
 			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+		}
+		if ctx.Err() != nil {
+			return w.complete("cancelled", ExitInterrupted, now().Sub(runStarted))
 		}
 		status := "findings"
 		if review.Clean {
@@ -128,6 +140,9 @@ func (w *Workflow) Run(ctx context.Context) int {
 			if w.Repository != nil {
 				clean, err := w.Repository.IsClean(ctx)
 				if err != nil {
+					if ctx.Err() != nil {
+						return w.complete("cancelled", ExitInterrupted, now().Sub(runStarted))
+					}
 					w.diagnostic("checkpoint status failed", err)
 					return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 				}
@@ -139,6 +154,9 @@ func (w *Workflow) Run(ctx context.Context) int {
 				}
 				initialHead, err = w.Repository.Head(ctx)
 				if err != nil {
+					if ctx.Err() != nil {
+						return w.complete("cancelled", ExitInterrupted, now().Sub(runStarted))
+					}
 					w.diagnostic("checkpoint head failed", err)
 					return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 				}
@@ -157,7 +175,9 @@ func (w *Workflow) Run(ctx context.Context) int {
 			}
 			err = w.Agent.FixFindings(runner.WithStageContext(stageCtx, runner.StageContext{Stage: "fix-findings", ReviewPhase: phase, Cycle: cycle, Model: w.stageModel("fix-findings"), ReasoningEffort: w.stageReasoningEffort("fix-findings")}), review.Report)
 			presentationErr = nil
-			if err != nil {
+			if err != nil && ctx.Err() != nil {
+				presentationErr = w.Log.CompleteAgent("fix-findings cancelled")
+			} else if err != nil {
 				presentationErr = w.Log.CompleteAgent("fix-findings failed")
 			} else {
 				presentationErr = w.Log.CompleteAgent("fix-findings completed")
@@ -171,6 +191,12 @@ func (w *Workflow) Run(ctx context.Context) int {
 			if presentationErr != nil {
 				w.diagnostic("render interactive view", presentationErr)
 				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+			}
+			if err != nil && ctx.Err() != nil {
+				return w.complete("cancelled", ExitInterrupted, now().Sub(runStarted))
+			}
+			if ctx.Err() != nil {
+				return w.complete("cancelled", ExitInterrupted, now().Sub(runStarted))
 			}
 			stageStatus := "success"
 			if err != nil {
@@ -186,6 +212,9 @@ func (w *Workflow) Run(ctx context.Context) int {
 			if w.Repository != nil {
 				checkpoint, checkpointErr := w.Repository.Checkpoint(ctx, initialHead, canCheckpoint)
 				if checkpointErr != nil {
+					if ctx.Err() != nil {
+						return w.complete("cancelled", ExitInterrupted, now().Sub(runStarted))
+					}
 					w.diagnostic("findings checkpoint failed", checkpointErr)
 					return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 				}
@@ -202,6 +231,9 @@ func (w *Workflow) Run(ctx context.Context) int {
 		if w.Repository != nil {
 			hasChanges, err := w.Repository.HasChanges(ctx)
 			if err != nil {
+				if ctx.Err() != nil {
+					return w.complete("cancelled", ExitInterrupted, now().Sub(runStarted))
+				}
 				w.diagnostic("repository status failed", err)
 				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 			}
@@ -224,7 +256,9 @@ func (w *Workflow) Run(ctx context.Context) int {
 		}
 		finalization, err := w.Agent.Finalize(runner.WithStageContext(stageCtx, runner.StageContext{Stage: "finalize", ReviewPhase: phase, Cycle: cycle, Model: w.stageModel("finalize"), ReasoningEffort: w.stageReasoningEffort("finalize")}), checkpointed)
 		presentationErr = nil
-		if err != nil {
+		if err != nil && ctx.Err() != nil {
+			presentationErr = w.Log.CompleteAgent("finalize cancelled")
+		} else if err != nil {
 			presentationErr = w.Log.CompleteAgent("finalize failed")
 		} else {
 			presentationErr = w.Log.CompleteAgent("finalize completed")
@@ -240,11 +274,17 @@ func (w *Workflow) Run(ctx context.Context) int {
 			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 		}
 		if err != nil {
+			if ctx.Err() != nil {
+				return w.complete("cancelled", ExitInterrupted, now().Sub(runStarted))
+			}
 			if !w.emitUnknownSteps() || !w.emit("stage_completed", event.F("stage", "finalize"), event.F("model", w.stageModel("finalize")), event.F("reasoning_effort", w.stageReasoningEffort("finalize")), event.F("status", "failed"), durationField(now().Sub(stageStarted))) {
 				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 			}
 			w.diagnostic("finalization failed", err)
 			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+		}
+		if ctx.Err() != nil {
+			return w.complete("cancelled", ExitInterrupted, now().Sub(runStarted))
 		}
 		if !w.emitSteps(finalization) || !w.emit("stage_completed", event.F("stage", "finalize"), event.F("model", w.stageModel("finalize")), event.F("reasoning_effort", w.stageReasoningEffort("finalize")), event.F("status", "success"), event.F("verdict", finalization.Verdict), durationField(now().Sub(stageStarted))) {
 			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
@@ -278,7 +318,9 @@ func (w *Workflow) Run(ctx context.Context) int {
 			}
 			err = w.Agent.FixCI(runner.WithStageContext(stageCtx, runner.StageContext{Stage: "fix-ci", ReviewPhase: phase, Cycle: cycle, Model: w.stageModel("fix-ci"), ReasoningEffort: w.stageReasoningEffort("fix-ci")}))
 			presentationErr = nil
-			if err != nil {
+			if err != nil && ctx.Err() != nil {
+				presentationErr = w.Log.CompleteAgent("fix-ci cancelled")
+			} else if err != nil {
 				presentationErr = w.Log.CompleteAgent("fix-ci failed")
 			} else {
 				presentationErr = w.Log.CompleteAgent("fix-ci completed")
@@ -292,6 +334,12 @@ func (w *Workflow) Run(ctx context.Context) int {
 			if presentationErr != nil {
 				w.diagnostic("render interactive view", presentationErr)
 				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+			}
+			if err != nil && ctx.Err() != nil {
+				return w.complete("cancelled", ExitInterrupted, now().Sub(runStarted))
+			}
+			if ctx.Err() != nil {
+				return w.complete("cancelled", ExitInterrupted, now().Sub(runStarted))
 			}
 			stageStatus := "success"
 			if err != nil {

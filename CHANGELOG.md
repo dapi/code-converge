@@ -6,6 +6,10 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- Made `Ctrl-C` report normal workflow cancellation with exit code 130 instead of a failed Codex review.
+
 ## [0.6.5] - 2026-07-27
 
 ### Fixed

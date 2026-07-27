@@ -76,6 +76,7 @@ func TestHumanEventCatalog(t *testing.T) {
 		{"encoded checkpoint branch", "run_completed", []Field{F("status", "findings_remaining"), F("exit_code", "1"), F("checkpoint_status", "committed_local"), F("checkpoint_branch", "feature%3Da"), F("checkpoint_commit", "abc1234"), F("total_duration_ms", "525000")}, "10:04:05 Stopped: fix budget exhausted; finalization was not reached; checkpoint committed locally on feature=a at abc1234 and not pushed (8m 45s, exit 1)\n"},
 		{"checkpoint skipped", "run_completed", []Field{F("status", "findings_remaining"), F("exit_code", "1"), F("checkpoint_status", "not_attempted"), F("checkpoint_reason", "pre_existing_changes"), F("total_duration_ms", "525000")}, "10:04:05 Stopped: fix budget exhausted; finalization was not reached; checkpoint was skipped because the worktree had pre-existing changes (8m 45s, exit 1)\n"},
 		{"operational", "run_completed", []Field{F("status", "operational_failure"), F("exit_code", "2"), F("total_duration_ms", "525000")}, "10:04:05 Failed due to an operational error (8m 45s, exit 2)\n"},
+		{"cancelled", "run_completed", []Field{F("status", "cancelled"), F("exit_code", "130"), F("total_duration_ms", "525000")}, "10:04:05 Cancelled (8m 45s, exit 130)\n"},
 		{"ci failure", "run_completed", []Field{F("status", "ci_failure"), F("exit_code", "3"), F("total_duration_ms", "525000")}, "10:04:05 Stopped: CI is still failing (8m 45s, exit 3)\n"},
 	}
 	for _, test := range tests {

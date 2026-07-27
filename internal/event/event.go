@@ -618,6 +618,8 @@ func renderHuman(eventName string, fields []Field, maxCycles, maxCIRecoveries in
 			}
 		case "operational_failure":
 			return fmt.Sprintf("Failed due to an operational error (%s, exit 2)", d), nil
+		case "cancelled":
+			return fmt.Sprintf("Cancelled (%s, exit 130)", d), nil
 		case "ci_failure":
 			return fmt.Sprintf("Stopped: CI is still failing (%s, exit 3)", d), nil
 		}

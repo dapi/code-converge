@@ -24,6 +24,16 @@ The review separates four bounded decision contexts: public activation and keys,
 
 ## Decision entries
 
+### `DL-04` — Ctrl-C cancellation result classification
+
+- **Status:** resolved; promoted to `brief.md`, the root README, and the workflow event contract.
+- **Question:** How must a workflow classify an active Codex process killed because `Ctrl-C` cancelled the run context?
+- **Facts:** `REQ-06` promises that `Ctrl-C` remains a normal workflow interruption and the root README promises that it terminates the active subprocess group. The observed run kills that group, but the workflow then renders the child-process error as `Review failed` and completes with `operational_failure`/exit 2. This contradicts the accepted interruption contract and makes an intentional operator cancellation indistinguishable from a runner failure.
+- **Alternatives:** (A) preserve the operational-failure result; (B) expose cancellation as a terminal workflow outcome with a conventional interrupt exit code; (C) suppress the terminal record.
+- **Routing:** Bug Fix Flow within FT-010: the observed result contradicts accepted `REQ-06` and the root CLI contract. Validation profile: `standard`; the change affects workflow transition, CLI exit code, and stdout event schema, with deterministic workflow and event regression coverage.
+- **Result:** Accept B. When the run context is cancelled, Code-Converge completes the run with `status=cancelled` and exit 130. It does not emit a failed review/stage result or a diagnostic for the expected child termination. Non-cancellation process errors retain their existing failure behavior.
+- **Confidence:** high; direct reproduction and accepted public contract.
+
 ### `DL-01` — Route and assurance floor
 
 - **Status:** resolved; promoted to `brief.md`.

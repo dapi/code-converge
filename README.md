@@ -251,7 +251,7 @@ The required event catalog is:
 | `review_completed` | `stage=review`, `model`, `reasoning_effort`, `review_phase`, `cycle`, `status=clean\|findings\|failed`, and `duration_ms`. A classified result (`clean` or `findings`) also requires all findings counters plus `review_scope=branch_and_worktree`, `review_base` (resolved commit SHA), `review_merge_base` and `review_base_source=explicit\|open_pr\|branch_merge_base\|remote_default`; on command or classification failure these fields and counters are omitted. This is the review stage's sole completion record. |
 | `stage_completed` | `stage=fix-findings\|finalize\|fix-ci`, `model`, `reasoning_effort`, `status=success\|failed`, and `duration_ms`; `fix-findings` also has `review_phase` and `cycle`, while `fix-ci` has `review_phase`. A successfully parsed finalization response also requires `verdict=SUCCESS\|CI_FAILED\|FAILED`; an invocation or parsing failure uses `status=failed` and omits `verdict`. |
 | `step_completed` | `stage=finalize`, `model`, `reasoning_effort`, `step=commit\|push\|change_request\|ci`, and `status=success\|skipped\|failed\|unknown`. Each finalization attempt emits one record for every listed step; a step that is inapplicable or not reached is `skipped`, while an outcome that cannot be established is `unknown`. |
-| `run_completed` | `status=success\|findings_remaining\|operational_failure\|ci_failure`, `exit_code`, and `total_duration_ms`. For `findings_remaining`, also `checkpoint_status=committed_local\|no_changes\|not_attempted`; `committed_local` additionally requires percent-encoded `checkpoint_branch` and `checkpoint_commit`, while `not_attempted` requires `checkpoint_reason=fix_budget_exhausted\|pre_existing_changes`. |
+| `run_completed` | `status=success\|findings_remaining\|operational_failure\|ci_failure\|cancelled`, `exit_code`, and `total_duration_ms`. `cancelled` always has `exit_code=130`. For `findings_remaining`, also `checkpoint_status=committed_local\|no_changes\|not_attempted`; `committed_local` additionally requires percent-encoded `checkpoint_branch` and `checkpoint_commit`, while `not_attempted` requires `checkpoint_reason=fix_budget_exhausted\|pre_existing_changes`. |
 
 For example:
 
@@ -298,9 +298,10 @@ When diagnostic session logging is enabled and its record directory has been cre
 | Run succeeds | `22:14:05 Done (8m 45s)` |
 | Findings remain | `22:14:05 Stopped: review findings remain (8m 45s, exit 1)` |
 | Operational failure | `22:14:05 Failed due to an operational error (8m 45s, exit 2)` |
+| Interrupted with `Ctrl-C` | `22:14:05 Cancelled (8m 45s, exit 130)` |
 | CI remains red | `22:14:05 Stopped: CI is still failing (8m 45s, exit 3)` |
 
-A findings summary always includes the total. It always renders `P0`, `P1` and `P2`, then appends non-zero `P3` and `Unknown` counts. Successful terminal lines omit exit `0`; failure terminal lines retain exit codes `1`, `2`, and `3`.
+A findings summary always includes the total. It always renders `P0`, `P1` and `P2`, then appends non-zero `P3` and `Unknown` counts. Successful terminal lines omit exit `0`; non-success terminal lines retain exit codes `1`, `2`, `3`, and `130` as applicable.
 
 ### Liveness
 
@@ -319,7 +320,7 @@ Heartbeat is disabled by default, accepts `0` or a Go duration of at least `1s`,
 
 ### Interactive agent output view
 
-In `human` mode, when both standard input and standard output are terminals and `TERM` is neither empty nor `dumb`, Code-Converge prints `Interactive view available: press i to open` once at startup and accepts one-key terminal input. Press `i` during a workflow to toggle a split view without interrupting the active Codex process. `Ctrl-C` always retains its normal interrupt behavior: it cancels the workflow and terminates its active subprocess group. The upper pane retains the workflow log; the lower pane shows arriving stdout and stderr from the active agent. Stderr lines are marked `[stderr]`.
+In `human` mode, when both standard input and standard output are terminals and `TERM` is neither empty nor `dumb`, Code-Converge prints `Interactive view available: press i to open` once at startup and accepts one-key terminal input. Press `i` during a workflow to toggle a split view without interrupting the active Codex process. `Ctrl-C` always retains its normal interrupt behavior: it cancels the workflow, terminates its active subprocess group, reports `Cancelled`, and exits 130 rather than reporting an operational failure. The upper pane retains the workflow log; the lower pane shows arriving stdout and stderr from the active agent. Stderr lines are marked `[stderr]`.
 
 The view uses the terminal alternate screen and restores it when closed, on workflow completion, cancellation, interruption, setup failure, or panic unwinding. Each pane retains its most recent 2,000 logical lines; long lines wrap to the current terminal width. `Tab` selects a pane, arrow keys and Page Up/Down scroll it, and `End` returns it to the live tail. A view opened before an agent starts says `No active agent output`; completion leaves the final stream visible until the next agent stage.
 
