@@ -22,6 +22,59 @@ func TestRawModeReportsTerminalState(t *testing.T) {
 	}
 }
 
+func TestEnterRawModeKeepsTerminalInterruptsEnabled(t *testing.T) {
+	previousMakeRaw, previousEnable, previousRestore := makeRawTerminal, enableTerminalInterruptFn, restoreTerminal
+	t.Cleanup(func() {
+		makeRawTerminal, enableTerminalInterruptFn, restoreTerminal = previousMakeRaw, previousEnable, previousRestore
+	})
+	state := &term.State{}
+	makeRawTerminal = func(fd int) (*term.State, error) {
+		if fd != 17 {
+			t.Fatalf("fd = %d, want 17", fd)
+		}
+		return state, nil
+	}
+	called := false
+	enableTerminalInterruptFn = func(fd int) error {
+		called = true
+		if fd != 17 {
+			t.Fatalf("fd = %d, want 17", fd)
+		}
+		return nil
+	}
+
+	got, err := enterRawMode(17)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != state || !called {
+		t.Fatalf("state = %p, interrupt setup called = %t", got, called)
+	}
+}
+
+func TestEnterRawModeRestoresTerminalWhenInterruptSetupFails(t *testing.T) {
+	previousMakeRaw, previousEnable, previousRestore := makeRawTerminal, enableTerminalInterruptFn, restoreTerminal
+	t.Cleanup(func() {
+		makeRawTerminal, enableTerminalInterruptFn, restoreTerminal = previousMakeRaw, previousEnable, previousRestore
+	})
+	state := &term.State{}
+	makeRawTerminal = func(int) (*term.State, error) { return state, nil }
+	want := errors.New("enable interrupts")
+	enableTerminalInterruptFn = func(int) error { return want }
+	restored := false
+	restoreTerminal = func(fd int, got *term.State) error {
+		restored = fd == 17 && got == state
+		return nil
+	}
+
+	if _, err := enterRawMode(17); !errors.Is(err, want) {
+		t.Fatalf("error = %v, want %v", err, want)
+	}
+	if !restored {
+		t.Fatal("terminal state was not restored")
+	}
+}
+
 func TestSanitize(t *testing.T) {
 	got := Sanitize([]byte("one\x1b[31mtwo\x1b[0m\r\nthree\x00\x9b"))
 	if got != "onetwo\nthree�" {

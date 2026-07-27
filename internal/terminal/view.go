@@ -4,12 +4,19 @@ package terminal
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
 	"unicode/utf8"
 
 	"golang.org/x/term"
+)
+
+var (
+	makeRawTerminal           = term.MakeRaw
+	restoreTerminal           = term.Restore
+	enableTerminalInterruptFn = enableTerminalInterrupt
 )
 
 const maxLines = 2000
@@ -82,7 +89,7 @@ func (v *View) Start() error {
 	if !v.Eligible() {
 		return nil
 	}
-	state, err := term.MakeRaw(int(v.In.Fd()))
+	state, err := enterRawMode(int(v.In.Fd()))
 	if err != nil {
 		return err
 	}
@@ -96,7 +103,7 @@ func (v *View) Start() error {
 		v.stop = nil
 		v.done = nil
 		v.mu.Unlock()
-		_ = term.Restore(int(v.In.Fd()), state)
+		_ = restoreTerminal(int(v.In.Fd()), state)
 		return err
 	}
 	v.reader = reader
@@ -108,6 +115,21 @@ func (v *View) Start() error {
 	go v.readKeys(v.stop, reader, done)
 	go v.watchResize(v.stop)
 	return nil
+}
+
+func enterRawMode(fd int) (*term.State, error) {
+	state, err := makeRawTerminal(fd)
+	if err != nil {
+		return nil, err
+	}
+	// Keep canonical input disabled for one-key view controls, but restore the
+	// terminal's interrupt processing. Ctrl-C must remain a SIGINT even if the
+	// polling key reader is unavailable or misses an input byte.
+	if err := enableTerminalInterruptFn(fd); err != nil {
+		_ = restoreTerminal(fd, state)
+		return nil, fmt.Errorf("enable terminal interrupts: %w", err)
+	}
+	return state, nil
 }
 
 // Stop closes the split view and restores stdin after the cancellable reader
@@ -143,7 +165,7 @@ func (v *View) Stop() error {
 		}
 	}
 	if state != nil {
-		if err := term.Restore(int(v.In.Fd()), state); err != nil && result == nil {
+		if err := restoreTerminal(int(v.In.Fd()), state); err != nil && result == nil {
 			result = err
 		}
 	}

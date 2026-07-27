@@ -37,7 +37,7 @@ An interactive terminal run can show the continuing workflow log and the active 
 - `REQ-03` The lower pane presents output from the currently active Codex process as it arrives.
 - `REQ-04` A stage change clearly identifies or replaces the active agent stream so output from separate processes is not mixed.
 - `REQ-05` The feature defines behavior for resize, pane scrolling, long lines, ANSI/control sequences, process completion/errors, and pressing `i` when no agent is active.
-- `REQ-06` Terminal state is restored cleanly on exit, interruption, and panic; returning from the view leaves the invoking shell usable.
+- `REQ-06` Terminal state is restored cleanly on exit, interruption, and panic; returning from the view leaves the invoking shell usable. `Ctrl-C` remains a reliable normal workflow interruption while one-key input is enabled.
 - `REQ-07` Non-interactive execution preserves the existing workflow stdout event format, does not require a TTY, and keeps agent output excluded from machine-readable workflow stdout.
 - `REQ-08` Tests and documentation describe interactive-mode prerequisites and key bindings.
 
@@ -96,7 +96,7 @@ An interactive terminal run can show the continuing workflow log and the active 
 - `SC-01` Given an eligible terminal and an active Codex stage, when the operator presses `i`, the accepted split view opens and the stage continues running.
 - `SC-02` Given the split view is open, when workflow records and active-agent output arrive, the respective panes update without mixing their content.
 - `SC-03` Given the active stage changes or finishes, the lower pane follows the accepted replacement/identification and completion behavior without displaying a prior process as active.
-- `SC-04` Given a resize, long line, control sequence, scrolling action, inactive stage, process error, interruption, or panic, the view follows the accepted terminal-safety and cleanup behavior.
+- `SC-04` Given a resize, long line, control sequence, scrolling action, inactive stage, process error, `Ctrl-C` interruption, or panic, the view follows the accepted terminal-safety and cleanup behavior.
 - `SC-05` Given stdout is non-interactive or `--log-format=kv` is used, the run retains the existing stdout event contract and no raw agent output appears in that stream.
 
 ### Negative coverage

@@ -64,7 +64,7 @@ flowchart LR
 - `SOL-03` Render a top workflow pane and a bottom agent pane with independently bounded logical-line scrollback. Arrow/Page keys scroll the focused pane; `Tab` changes focus; `End` returns that pane to live tail. Pane focus and key bindings appear in a one-line footer.
 - `SOL-04` Stream both active-agent stdout and stderr through independently identified observer chunks, preserving the single-multiplexer observation order at the presentation boundary. Because stdout and stderr are independent pipes, the runner does not promise their exact producer write order. The sanitizer strips ANSI escape/control sequences except newline and tab, then normalizes invalid UTF-8; stderr chunks receive a `[stderr]` prefix. The lower pane labels each stream with stage name and attempt; a new active process clears the prior live pane and writes its identity, so streams cannot be mixed.
 - `SOL-05` When no agent is active, the split view may still open and shows an explicit `No active agent output` state. Completion freezes the last stream with its terminal state; errors append only a safe diagnostic summary, not an unsanitized stderr payload.
-- `SOL-06` Use the narrow `golang.org/x/term` terminal runtime accepted by ADR-001. It owns raw mode, resize events, and one idempotent restore path; the repository owns all pane/layout/rendering code.
+- `SOL-06` Use the narrow `golang.org/x/term` terminal runtime accepted by ADR-001. It owns one-key mode, resize events, and one idempotent restore path; the repository owns all pane/layout/rendering code. One-key mode keeps terminal interrupt processing enabled, so `Ctrl-C` remains the normal signal-driven workflow cancellation path.
 
 ## Alternatives considered
 
@@ -87,7 +87,7 @@ flowchart LR
 ## Accepted local decisions
 
 - `SD-01` Eligibility requires human format, terminal stdin/stdout, and a non-dumb `TERM`; failed eligibility is silent fallback to existing permanent output.
-- `SD-02` `i` is the sole open/close toggle. `Tab`, arrows/PageUp/PageDown, and `End` are view-local navigation keys; all other input is ignored by the view.
+- `SD-02` `i` is the sole open/close toggle. `Tab`, arrows/PageUp/PageDown, and `End` are view-local navigation keys; all other input is ignored by the view. `Ctrl-C` is not a view-local key: it always remains a terminal interrupt that cancels the workflow.
 - `SD-03` The top and bottom panes each retain the most recent 2,000 sanitized logical lines. Long logical lines soft-wrap to pane width; resize reflows retained logical lines without counting wrapped fragments against the bound.
 - `SD-04` The view starts at the live tail. Scrolling a pane detaches only that pane from its live tail; `End` returns it to tail.
 - `SD-05` Sanitization removes terminal control sequences and non-printing controls except tab/newline, renders invalid UTF-8 as replacement characters, and never writes raw agent bytes to workflow stdout.
@@ -98,13 +98,13 @@ flowchart LR
 
 | Contract ID | Connector / direction | Guarantees and failure/evolution semantics |
 | --- | --- | --- |
-| `CTR-01` | App/runtime → presentation | Capability check happens before raw mode. If ineligible or setup fails, no view starts and existing output continues. On eligibility, the runtime emits normalized key/resize events and always exposes restore. |
+| `CTR-01` | App/runtime → presentation | Capability check happens before one-key mode. If ineligible or setup fails, no view starts and existing output continues. On eligibility, the runtime emits normalized key/resize events, preserves `Ctrl-C` as the normal terminal interrupt, and always exposes restore. |
 | `CTR-02` | Runner/Codex → presentation | Stdout and stderr chunks are delivered while the active process runs, retain their source label, and enter the presentation queue in the single-multiplexer observation order. Exact producer write order across the independent pipes is not guaranteed. They are sanitized before buffering/rendering and tagged with one stream identity. Process completion/error closes that identity; no callback may update a later stream. Existing separate final stdout/stderr capture remains available to the Codex boundary; invocations without an observer drain inherited descriptors through EOF, while the live observer path uses a bounded post-exit drain. |
 | `CTR-03` | Workflow facts → presentation | Workflow records append to the top pane and retain their normal output ownership. Pane open/close and repaint never alter workflow transition, process context, exit status, or `kv` encoding. |
 
 ## Invariants
 
-- `INV-01` Interactive keys and repainting cannot interrupt, restart, or mutate workflow state.
+- `INV-01` Interactive view-local keys and repainting cannot interrupt, restart, or mutate workflow state; `Ctrl-C` is deliberately excluded and always follows the normal signal-driven cancellation path.
 - `INV-02` `kv` and all non-interactive stdout remain free of terminal controls and raw agent output.
 - `INV-03` At most one active stream identity can receive rendered chunks; stale chunks are discarded, and visible stderr chunks retain their `[stderr]` source label.
 - `INV-04` Terminal restore runs once effectively and precedes subsequent permanent terminal output.
@@ -112,11 +112,11 @@ flowchart LR
 
 ## Failure modes
 
-- `FM-01` Terminal setup/raw mode fails: retain existing output and do not consume input.
+- `FM-01` Terminal setup/one-key mode fails: retain existing output and do not consume input.
 - `FM-02` Resize/key/stream races: the presentation event loop serializes events and stale stream identities are ignored.
 - `FM-03` Agent output contains escape sequences or invalid bytes: sanitize before buffering; preserve only safe text.
 - `FM-04` Process finishes during a toggle: completion event wins stream identity and view stays usable with frozen state.
-- `FM-05` Panic/interruption/write error leaves raw mode active: deferred idempotent restoration executes before diagnostic/final rendering.
+- `FM-05` Panic/interruption/write error leaves one-key mode active: deferred idempotent restoration executes before diagnostic/final rendering. If a key reader is unavailable, `Ctrl-C` still reaches the normal signal handler.
 
 ## Rollout / backout
 
