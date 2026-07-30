@@ -6,10 +6,21 @@
 
 ## Root help
 
-`code-converge -h` and `code-converge --help` are equivalent, write the following usage line to stdout, and exit `0` without loading configuration or starting an update or review workflow:
+`code-converge -h` and `code-converge --help` are equivalent, write a concise command and global-option reference to stdout, and exit `0` without loading configuration or starting an update or review workflow. Root help lists the `config` and `update` commands, all supported global options, and points to this README for the complete configuration reference. Use `code-converge config --help` for the configuration command syntax, and `code-converge update --help` for update syntax including `--yes` / `-y`.
 
 ```text
 usage: code-converge [flags] [config]
+
+Commands:
+  config                 Show effective configuration and its sources.
+  update [--yes|-y]      Check for and install a newer release.
+
+Global options:
+  Output:
+    --log-format              Workflow output format: human or kv.
+  ...
+
+See README.md for the full configuration reference.
 ```
 
 ## Workflow
