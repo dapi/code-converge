@@ -24,6 +24,37 @@ import (
 
 type optionalFlag struct{ target *config.OptionalString }
 
+type globalFlagSpec struct {
+	name, group, description string
+	bind                     func(*flag.FlagSet, *config.Overrides)
+}
+
+var globalFlagSpecs = []globalFlagSpec{
+	{"log-format", "Output", "Workflow output format: human or kv.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "log-format", &o.LogFormat) }},
+	{"heartbeat", "Output", "Human-output liveness interval.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "heartbeat", &o.Heartbeat) }},
+	{"color", "Output", "Interactive human-output color: auto, always, or never.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "color", &o.Color) }},
+	{"mode", "Workflow", "Execution profile: fast or best.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "mode", &o.Mode) }},
+	{"max-cycles", "Workflow", "Maximum fix-findings attempts per review phase.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "max-cycles", &o.MaxCycles) }},
+	{"max-ci-recoveries", "Workflow", "Maximum CI recovery attempts.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "max-ci-recoveries", &o.MaxCIRecoveries) }},
+	{"review-model", "Stage overrides", "Review model.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "review-model", &o.ReviewModel) }},
+	{"review-reasoning-effort", "Stage overrides", "Review reasoning effort.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "review-reasoning-effort", &o.ReviewEffort) }},
+	{"fix-model", "Stage overrides", "Fix-findings model.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "fix-model", &o.FixModel) }},
+	{"fix-reasoning-effort", "Stage overrides", "Fix-findings reasoning effort.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "fix-reasoning-effort", &o.FixEffort) }},
+	{"fix-prompt-file", "Stage overrides", "Fix-findings prompt file.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "fix-prompt-file", &o.FixPromptPath) }},
+	{"finalize-model", "Stage overrides", "Finalization model.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "finalize-model", &o.FinalizeModel) }},
+	{"finalize-reasoning-effort", "Stage overrides", "Finalization reasoning effort.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "finalize-reasoning-effort", &o.FinalizeEffort) }},
+	{"finalize-prompt-file", "Stage overrides", "Finalization prompt file.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "finalize-prompt-file", &o.FinalizePromptPath) }},
+	{"ci-fix-model", "Stage overrides", "CI-fix model.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "ci-fix-model", &o.CIFixModel) }},
+	{"ci-fix-reasoning-effort", "Stage overrides", "CI-fix reasoning effort.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "ci-fix-reasoning-effort", &o.CIFixEffort) }},
+	{"ci-fix-prompt-file", "Stage overrides", "CI-fix prompt file.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "ci-fix-prompt-file", &o.CIFixPromptPath) }},
+	{"review-base", "Workflow", "Review base override.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "review-base", &o.ReviewBase) }},
+	{"session-log-dir", "Diagnostics", "Diagnostic session-log directory.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "session-log-dir", &o.SessionLogDir) }},
+	{"session-log-retention", "Diagnostics", "Diagnostic session-log retention.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "session-log-retention", &o.SessionLogRetention) }},
+	{"no-session-log", "Diagnostics", "Disable diagnostic session logging.", func(f *flag.FlagSet, o *config.Overrides) {
+		f.BoolVar(&o.NoSessionLog, "no-session-log", false, "disable diagnostic session logging")
+	}},
+}
+
 func (f optionalFlag) String() string {
 	if f.target == nil {
 		return ""
@@ -58,8 +89,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 	if stderr == nil {
 		stderr = os.Stderr
 	}
-	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
-		rootUsage(stdout)
+	if helpCommand(stdout, args) {
 		return workflow.ExitSuccess
 	}
 	if len(args) == 1 && args[0] == "--version" {
@@ -92,27 +122,9 @@ func (a App) Run(ctx context.Context, args []string) int {
 	configCommand := len(args) > 0 && args[0] == "config"
 	flags := flag.NewFlagSet("code-converge", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	bind(flags, "log-format", &overrides.LogFormat)
-	bind(flags, "heartbeat", &overrides.Heartbeat)
-	bind(flags, "color", &overrides.Color)
-	bind(flags, "mode", &overrides.Mode)
-	bind(flags, "max-cycles", &overrides.MaxCycles)
-	bind(flags, "max-ci-recoveries", &overrides.MaxCIRecoveries)
-	bind(flags, "review-model", &overrides.ReviewModel)
-	bind(flags, "review-reasoning-effort", &overrides.ReviewEffort)
-	bind(flags, "fix-model", &overrides.FixModel)
-	bind(flags, "fix-reasoning-effort", &overrides.FixEffort)
-	bind(flags, "fix-prompt-file", &overrides.FixPromptPath)
-	bind(flags, "finalize-model", &overrides.FinalizeModel)
-	bind(flags, "finalize-reasoning-effort", &overrides.FinalizeEffort)
-	bind(flags, "finalize-prompt-file", &overrides.FinalizePromptPath)
-	bind(flags, "ci-fix-model", &overrides.CIFixModel)
-	bind(flags, "ci-fix-reasoning-effort", &overrides.CIFixEffort)
-	bind(flags, "ci-fix-prompt-file", &overrides.CIFixPromptPath)
-	bind(flags, "review-base", &overrides.ReviewBase)
-	bind(flags, "session-log-dir", &overrides.SessionLogDir)
-	bind(flags, "session-log-retention", &overrides.SessionLogRetention)
-	flags.BoolVar(&overrides.NoSessionLog, "no-session-log", false, "disable diagnostic session logging")
+	for _, spec := range globalFlagSpecs {
+		spec.bind(flags, &overrides)
+	}
 
 	if len(args) > 0 && args[0] == "config" {
 		args = append(append([]string{}, args[1:]...), "config")
@@ -223,6 +235,46 @@ func (a App) Run(ctx context.Context, args []string) int {
 
 func rootUsage(out io.Writer) {
 	fmt.Fprintln(out, "usage: code-converge [flags] [config]")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Commands:")
+	fmt.Fprintln(out, "  config                 Show effective configuration and its sources.")
+	fmt.Fprintln(out, "  update [--yes|-y]      Check for and install a newer release.")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Global options:")
+	group := ""
+	for _, spec := range globalFlagSpecs {
+		if spec.group != group {
+			group = spec.group
+			fmt.Fprintf(out, "  %s:\n", group)
+		}
+		fmt.Fprintf(out, "    --%-25s %s\n", spec.name, spec.description)
+	}
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "See README.md for the full configuration reference.")
+}
+
+func helpCommand(out io.Writer, args []string) bool {
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		rootUsage(out)
+		return true
+	}
+	if len(args) != 2 || (args[1] != "-h" && args[1] != "--help") {
+		return false
+	}
+	switch args[0] {
+	case "config":
+		fmt.Fprintln(out, "usage: code-converge config [global options]")
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Show effective configuration values and their sources without starting a workflow.")
+		return true
+	case "update":
+		fmt.Fprintln(out, "usage: code-converge update [--yes|-y]")
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Check for and install a newer release. --yes and -y skip confirmation.")
+		return true
+	default:
+		return false
+	}
 }
 
 func updateArgs(args []string) (bool, error) {
