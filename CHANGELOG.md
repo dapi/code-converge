@@ -6,6 +6,10 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Expanded root and command-specific CLI help with discoverable commands, options, and configuration guidance.
+
 ## [0.6.6] - 2026-07-27
 
 ### Fixed
