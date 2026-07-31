@@ -21,6 +21,7 @@ audience: humans_and_agents
 ## Current records
 
 - [ADR-001: Interactive terminal runtime](ADR-001-interactive-terminal-runtime.md) — accepted minimal cross-platform terminal capability and raw-mode boundary for FT-010.
+- [ADR-002: Deterministic delivery orchestration](ADR-002-deterministic-delivery-orchestration.md) — accepted ownership boundary for repository publication and CI polling.
 
 ## Naming
 

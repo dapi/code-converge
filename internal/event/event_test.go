@@ -64,17 +64,17 @@ func TestHumanEventCatalog(t *testing.T) {
 		{"fix start", "stage_started", []Field{F("stage", "fix-findings"), F("cycle", "2")}, "10:04:05 [2/10] [gpt-test/high] Fixing findings\n"},
 		{"fix done", "stage_completed", []Field{F("stage", "fix-findings"), F("cycle", "2"), F("status", "success"), F("duration_ms", "263000")}, "10:04:05 [2/10] [gpt-test/high] Findings fixed (4m 23s)\n"},
 		{"fix failed", "stage_completed", []Field{F("stage", "fix-findings"), F("cycle", "2"), F("status", "failed"), F("duration_ms", "1000")}, "10:04:05 [2/10] [gpt-test/high] Fixing findings failed (1s)\n"},
-		{"finalize start", "stage_started", []Field{F("stage", "finalize")}, "10:04:05 [gpt-test/high] Finalizing\n"},
-		{"step", "step_completed", []Field{F("stage", "finalize"), F("step", "change_request"), F("status", "skipped")}, "10:04:05 [gpt-test/high]   Change request: not needed\n"},
-		{"finalize success", "stage_completed", []Field{F("stage", "finalize"), F("status", "success"), F("verdict", "SUCCESS"), F("duration_ms", "42000")}, "10:04:05 [gpt-test/high] Finalized successfully (42s)\n"},
-		{"finalize ci", "stage_completed", []Field{F("stage", "finalize"), F("status", "success"), F("verdict", "CI_FAILED"), F("duration_ms", "42000")}, "10:04:05 [gpt-test/high] Finalized, but CI is failing (42s)\n"},
-		{"finalize failed", "stage_completed", []Field{F("stage", "finalize"), F("status", "failed"), F("duration_ms", "42000")}, "10:04:05 [gpt-test/high] Finalization failed (42s)\n"},
+		{"publish start", "stage_started", []Field{F("stage", "publish")}, "10:04:05 [gpt-test/high] Publishing\n"},
+		{"step", "step_completed", []Field{F("stage", "publish"), F("step", "change_request"), F("status", "skipped")}, "10:04:05 [gpt-test/high]   Change request: not needed\n"},
+		{"publish success", "stage_completed", []Field{F("stage", "publish"), F("status", "success"), F("duration_ms", "42000")}, "10:04:05 [gpt-test/high] Published (42s)\n"},
+		{"ci start", "stage_started", []Field{F("stage", "ci")}, "10:04:05 [gpt-test/high] Waiting for CI\n"},
+		{"ci timeout", "stage_completed", []Field{F("stage", "ci"), F("status", "timeout"), F("duration_ms", "42000"), F("timeout_ms", "3600000")}, "10:04:05 [gpt-test/high] CI timed out after 42s (limit 1h)\n"},
 		{"ci start", "stage_started", []Field{F("stage", "fix-ci"), F("review_phase", "1")}, "10:04:05 [1/3] [gpt-test/high] CI recovery\n"},
 		{"ci done", "stage_completed", []Field{F("stage", "fix-ci"), F("review_phase", "1"), F("status", "success"), F("duration_ms", "68000")}, "10:04:05 [1/3] [gpt-test/high] CI recovery fixed (1m 8s)\n"},
 		{"done", "run_completed", []Field{F("status", "success"), F("exit_code", "0"), F("total_duration_ms", "525000")}, "10:04:05 Done (8m 45s)\n"},
-		{"findings remain", "run_completed", []Field{F("status", "findings_remaining"), F("exit_code", "1"), F("checkpoint_status", "committed_local"), F("checkpoint_branch", "feature/checkpoints"), F("checkpoint_commit", "abc1234"), F("total_duration_ms", "525000")}, "10:04:05 Stopped: fix budget exhausted; finalization was not reached; checkpoint committed locally on feature/checkpoints at abc1234 and not pushed (8m 45s, exit 1)\n"},
-		{"encoded checkpoint branch", "run_completed", []Field{F("status", "findings_remaining"), F("exit_code", "1"), F("checkpoint_status", "committed_local"), F("checkpoint_branch", "feature%3Da"), F("checkpoint_commit", "abc1234"), F("total_duration_ms", "525000")}, "10:04:05 Stopped: fix budget exhausted; finalization was not reached; checkpoint committed locally on feature=a at abc1234 and not pushed (8m 45s, exit 1)\n"},
-		{"checkpoint skipped", "run_completed", []Field{F("status", "findings_remaining"), F("exit_code", "1"), F("checkpoint_status", "not_attempted"), F("checkpoint_reason", "pre_existing_changes"), F("total_duration_ms", "525000")}, "10:04:05 Stopped: fix budget exhausted; finalization was not reached; checkpoint was skipped because the worktree had pre-existing changes (8m 45s, exit 1)\n"},
+		{"findings remain", "run_completed", []Field{F("status", "findings_remaining"), F("exit_code", "1"), F("checkpoint_status", "committed_local"), F("checkpoint_branch", "feature/checkpoints"), F("checkpoint_commit", "abc1234"), F("total_duration_ms", "525000")}, "10:04:05 Stopped: fix budget exhausted; publication was not reached; checkpoint committed locally on feature/checkpoints at abc1234 and not pushed (8m 45s, exit 1)\n"},
+		{"encoded checkpoint branch", "run_completed", []Field{F("status", "findings_remaining"), F("exit_code", "1"), F("checkpoint_status", "committed_local"), F("checkpoint_branch", "feature%3Da"), F("checkpoint_commit", "abc1234"), F("total_duration_ms", "525000")}, "10:04:05 Stopped: fix budget exhausted; publication was not reached; checkpoint committed locally on feature=a at abc1234 and not pushed (8m 45s, exit 1)\n"},
+		{"checkpoint skipped", "run_completed", []Field{F("status", "findings_remaining"), F("exit_code", "1"), F("checkpoint_status", "not_attempted"), F("checkpoint_reason", "pre_existing_changes"), F("total_duration_ms", "525000")}, "10:04:05 Stopped: fix budget exhausted; publication was not reached; checkpoint was skipped because the worktree had pre-existing changes (8m 45s, exit 1)\n"},
 		{"operational", "run_completed", []Field{F("status", "operational_failure"), F("exit_code", "2"), F("total_duration_ms", "525000")}, "10:04:05 Failed due to an operational error (8m 45s, exit 2)\n"},
 		{"cancelled", "run_completed", []Field{F("status", "cancelled"), F("exit_code", "130"), F("total_duration_ms", "525000")}, "10:04:05 Cancelled (8m 45s, exit 130)\n"},
 		{"ci failure", "run_completed", []Field{F("status", "ci_failure"), F("exit_code", "3"), F("total_duration_ms", "525000")}, "10:04:05 Stopped: CI is still failing (8m 45s, exit 3)\n"},
@@ -484,7 +484,7 @@ func TestDiagnosticIsSuppressedWhenTransientClearFails(t *testing.T) {
 
 func TestHumanRendererRejectsUnknownStatus(t *testing.T) {
 	logger := Logger{Out: ioDiscard{}, Format: "human"}
-	for _, stage := range []string{"fix-findings", "fix-ci", "finalize"} {
+	for _, stage := range []string{"fix-findings", "fix-ci", "publish", "ci"} {
 		err := logger.Emit("stage_completed", F("stage", stage), F("status", "unexpected"), F("duration_ms", "1"))
 		if err == nil || !strings.Contains(err.Error(), "unsupported human event") {
 			t.Errorf("stage %s error = %v", stage, err)
@@ -524,7 +524,7 @@ func TestShimmerHighlightTravelsAndReturnsWithoutWrapping(t *testing.T) {
 }
 
 func TestLivenessStageLabels(t *testing.T) {
-	for _, stage := range []string{"review", "fix-findings", "finalize", "fix-ci"} {
+	for _, stage := range []string{"review", "fix-findings", "publish", "ci", "fix-ci"} {
 		t.Run(stage, func(t *testing.T) {
 			var out bytes.Buffer
 			logger := Logger{Out: &out, Format: "human"}

@@ -34,7 +34,7 @@ flowchart TD
     E -- no --> X1[Exit 1]
     D --> K["Commit local checkpoint when fixes changed the clean worktree"]
     K --> B
-    C -- no --> N{Unfinalized changes or local checkpoint?}
+    C -- no --> N{Unpublished changes or local checkpoint?}
     N -- no --> X0[Exit 0: no-op]
     N -- yes --> F[Commit, push, create change request if needed, check applicable CI]
     F --> G{Result}
@@ -117,64 +117,33 @@ flowchart TD
   └───────┬─────────┬────┘
           │ yes     │ no
           ▼         └────────► run_completed success, exit 0
-  ╔══════════════════════╗
-  ║   FINALIZE STAGE     ║
-  ║                      ║
-  ║ codex exec -         ║
-  ║   --output-schema    ║
-  ║   --output-last-msg  ║
-  ║ stdin: finalize      ║
-  ║   prompt             ║
-  ╚════════╤═════════════╝
-           │
-           ▼
-  ┌────────────────────┐
-  │  Parse JSON verdict│
-  │                    │
-  │  {verdict, commit, │
-  │   push, cr, ci}    │
-  └─────────┬──────────┘
-            │
-     ┌──────┼──────────┐
-     │      │          │
-     ▼      ▼          ▼
- SUCCESS  CI_FAILED  FAILED
-     │      │          │
-     │      │          └──► exit 2 (operational_failure)
-     │      │
-     │  recoveries < max?
-     │  ┌────┴────┐
-     │ yes        no ──► exit 3 (ci_failure)
-     │  │
-     │  ▼
-     │ ╔══════════════╗
-     │ ║  FIX-CI      ║
-     │ ║              ║
-     │ ║ codex exec - ║
-     │ ║ stdin: ci    ║
-     │ ║   fix prompt ║
-     │ ╚══════╤═══════╝
-     │        │
-     │   recoveries++
-     │   phase++
-     │   cycle=1, fixes=0
-     │        │
-     │        └──────► back to REVIEW
-     │
-     ▼
-  ╔═══════════════╗
-  ║ run_completed ║
-  ║ status=success║
-  ║ exit_code=0   ║
-  ╚═══════════════╝
+  ╔══════════════════════════════════╗
+  ║ PUBLISH (host git/gh processes)  ║
+  ║ commit → direct-ref push → PR     ║
+  ╚═══════════════╤══════════════════╝
+                  │ published HEAD SHA
+                  ▼
+  ╔══════════════════════════════════╗
+  ║ CI (host GitHub check-run poll)   ║
+  ║ exact SHA; deadline = ci-timeout  ║
+  ╚═════╤═══════════╤═══════════╤══════╝
+        │           │           │
+     green/N/A    failed     timeout/error
+        │           │           │
+        │      Fix CI?          └──► exit 2 (ci_timeout/operational_failure)
+        │         │
+        │       yes ──► Codex Fix CI → review phase + 1
+        │       no  ──► exit 3 (ci_failure)
+        ▼
+  run_completed success, exit 0
 ```
 
 Key points:
 
 - **Review** — resolves the intended pull-request base and runs one schema-constrained `codex exec` against a private merge-base-to-worktree snapshot, including committed, staged, unstaged and untracked changes. Only the final-message file is classified; terminal stdout/stderr are not review data.
 - **Fix** — `codex exec -`, stdin = fix-prompt + full review report. The stateless remediation session receives the findings it must address.
-- **Finalize** — `codex exec --output-schema`, strict JSON verdict with hard validation.
-- **CI recovery** — on `CI_FAILED`, fixes CI, resets the fix cycle, and restarts from Review.
+- **Publish and CI** — host-process `git`/`gh` orchestration, with CI pinned to the published SHA.
+- **CI recovery** — a deterministically failed applicable check starts Fix CI, resets the fix cycle, and restarts from Review. A timeout never starts Fix CI.
 - **Budget** — `max-cycles` counts only fix attempts, not the initial review.
 - **Fail closed** — unknown output ≠ clean; mixed output = error.
 
@@ -196,31 +165,19 @@ When the review has findings, `code-converge` detects whether the Git worktree i
 fix findings
 ```
 
-The default `fast` profile uses `gpt-5.6-luna` with reasoning effort `medium`. Before and after the agent runs, `code-converge` records `HEAD` and checks Git status. If the fix changed an initially clean worktree, it stages the changes and creates one local commit with the stable message `chore: checkpoint review fixes`; it never pushes this checkpoint. A commit made directly by the agent is also detected as a local checkpoint, even when the worktree is clean, so a later clean review still reaches finalization. A dirty pre-fix worktree continues through remediation but skips the automatic checkpoint and reports that reason if the budget is later exhausted. A no-change fix attempts no empty commit. A status, `HEAD`, staging, commit, branch, or commit-ID failure is operational (exit `2`) and the workflow does not start another review. After a successful checkpoint decision or skip, the workflow returns to **Review**.
+The default `fast` profile uses `gpt-5.6-luna` with reasoning effort `medium`. Before and after the agent runs, `code-converge` records `HEAD` and checks Git status. If the fix changed an initially clean worktree, it stages the changes and creates one local commit with the stable message `chore: checkpoint review fixes`; it never pushes this checkpoint. A commit made directly by the agent is also detected as a local checkpoint, even when the worktree is clean, so a later clean review still reaches publication. A dirty pre-fix worktree continues through remediation but skips the automatic checkpoint and reports that reason if the budget is later exhausted. A no-change fix attempts no empty commit. A status, `HEAD`, staging, commit, branch, or commit-ID failure is operational (exit `2`) and the workflow does not start another review. After a successful checkpoint decision or skip, the workflow returns to **Review**.
 
-`max-cycles` is the maximum number of fix-findings attempts in one review phase; its built-in default is `10` and it must be non-negative. The initial review does not consume this budget. After the final allowed fix attempt, `code-converge` always performs one verification review. If that review still has findings, `code-converge` reports that the limit has been reached, that clean-review finalization was not reached, and the latest local checkpoint state before exiting with code `1`. A failed fix-findings command is an operational failure and exits with code `2`.
+`max-cycles` is the maximum number of fix-findings attempts in one review phase; its built-in default is `10` and it must be non-negative. The initial review does not consume this budget. After the final allowed fix attempt, `code-converge` always performs one verification review. If that review still has findings, `code-converge` reports that the limit has been reached, that clean-review publication was not reached, and the latest local checkpoint state before exiting with code `1`. A failed fix-findings command is an operational failure and exits with code `2`.
 
 ### 3. Commit, push, create a change request, and check CI
 
-Once a review returns no findings, `code-converge` checks Git status for staged, unstaged and untracked changes. If there are none and this run created no local checkpoints, it completes successfully as a no-op without starting finalization or attempting an empty commit. If changes exist, or this run created a local checkpoint, it asks Codex to finalize them. In the latter case the finalizer is told not to create an empty commit; it still pushes the current branch, creates a change request if needed, and verifies CI. The default prompt is:
+After a clean review, Code Converge—not Codex—performs publication. It creates a commit only when the run began with a clean worktree; pre-existing dirty content is never committed automatically. It uses a direct Git refspec push, so a local remote-tracking-ref refresh cannot make a successful remote publication look failed. It then reuses exactly one matching open pull request or creates one; ambiguous identity is operational failure.
 
-```text
-commit, push, create PR, ensure CI is green
-```
-
-The default `fast` profile uses `gpt-5.6-luna` with reasoning effort `medium` for this stage. The final agent response must report exactly one of these states:
-
-| State | Meaning | Next action |
-| --- | --- | --- |
-| `SUCCESS` | Changes are committed and pushed; a change request was created when needed; required CI is green or CI is not applicable. | Exit `0`. |
-| `CI_FAILED` | Publication succeeded, but applicable required CI is red. | Run **Fix CI**. |
-| `FAILED` | Any other failure (for example, unable to commit, push, or create a PR). | Exit `2`. |
-
-In addition to the single verdict, the final response reports the outcome of `commit`, `push`, `change_request`, and `ci` so `code-converge` can emit the required step records. Missing or internally inconsistent details cannot be interpreted as success and cause an operational failure (`2`).
+Code Converge polls every page of GitHub check-runs for the exact published `HEAD` SHA. The applicable set is the returned check-runs: no returned runs is `skipped`; `success`, `skipped`, and `neutral` terminal conclusions are accepted; the first other completed conclusion is `failed`; pending runs continue waiting. `--ci-timeout` / `CODE_CONVERGE_CI_TIMEOUT` / `.code-converge/ci-timeout` use normal precedence and default to `60m`. Timeout is an explicit operational `ci_timeout` outcome (exit `2`), not failed CI and never invokes Fix CI. Transient provider failures are retried inside the same deadline; authentication and authorization failures are operational.
 
 ### 4. Fix CI
 
-When finalization reports `CI_FAILED`, `code-converge` starts Codex with the configured CI-fix prompt. This stage is skipped when the target repository has no applicable required CI. Its built-in prompt is:
+When deterministic CI polling reports a failed applicable check, `code-converge` starts Codex with the configured CI-fix prompt. This stage is skipped when no applicable check-run exists. Its built-in prompt is:
 
 ```text
 Исправь CI
@@ -235,8 +192,8 @@ If the agent completes successfully, the entire workflow begins again with a new
 | Code | Meaning |
 | --- | --- |
 | `0` | The review is clean and either no staged, unstaged or untracked changes exist, or changes are committed and pushed; a change request exists if needed; required CI is green or CI is not applicable. `update` also returns `0` when the installed version is current or the user declines the update. |
-| `1` | Review findings remain after the configured maximum number of fix-findings attempts. The terminal record states that finalization was not reached and gives the latest local checkpoint outcome. |
-| `2` | An operational/configuration failure occurred, review output was ambiguous, fix-findings failed, or finalization failed for a reason other than red CI. `update` uses it for unsupported hosts, invalid release metadata, download/checksum failures, or replacement/permission failures. |
+| `1` | Review findings remain after the configured maximum number of fix-findings attempts. The terminal record states that publication was not reached and gives the latest local checkpoint outcome. |
+| `2` | An operational/configuration failure occurred, review output was ambiguous, fix-findings failed, publication/provider failure occurred, or CI timed out. `update` uses it for unsupported hosts, invalid release metadata, download/checksum failures, or replacement/permission failures. |
 | `3` | The CI-fix stage failed or the maximum number of CI-recovery attempts was exhausted. |
 
 ## Logging and metrics
@@ -260,9 +217,9 @@ The required event catalog is:
 | `run_started` | No fields beyond `ts` and `event`. |
 | `stage_started` | `stage`, `model`, `reasoning_effort`; also `review_phase` and `cycle` for `review` and `fix-findings`, and `review_phase` for `fix-ci`. |
 | `review_completed` | `stage=review`, `model`, `reasoning_effort`, `review_phase`, `cycle`, `status=clean\|findings\|failed`, and `duration_ms`. A classified result (`clean` or `findings`) also requires all findings counters plus `review_scope=branch_and_worktree`, `review_base` (resolved commit SHA), `review_merge_base` and `review_base_source=explicit\|open_pr\|branch_merge_base\|remote_default`; on command or classification failure these fields and counters are omitted. This is the review stage's sole completion record. |
-| `stage_completed` | `stage=fix-findings\|finalize\|fix-ci`, `model`, `reasoning_effort`, `status=success\|failed`, and `duration_ms`; `fix-findings` also has `review_phase` and `cycle`, while `fix-ci` has `review_phase`. A successfully parsed finalization response also requires `verdict=SUCCESS\|CI_FAILED\|FAILED`; an invocation or parsing failure uses `status=failed` and omits `verdict`. |
-| `step_completed` | `stage=finalize`, `model`, `reasoning_effort`, `step=commit\|push\|change_request\|ci`, and `status=success\|skipped\|failed\|unknown`. Each finalization attempt emits one record for every listed step; a step that is inapplicable or not reached is `skipped`, while an outcome that cannot be established is `unknown`. |
-| `run_completed` | `status=success\|findings_remaining\|operational_failure\|ci_failure\|cancelled`, `exit_code`, and `total_duration_ms`. `cancelled` always has `exit_code=130`. For `findings_remaining`, also `checkpoint_status=committed_local\|no_changes\|not_attempted`; `committed_local` additionally requires percent-encoded `checkpoint_branch` and `checkpoint_commit`, while `not_attempted` requires `checkpoint_reason=fix_budget_exhausted\|pre_existing_changes`. |
+| `stage_completed` | `stage=fix-findings\|publish\|ci\|fix-ci`, `status`, and `duration_ms`; Codex-backed stages also include model and reasoning effort. `ci` status is `success`, `skipped`, `failed`, or `timeout`; a CI timeout additionally has `timeout_ms`, the configured deadline. |
+| `step_completed` | `stage=publish`, `step=commit\|push\|change_request`, and `status=success\|skipped\|failed\|unknown`; CI emits its own `stage=ci` step with `success\|skipped\|failed\|timeout`. |
+| `run_completed` | `status=success\|findings_remaining\|operational_failure\|ci_timeout\|ci_failure\|cancelled`, `exit_code`, and `total_duration_ms`. `cancelled` always has `exit_code=130`; `ci_timeout` has `exit_code=2`. For `findings_remaining`, also `checkpoint_status=committed_local\|no_changes\|not_attempted`; `committed_local` additionally requires percent-encoded `checkpoint_branch` and `checkpoint_commit`, while `not_attempted` requires `checkpoint_reason=fix_budget_exhausted\|pre_existing_changes`. |
 
 For example:
 
@@ -271,7 +228,7 @@ ts=2026-07-21T10:04:05Z event=stage_started stage=review model=gpt-5.6-sol reaso
 ts=2026-07-21T10:06:18Z event=review_completed stage=review model=gpt-5.6-sol reasoning_effort=medium review_phase=1 cycle=2 status=findings findings_total=3 findings_critical=0 findings_high=1 findings_medium=2 findings_low=0 findings_unknown=0 duration_ms=133000
 ts=2026-07-21T10:06:19Z event=stage_started stage=fix-findings model=gpt-5.6-luna reasoning_effort=medium review_phase=1 cycle=2
 ts=2026-07-21T10:10:42Z event=stage_completed stage=fix-findings model=gpt-5.6-luna reasoning_effort=medium review_phase=1 cycle=2 status=success duration_ms=263000
-ts=2026-07-21T10:12:00Z event=step_completed stage=finalize model=gpt-5.3-codex-spark reasoning_effort=agent-default step=change_request status=skipped
+ts=2026-07-21T10:12:00Z event=step_completed stage=publish step=change_request status=skipped
 ```
 
 ### Review metrics
@@ -284,7 +241,7 @@ The review-completion record is emitted even when there are no findings, for exa
 ts=2026-07-21T10:12:09Z event=review_completed stage=review model=gpt-5.6-sol reasoning_effort=medium review_phase=1 cycle=3 status=clean findings_total=0 findings_critical=0 findings_high=0 findings_medium=0 findings_low=0 findings_unknown=0 duration_ms=87000
 ```
 
-This makes the trend across cycles directly measurable without requiring it to be monotonic: the `findings_*` fields show how the number and severity change, while `duration_ms` measures the cost of each review, fix, finalization, and CI-fix stage. `run_completed` contains `status`, `exit_code`, and `total_duration_ms`.
+This makes the trend across cycles directly measurable without requiring it to be monotonic: the `findings_*` fields show how the number and severity change, while `duration_ms` measures the cost of each review, fix, publication, CI, and CI-fix stage. `run_completed` contains `status`, `exit_code`, and `total_duration_ms`.
 
 ### Human format
 
@@ -300,11 +257,9 @@ When diagnostic session logging is enabled and its record directory has been cre
 | Review has findings | `22:14:05 [2/10] [gpt-5.6-sol/high] Review: 3 findings [P0:0; P1:1; P2:2] (2m 13s)` |
 | Review fails | `22:14:05 [2/10] [gpt-5.6-sol/high] Review failed (2m 13s)` |
 | Fix findings starts / succeeds / fails | `22:14:05 [2/10] [gpt-5.6-luna/medium] Fixing findings` / `22:14:05 [2/10] [gpt-5.6-luna/medium] Findings fixed (4m 23s)` / `22:14:05 [2/10] [gpt-5.6-luna/medium] Fixing findings failed (4m 23s)` |
-| Finalization starts | `22:14:05 [gpt-5.3-codex-spark/agent-default] Finalizing` |
-| Finalization step | `22:14:05 [gpt-5.3-codex-spark/agent-default]   Commit: done` (and equivalent step status) |
-| Finalization succeeds | `22:14:05 [gpt-5.3-codex-spark/agent-default] Finalized successfully (42s)` |
-| Finalization reports red CI | `22:14:05 [gpt-5.3-codex-spark/agent-default] Finalized, but CI is failing (42s)` |
-| Finalization fails | `22:14:05 [gpt-5.3-codex-spark/agent-default] Finalization failed (42s)` |
+| Publication starts / steps / succeeds | `22:14:05 Publishing` / `22:14:05   Push: done` / `22:14:05 Published (42s)` |
+| CI starts / succeeds / is skipped | `22:14:05 Waiting for CI` / `22:14:05 CI passed (3m 2s)` / `22:14:05 CI skipped: no applicable checks (0s)` |
+| CI fails / times out | `22:14:05 CI failed (42s)` / `22:14:05 CI timed out (60m)` |
 | CI recovery starts / succeeds / fails | `22:14:05 [1/3] [agent-default/agent-default] CI recovery` / `22:14:05 [1/3] [agent-default/agent-default] CI recovery fixed (1m 8s)` / `22:14:05 [1/3] [agent-default/agent-default] CI recovery failed (1m 8s)` |
 | Run succeeds | `22:14:05 Done (8m 45s)` |
 | Findings remain | `22:14:05 Stopped: review findings remain (8m 45s, exit 1)` |
@@ -365,7 +320,6 @@ The `fast` and `best` modes select these operative stage profiles. `fast` is the
 | --- | --- | --- | --- |
 | Review | `gpt-5.6-terra`, `medium` | `gpt-5.6-sol`, `high` | Not applicable: independent quality judgment is the stage's primary purpose. |
 | Fix findings | `gpt-5.6-luna`, `medium` | `gpt-5.6-terra`, `high` | Findings involve architecture, security, migrations, concurrency, or several connected modules. |
-| Finalize | `gpt-5.6-luna`, `medium` | `gpt-5.6-luna`, `medium` | Finalization requires diagnosing an unusual Git, change-request, or CI workflow; otherwise route CI failures to Fix CI. |
 | Fix CI | `gpt-5.6-luna`, `medium` | `gpt-5.6-terra`, `high` | The cause is not localized by logs, spans multiple components, or persists after a repair. |
 
 ### Options and defaults
@@ -378,14 +332,12 @@ The `fast` and `best` modes select these operative stage profiles. `fast` is the
 | Mode | `--mode` | `CODE_CONVERGE_MODE` | `mode` | `fast` |
 | Maximum fix-findings attempts per review phase | `--max-cycles` | `CODE_CONVERGE_MAX_CYCLES` | `max-cycles` | `10` |
 | Maximum CI recoveries | `--max-ci-recoveries` | `CODE_CONVERGE_MAX_CI_RECOVERIES` | `max-ci-recoveries` | `3` |
+| CI wait timeout | `--ci-timeout` | `CODE_CONVERGE_CI_TIMEOUT` | `ci-timeout` | `60m` |
 | Review model | `--review-model` | `CODE_CONVERGE_REVIEW_MODEL` | `review-model` | selected profile |
 | Review reasoning effort | `--review-reasoning-effort` | `CODE_CONVERGE_REVIEW_REASONING_EFFORT` | `review-reasoning-effort` | selected profile |
 | Fix-findings model | `--fix-model` | `CODE_CONVERGE_FIX_MODEL` | `fix-model` | selected profile |
 | Fix-findings reasoning effort | `--fix-reasoning-effort` | `CODE_CONVERGE_FIX_REASONING_EFFORT` | `fix-reasoning-effort` | selected profile |
 | Fix-findings prompt | `--fix-prompt-file` | `CODE_CONVERGE_FIX_PROMPT_FILE` | `fix-findings.md` | `fix findings` |
-| Finalization model | `--finalize-model` | `CODE_CONVERGE_FINALIZE_MODEL` | `finalize-model` | selected profile |
-| Finalization reasoning effort | `--finalize-reasoning-effort` | `CODE_CONVERGE_FINALIZE_REASONING_EFFORT` | `finalize-reasoning-effort` | selected profile |
-| Finalization prompt | `--finalize-prompt-file` | `CODE_CONVERGE_FINALIZE_PROMPT_FILE` | `finalize.md` | `commit, push, create PR, ensure CI is green` |
 | CI-fix model | `--ci-fix-model` | `CODE_CONVERGE_CI_FIX_MODEL` | `ci-fix-model` | selected profile |
 | CI-fix reasoning effort | `--ci-fix-reasoning-effort` | `CODE_CONVERGE_CI_FIX_REASONING_EFFORT` | `ci-fix-reasoning-effort` | selected profile |
 | CI-fix prompt | `--ci-fix-prompt-file` | `CODE_CONVERGE_CI_FIX_PROMPT_FILE` | `fix-ci.md` | `Исправь CI` |
@@ -393,6 +345,8 @@ The `fast` and `best` modes select these operative stage profiles. `fast` is the
 | Diagnostic session-log directory | `--session-log-dir` | `CODE_CONVERGE_SESSION_LOG_DIR` | `session-log-dir` | `~/.code-converge/session-logs` |
 | Diagnostic session-log retention | `--session-log-retention` | `CODE_CONVERGE_SESSION_LOG_RETENTION` | `session-log-retention` | `24h` |
 | Disable diagnostic logging for this run | `--no-session-log` | — | — | disabled only when flag supplied |
+
+`--finalize-model`, `--finalize-reasoning-effort`, and `--finalize-prompt-file`, their `CODE_CONVERGE_FINALIZE_*` environment variables, and `finalize-*` / `finalize.md` configuration files were removed in this release. Remove them during migration: they have no compatible runtime replacement because Codex no longer performs publication or CI polling.
 
 For example, a team can commit these files:
 
@@ -407,16 +361,15 @@ For example, a team can commit these files:
 ├── review-base
 ├── fix-model
 ├── fix-reasoning-effort
-├── finalize-model
-├── finalize-reasoning-effort
 ├── ci-fix-model
 ├── ci-fix-reasoning-effort
 ├── max-cycles
 ├── max-ci-recoveries
+
+├── ci-timeout
 ├── session-log-dir
 ├── session-log-retention
 ├── fix-findings.md
-├── finalize.md
 └── fix-ci.md
 ```
 
@@ -455,7 +408,7 @@ fix-prompt: .code-converge/fix-findings.md (project; built-in: "fix findings")
 - `codex` must be installed, authenticated, and available on `PATH` when running `code-converge`.
 - The authenticated account must have access to every model selected by the effective profile and any explicit stage overrides.
 - The target directory must be a Git repository.
-- `git` and any tooling or credentials required by the target repository's chosen remote-hosting workflow must be available to the finalization agent. No hosting provider is required by `code-converge`; provider-specific tooling is needed only when the selected finalization actions depend on it.
+- `git`, `gh`, and GitHub credentials must be available to the Code Converge host process for deterministic publication and CI polling.
 
 ## Build and install
 

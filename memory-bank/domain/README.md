@@ -34,7 +34,7 @@ Domain-документы не определяют market positioning, product 
 Пример для `code-converge`:
 
 - Product: уменьшить ручную координацию agent-development loop.
-- Domain: finalization начинается только после review без findings.
+- Domain: publication начинается только после review без findings.
 
 ## Граница С Engineering
 

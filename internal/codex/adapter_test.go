@@ -21,7 +21,6 @@ import (
 const (
 	cleanReviewJSON    = `{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"No changes to review.","overall_confidence_score":0.99}`
 	findingsReviewJSON = `{"findings":[{"title":"[P0] critical","body":"body","confidence_score":0.9,"priority":0,"code_location":{"absolute_file_path":"/tmp/a.go","line_range":{"start":1,"end":1}}},{"title":"[P1] high","body":"body","confidence_score":0.8,"priority":1,"code_location":{"absolute_file_path":"/tmp/b.go","line_range":{"start":2,"end":2}}},{"title":"[P2] medium","body":"body","confidence_score":0.7,"priority":2,"code_location":{"absolute_file_path":"/tmp/c.go","line_range":{"start":3,"end":3}}},{"title":"[P3] low","body":"body","confidence_score":0.6,"priority":3,"code_location":{"absolute_file_path":"/tmp/d.go","line_range":{"start":4,"end":4}}}],"overall_correctness":"patch is incorrect","overall_explanation":"findings","overall_confidence_score":0.8}`
-	finalizationJSON   = `{"verdict":"SUCCESS","commit":"success","push":"success","change_request":"skipped","ci":"skipped"}`
 )
 
 func TestParseStructuredReview(t *testing.T) {
@@ -53,38 +52,6 @@ func TestParseStructuredReview(t *testing.T) {
 				t.Fatalf("result = %#v, want %#v", got, test.want)
 			}
 		})
-	}
-}
-
-func TestParseFinalization(t *testing.T) {
-	valid := []Finalization{
-		{Verdict: "SUCCESS", Commit: "success", Push: "success", ChangeRequest: "success", CI: "success"},
-		{Verdict: "SUCCESS", Commit: "success", Push: "success", ChangeRequest: "skipped", CI: "skipped"},
-		{Verdict: "SUCCESS", Commit: "skipped", Push: "skipped", ChangeRequest: "skipped", CI: "skipped"},
-		{Verdict: "CI_FAILED", Commit: "success", Push: "success", ChangeRequest: "skipped", CI: "failed"},
-		{Verdict: "FAILED", Commit: "failed", Push: "skipped", ChangeRequest: "skipped", CI: "skipped"},
-	}
-	for _, value := range valid {
-		data, _ := json.Marshal(value)
-		if _, err := ParseFinalization(data); err != nil {
-			t.Errorf("valid result %#v rejected: %v", value, err)
-		}
-	}
-	invalid := []string{
-		`{}`,
-		`{"verdict":"SUCCESS","commit":"success","push":"success","change_request":"skipped","ci":"failed"}`,
-		`{"verdict":"CI_FAILED","commit":"success","push":"success","change_request":"skipped","ci":"success"}`,
-		`{"verdict":"FAILED","commit":"success","push":"success","change_request":"skipped","ci":"failed"}`,
-		`{"verdict":"FAILED","commit":"success","push":"success","change_request":"skipped","ci":"success"}`,
-		`{"verdict":"FAILED","commit":"skipped","push":"skipped","change_request":"skipped","ci":"skipped"}`,
-		`{"verdict":"SUCCESS","commit":"success","push":"success","change_request":"skipped","ci":"skipped","extra":true}`,
-		`{"verdict":"FAILED","verdict":"SUCCESS","commit":"success","push":"success","change_request":"skipped","ci":"skipped"}`,
-		`{"verdict":"SUCCESS","commit":"success","push":"success","change_request":"skipped","ci":"skipped"} trailing`,
-	}
-	for _, data := range invalid {
-		if _, err := ParseFinalization([]byte(data)); err == nil {
-			t.Errorf("invalid result accepted: %s", data)
-		}
 	}
 }
 
@@ -149,8 +116,6 @@ func (r *recordingRunner) Run(_ context.Context, invocation runner.Invocation) (
 			if r.writeReview {
 				_ = os.WriteFile(messagePath, r.reviewMessage, 0o600)
 			}
-		} else {
-			_ = os.WriteFile(messagePath, []byte(finalizationJSON), 0o600)
 		}
 	}
 	return r.codexResult, r.codexErr
@@ -192,7 +157,6 @@ func TestAdapterInvocations(t *testing.T) {
 	}
 	a := newReviewAdapter(t, r, config.Config{
 		ReviewModel: "gpt-5.6-sol", ReviewEffort: "high", FixModel: "gpt-5.6-terra", FixEffort: "high", FixPrompt: "fix it",
-		FinalizeModel: "gpt-5.6-luna", FinalizeEffort: "medium", FinalizePrompt: "finalize",
 		CIFixModel: "gpt-5.6-terra", CIFixEffort: "high", CIFixPrompt: "ci",
 	})
 	result, err := a.Review(context.Background())
@@ -202,14 +166,11 @@ func TestAdapterInvocations(t *testing.T) {
 	if err := a.FixFindings(context.Background(), result.Report); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Finalize(context.Background(), false); err != nil {
-		t.Fatal(err)
-	}
 	if err := a.FixCI(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	invocations := codexInvocations(r.invocations)
-	wantPairs := []struct{ model, effort string }{{"gpt-5.6-sol", "high"}, {"gpt-5.6-terra", "high"}, {"gpt-5.6-luna", "medium"}, {"gpt-5.6-terra", "high"}}
+	wantPairs := []struct{ model, effort string }{{"gpt-5.6-sol", "high"}, {"gpt-5.6-terra", "high"}, {"gpt-5.6-terra", "high"}}
 	for i, want := range wantPairs {
 		got := strings.Join(invocations[i].Args, " ")
 		if !strings.Contains(got, `model="`+want.model+`"`) || !strings.Contains(got, `model_reasoning_effort="`+want.effort+`"`) {
@@ -219,12 +180,11 @@ func TestAdapterInvocations(t *testing.T) {
 	if got := strings.Join(invocations[0].Args, " "); !strings.Contains(got, " exec --output-schema ") || !strings.Contains(got, " --output-last-message ") || !strings.HasSuffix(got, " -") {
 		t.Errorf("review args = %s", got)
 	}
-	if invocations[1].Stdin != "fix it\n\nReview findings to address:\n\n"+findingsReviewJSON || invocations[3].Stdin != "ci" {
+	if invocations[1].Stdin != "fix it\n\nReview findings to address:\n\n"+findingsReviewJSON || invocations[2].Stdin != "ci" {
 		t.Errorf("prompts not passed through: %#v", invocations)
 	}
-	finalArgs := strings.Join(invocations[2].Args, " ")
-	if !strings.Contains(finalArgs, "--output-schema") || !strings.Contains(finalArgs, "--output-last-message") {
-		t.Errorf("finalization args = %s", finalArgs)
+	if got := strings.Join(invocations[2].Args, " "); strings.Contains(got, "--output-schema") || strings.Contains(got, "--output-last-message") {
+		t.Errorf("CI-fix invocation unexpectedly has a finalization schema: %s", got)
 	}
 	if r.reviewDirMode != 0o700 || r.reviewSchemaMode != 0o600 {
 		t.Errorf("review workspace modes = dir %o schema %o", r.reviewDirMode, r.reviewSchemaMode)
@@ -317,19 +277,6 @@ func TestScopedReviewArgsUseTOMLCompatibleEnvironmentEncoding(t *testing.T) {
 	target.Env[0] = "PATH=/review/" + string([]byte{0xff}) + "/bin"
 	if _, err := scopedReviewArgs(config.Config{ReviewModel: "review-model"}, target); err == nil || !strings.Contains(err.Error(), "PATH environment") || !strings.Contains(err.Error(), "valid UTF-8") {
 		t.Fatalf("invalid UTF-8 error = %v", err)
-	}
-}
-
-func TestFinalizationSchemaIsStrictJSON(t *testing.T) {
-	var schema map[string]any
-	if err := json.Unmarshal([]byte(finalizationSchema), &schema); err != nil {
-		t.Fatal(err)
-	}
-	if schema["additionalProperties"] != false {
-		t.Fatalf("schema is not strict: %#v", schema)
-	}
-	if filepath.Ext("schema.json") != ".json" { // keep filepath import exercised on every supported OS
-		t.Fatal("unexpected filepath behavior")
 	}
 }
 
@@ -686,35 +633,6 @@ func TestFixCIWithModel(t *testing.T) {
 	}
 }
 
-func TestFinalizeReadMessageError(t *testing.T) {
-	r := &codexFakeRunner{result: runner.Result{}, writeFile: false}
-	a := Adapter{Runner: r, Config: config.Config{FinalizeModel: "m", FinalizePrompt: "p"}}
-	_, err := a.Finalize(context.Background(), false)
-	if err == nil || !strings.Contains(err.Error(), "read finalization response") {
-		t.Fatalf("error = %v", err)
-	}
-}
-
-func TestFinalizeParseError(t *testing.T) {
-	r := &codexFakeRunner{result: runner.Result{}, writeFile: true, writeBytes: []byte(`not json`)}
-	a := Adapter{Runner: r, Config: config.Config{FinalizeModel: "m", FinalizePrompt: "p"}}
-	_, err := a.Finalize(context.Background(), false)
-	if err == nil {
-		t.Fatal("expected parse error")
-	}
-}
-
-func TestFinalizeCheckpointPromptSkipsEmptyCommit(t *testing.T) {
-	r := &codexFakeRunner{result: runner.Result{}, writeFile: true, writeBytes: []byte(`{"verdict":"SUCCESS","commit":"skipped","push":"success","change_request":"skipped","ci":"skipped"}`)}
-	a := Adapter{Runner: r, Config: config.Config{FinalizeModel: "m", FinalizePrompt: "finalize"}}
-	if _, err := a.Finalize(context.Background(), true); err != nil {
-		t.Fatal(err)
-	}
-	if got := r.invocation.Stdin; !strings.Contains(got, "already committed as local checkpoints") || !strings.Contains(got, "Do not create an empty commit") {
-		t.Fatalf("checkpoint finalization prompt = %q", got)
-	}
-}
-
 func TestRejectDuplicateJSONKeysNestedCases(t *testing.T) {
 	valid := []string{
 		`{"verdict":"SUCCESS","nested":{"a":1,"b":[1,2,{"c":3}]}}`,
@@ -734,22 +652,6 @@ func TestRejectDuplicateJSONKeysNestedCases(t *testing.T) {
 	for _, data := range invalid {
 		if err := rejectDuplicateJSONKeys([]byte(data)); err == nil {
 			t.Errorf("invalid data accepted: %s", data)
-		}
-	}
-}
-
-func TestValidateFinalizationEdgeCases(t *testing.T) {
-	invalid := []Finalization{
-		{Verdict: "SUCCESS", Commit: "success", Push: "success", ChangeRequest: "success", CI: "ok"},
-		{Verdict: "UNKNOWN", Commit: "success", Push: "success", ChangeRequest: "success", CI: "success"},
-		{Verdict: "FAILED", Commit: "success", Push: "success", ChangeRequest: "skipped", CI: "success"},
-		{Verdict: "FAILED", Commit: "success", Push: "success", ChangeRequest: "skipped", CI: "failed"},
-		{Verdict: "FAILED", Commit: "skipped", Push: "skipped", ChangeRequest: "skipped", CI: "skipped"},
-	}
-	for _, value := range invalid {
-		data, _ := json.Marshal(value)
-		if _, err := ParseFinalization(data); err == nil {
-			t.Errorf("invalid result accepted: %#v", value)
 		}
 	}
 }

@@ -23,7 +23,7 @@ The current product has one domain context. Codex, Git, repository hosting, and 
 
 | Context | Owns language / rules for | Upstream contexts | Downstream contexts | Must not know |
 | --- | --- | --- | --- | --- |
-| `Review Orchestration` | Run, stage, review cycle, finding/severity, finalization verdict, workflow transitions, exit outcomes, and configuration precedence | No other code-converge-owned context | No other code-converge-owned context | Internal state or credentials of Codex, Git, repository hosting, or CI |
+| `Review Orchestration` | Run, stage, review cycle, finding/severity, publication and CI outcomes, workflow transitions, exit outcomes, and configuration precedence | No other code-converge-owned context | No other code-converge-owned context | Internal state or credentials of Codex, Git, repository hosting, or CI |
 
 ## Context Relationships
 
@@ -34,7 +34,7 @@ The current product has one domain context. Codex, Git, repository hosting, and 
 ## Shared Kernel / Published Language
 
 - Shared kernel: N/A while code-converge has one domain context.
-- Published language: the root [`README.md`](../../README.md) solely owns public CLI option names, exit codes, finalization verdicts, and stdout fields. Domain documents only interpret their meaning.
+- Published language: the root [`README.md`](../../README.md) solely owns public CLI option names, exit codes, publication/CI outcomes, and stdout fields. Domain documents only interpret their meaning.
 
 ## Boundary Rules
 

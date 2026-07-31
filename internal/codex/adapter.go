@@ -60,14 +60,6 @@ type structuredLineRange struct {
 	End   *int `json:"end"`
 }
 
-type Finalization struct {
-	Verdict       string `json:"verdict"`
-	Commit        string `json:"commit"`
-	Push          string `json:"push"`
-	ChangeRequest string `json:"change_request"`
-	CI            string `json:"ci"`
-}
-
 type Adapter struct {
 	Runner      runner.Runner
 	Config      config.Config
@@ -231,33 +223,6 @@ func (a Adapter) FixCI(ctx context.Context) error {
 	return err
 }
 
-func (a Adapter) Finalize(ctx context.Context, checkpointed bool) (Finalization, error) {
-	dir, err := os.MkdirTemp("", "code-converge-finalize-")
-	if err != nil {
-		return Finalization{}, fmt.Errorf("create finalization workspace: %w", err)
-	}
-	defer os.RemoveAll(dir)
-	schemaPath := filepath.Join(dir, "schema.json")
-	messagePath := filepath.Join(dir, "message.json")
-	if err := os.WriteFile(schemaPath, []byte(finalizationSchema), 0o600); err != nil {
-		return Finalization{}, fmt.Errorf("write finalization schema: %w", err)
-	}
-	prompt := a.Config.FinalizePrompt
-	if checkpointed {
-		prompt += "\n\nSuccessful findings fixes were already committed as local checkpoints. Do not create an empty commit; publish the current branch, create a change request if needed, and verify applicable CI."
-	}
-	prompt += "\n\nReturn only the JSON object required by the supplied output schema. Report the actual outcomes of commit, push, change_request, and ci."
-	args := append(modelArgs(a.Config.FinalizeModel, a.Config.FinalizeEffort), "exec", "--output-schema", schemaPath, "--output-last-message", messagePath, "-")
-	if _, err := a.Runner.Run(ctx, runner.Invocation{Args: args, Stdin: prompt, Output: a.output()}); err != nil {
-		return Finalization{}, err
-	}
-	message, err := os.ReadFile(messagePath)
-	if err != nil {
-		return Finalization{}, fmt.Errorf("read finalization response: %w", err)
-	}
-	return ParseFinalization(message)
-}
-
 func (a Adapter) output() func(runner.Output) {
 	if a.Output == nil {
 		return nil
@@ -376,25 +341,6 @@ func validateStructuredReview(response structuredReview) error {
 	return nil
 }
 
-func ParseFinalization(data []byte) (Finalization, error) {
-	if err := rejectDuplicateJSONKeys(data); err != nil {
-		return Finalization{}, fmt.Errorf("parse finalization response: %w", err)
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	var result Finalization
-	if err := decoder.Decode(&result); err != nil {
-		return Finalization{}, fmt.Errorf("parse finalization response: %w", err)
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return Finalization{}, errors.New("finalization response contains trailing data")
-	}
-	if err := validateFinalization(result); err != nil {
-		return Finalization{}, err
-	}
-	return result, nil
-}
-
 func rejectDuplicateJSONKeys(data []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	if err := scanJSONValue(decoder); err != nil {
@@ -455,44 +401,6 @@ func scanJSONValue(decoder *json.Decoder) error {
 	return nil
 }
 
-func validateFinalization(result Finalization) error {
-	validStep := func(value string) bool {
-		return value == "success" || value == "skipped" || value == "failed" || value == "unknown"
-	}
-	if !validStep(result.Commit) || !validStep(result.Push) || !validStep(result.ChangeRequest) || !validStep(result.CI) {
-		return errors.New("finalization response contains an invalid step status")
-	}
-	switch result.Verdict {
-	case "SUCCESS":
-		if !oneOf(result.Commit, "success", "skipped") || !oneOf(result.Push, "success", "skipped") || !oneOf(result.ChangeRequest, "success", "skipped") || !oneOf(result.CI, "success", "skipped") {
-			return errors.New("SUCCESS is inconsistent with step outcomes")
-		}
-	case "CI_FAILED":
-		if !oneOf(result.Commit, "success", "skipped") || !oneOf(result.Push, "success", "skipped") || !oneOf(result.ChangeRequest, "success", "skipped") || result.CI != "failed" {
-			return errors.New("CI_FAILED is inconsistent with step outcomes")
-		}
-	case "FAILED":
-		if oneOf(result.Commit, "success", "skipped") && oneOf(result.Push, "success", "skipped") && oneOf(result.ChangeRequest, "success", "skipped") && oneOf(result.CI, "success", "skipped") {
-			return errors.New("FAILED is inconsistent with successful step outcomes")
-		}
-		if oneOf(result.Commit, "success", "skipped") && oneOf(result.Push, "success", "skipped") && oneOf(result.ChangeRequest, "success", "skipped") && result.CI == "failed" {
-			return errors.New("FAILED is inconsistent with a CI-only failure")
-		}
-	default:
-		return errors.New("finalization response contains an unknown verdict")
-	}
-	return nil
-}
-
-func oneOf(value string, choices ...string) bool {
-	for _, choice := range choices {
-		if value == choice {
-			return true
-		}
-	}
-	return false
-}
-
 const reviewSchema = `{
   "type": "object",
   "additionalProperties": false,
@@ -532,18 +440,5 @@ const reviewSchema = `{
     "overall_correctness": {"type": "string"},
     "overall_explanation": {"type": "string"},
     "overall_confidence_score": {"type": "number"}
-  }
-}`
-
-const finalizationSchema = `{
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["verdict", "commit", "push", "change_request", "ci"],
-  "properties": {
-    "verdict": {"type": "string", "enum": ["SUCCESS", "CI_FAILED", "FAILED"]},
-    "commit": {"type": "string", "enum": ["success", "skipped", "failed", "unknown"]},
-    "push": {"type": "string", "enum": ["success", "skipped", "failed", "unknown"]},
-    "change_request": {"type": "string", "enum": ["success", "skipped", "failed", "unknown"]},
-    "ci": {"type": "string", "enum": ["success", "skipped", "failed", "unknown"]}
   }
 }`

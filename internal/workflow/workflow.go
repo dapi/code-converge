@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/url"
 	"strconv"
@@ -25,7 +26,6 @@ const (
 type Agent interface {
 	Review(context.Context) (codex.ReviewResult, error)
 	FixFindings(context.Context, string) error
-	Finalize(context.Context, bool) (codex.Finalization, error)
 	FixCI(context.Context) error
 }
 
@@ -34,6 +34,8 @@ type Repository interface {
 	IsClean(context.Context) (bool, error)
 	Head(context.Context) (string, error)
 	Checkpoint(context.Context, string, bool) (repository.Checkpoint, error)
+	Publish(context.Context, bool) (repository.Publication, error)
+	WaitCI(context.Context, repository.Publication) (repository.CIResult, error)
 }
 
 type Workflow struct {
@@ -56,6 +58,15 @@ func (w *Workflow) Run(ctx context.Context) int {
 	runStarted := now()
 	if !w.emit("run_started") {
 		return ExitOperational
+	}
+	initialWorktreeClean := true
+	if w.Repository != nil {
+		var err error
+		initialWorktreeClean, err = w.Repository.IsClean(ctx)
+		if err != nil {
+			w.diagnostic("initial repository status failed", err)
+			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+		}
 	}
 
 	phase, cycle := 1, 1
@@ -242,114 +253,61 @@ func (w *Workflow) Run(ctx context.Context) int {
 			}
 		}
 
+		if w.Repository == nil {
+			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+		}
 		stageStarted = now()
-		if !w.emit("stage_started", event.F("stage", "finalize"), event.F("model", w.stageModel("finalize")), event.F("reasoning_effort", w.stageReasoningEffort("finalize"))) {
+		if !w.emit("stage_started", event.F("stage", "publish")) {
 			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 		}
-		stageCtx, cancelStage = context.WithCancel(ctx)
-		liveness = w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "finalize", Model: w.stageModel("finalize"), ReasoningEffort: w.stageReasoningEffort("finalize"), ReviewPhase: phase, Cycle: cycle}, stageStarted, cancelStage)
-		if err := w.Log.StartAgent("finalize"); err != nil {
-			_ = liveness.Stop()
-			cancelStage()
-			w.diagnostic("render interactive view", err)
-			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
-		}
-		finalization, err := w.Agent.Finalize(runner.WithStageContext(stageCtx, runner.StageContext{Stage: "finalize", ReviewPhase: phase, Cycle: cycle, Model: w.stageModel("finalize"), ReasoningEffort: w.stageReasoningEffort("finalize")}), checkpointed)
-		presentationErr = nil
-		if err != nil && ctx.Err() != nil {
-			presentationErr = w.Log.CompleteAgent("finalize cancelled")
-		} else if err != nil {
-			presentationErr = w.Log.CompleteAgent("finalize failed")
-		} else {
-			presentationErr = w.Log.CompleteAgent("finalize completed")
-		}
-		livenessErr = liveness.Stop()
-		cancelStage()
-		if livenessErr != nil {
-			w.diagnostic("write liveness", livenessErr)
-			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
-		}
-		if presentationErr != nil {
-			w.diagnostic("render interactive view", presentationErr)
-			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
-		}
+		publication, err := w.Repository.Publish(ctx, initialWorktreeClean)
 		if err != nil {
 			if ctx.Err() != nil {
 				return w.complete("cancelled", ExitInterrupted, now().Sub(runStarted))
 			}
-			if !w.emitUnknownSteps() || !w.emit("stage_completed", event.F("stage", "finalize"), event.F("model", w.stageModel("finalize")), event.F("reasoning_effort", w.stageReasoningEffort("finalize")), event.F("status", "failed"), durationField(now().Sub(stageStarted))) {
-				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
-			}
-			w.diagnostic("finalization failed", err)
+			_ = w.emitPublicationSteps(publication, "failed")
+			_ = w.emit("stage_completed", event.F("stage", "publish"), event.F("status", "failed"), durationField(now().Sub(stageStarted)))
+			w.diagnostic("publication failed", err)
 			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 		}
-		if ctx.Err() != nil {
-			return w.complete("cancelled", ExitInterrupted, now().Sub(runStarted))
-		}
-		if !w.emitSteps(finalization) || !w.emit("stage_completed", event.F("stage", "finalize"), event.F("model", w.stageModel("finalize")), event.F("reasoning_effort", w.stageReasoningEffort("finalize")), event.F("status", "success"), event.F("verdict", finalization.Verdict), durationField(now().Sub(stageStarted))) {
+		if !w.emitPublicationSteps(publication, "") || !w.emit("stage_completed", event.F("stage", "publish"), event.F("status", "success"), durationField(now().Sub(stageStarted))) {
 			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 		}
-
-		switch finalization.Verdict {
-		case "SUCCESS":
-			return w.complete("success", ExitSuccess, now().Sub(runStarted))
-		case "FAILED":
+		stageStarted = now()
+		if !w.emit("stage_started", event.F("stage", "ci"), event.F("head", publication.Head)) {
 			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
-		case "CI_FAILED":
-			// CI_FAILED is a published finalization result. A subsequent review
-			// phase must not describe this already-pushed checkpoint as local.
-			checkpointed = false
-			lastCheckpoint = repository.Checkpoint{}
-			checkpointSkipReason = ""
-			if recoveries >= w.Config.MaxCIRecoveries {
-				return w.complete("ci_failure", ExitCI, now().Sub(runStarted))
-			}
-			stageStarted = now()
-			if !w.emit("stage_started", event.F("stage", "fix-ci"), event.F("model", w.stageModel("fix-ci")), event.F("reasoning_effort", w.stageReasoningEffort("fix-ci")), intField("review_phase", phase)) {
-				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
-			}
-			stageCtx, cancelStage = context.WithCancel(ctx)
-			liveness = w.Log.StartLiveness(stageCtx, event.StageContext{Stage: "fix-ci", Model: w.stageModel("fix-ci"), ReasoningEffort: w.stageReasoningEffort("fix-ci"), ReviewPhase: phase, Cycle: cycle}, stageStarted, cancelStage)
-			if err := w.Log.StartAgent("fix-ci " + strconv.Itoa(phase)); err != nil {
-				_ = liveness.Stop()
-				cancelStage()
-				w.diagnostic("render interactive view", err)
-				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
-			}
-			err = w.Agent.FixCI(runner.WithStageContext(stageCtx, runner.StageContext{Stage: "fix-ci", ReviewPhase: phase, Cycle: cycle, Model: w.stageModel("fix-ci"), ReasoningEffort: w.stageReasoningEffort("fix-ci")}))
-			presentationErr = nil
-			if err != nil && ctx.Err() != nil {
-				presentationErr = w.Log.CompleteAgent("fix-ci cancelled")
-			} else if err != nil {
-				presentationErr = w.Log.CompleteAgent("fix-ci failed")
-			} else {
-				presentationErr = w.Log.CompleteAgent("fix-ci completed")
-			}
-			livenessErr = liveness.Stop()
-			cancelStage()
-			if livenessErr != nil {
-				w.diagnostic("write liveness", livenessErr)
-				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
-			}
-			if presentationErr != nil {
-				w.diagnostic("render interactive view", presentationErr)
-				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
-			}
-			if err != nil && ctx.Err() != nil {
-				return w.complete("cancelled", ExitInterrupted, now().Sub(runStarted))
-			}
+		}
+		ciCtx, cancelCI := context.WithTimeout(ctx, w.Config.CITimeout)
+		ci, err := w.Repository.WaitCI(ciCtx, publication)
+		cancelCI()
+		if err != nil {
 			if ctx.Err() != nil {
 				return w.complete("cancelled", ExitInterrupted, now().Sub(runStarted))
 			}
-			stageStatus := "success"
-			if err != nil {
-				stageStatus = "failed"
+			w.diagnostic("CI polling failed", err)
+			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+		}
+		ciCompletion := []event.Field{event.F("stage", "ci"), event.F("status", string(ci)), durationField(now().Sub(stageStarted))}
+		if ci == repository.CITimeout {
+			ciCompletion = append(ciCompletion, durationFieldNamed("timeout_ms", w.Config.CITimeout))
+		}
+		if !w.emit("step_completed", event.F("stage", "ci"), event.F("step", "ci"), event.F("status", string(ci))) || !w.emit("stage_completed", ciCompletion...) {
+			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+		}
+		switch ci {
+		case repository.CISuccess, repository.CISkipped:
+			return w.complete("success", ExitSuccess, now().Sub(runStarted))
+		case repository.CITimeout:
+			return w.complete("ci_timeout", ExitOperational, now().Sub(runStarted))
+		case repository.CIFailed:
+			checkpointed, lastCheckpoint, checkpointSkipReason = false, repository.Checkpoint{}, ""
+			if recoveries >= w.Config.MaxCIRecoveries {
+				return w.complete("ci_failure", ExitCI, now().Sub(runStarted))
 			}
-			if !w.emit("stage_completed", event.F("stage", "fix-ci"), event.F("model", w.stageModel("fix-ci")), event.F("reasoning_effort", w.stageReasoningEffort("fix-ci")), intField("review_phase", phase), event.F("status", stageStatus), durationField(now().Sub(stageStarted))) {
-				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
-			}
-			if err != nil {
-				w.diagnostic("CI fix failed", err)
+			if w.runFixCI(ctx, phase, cycle, now) != nil {
+				if ctx.Err() != nil {
+					return w.complete("cancelled", ExitInterrupted, now().Sub(runStarted))
+				}
 				return w.complete("ci_failure", ExitCI, now().Sub(runStarted))
 			}
 			recoveries++
@@ -378,15 +336,38 @@ func (w *Workflow) completeFindingsRemaining(elapsed time.Duration, checkpoint r
 	return ExitFindingsRemaining
 }
 
-func (w *Workflow) emitSteps(result codex.Finalization) bool {
-	for _, step := range []struct{ name, status string }{
-		{"commit", result.Commit}, {"push", result.Push}, {"change_request", result.ChangeRequest}, {"ci", result.CI},
-	} {
-		if !w.emit("step_completed", event.F("stage", "finalize"), event.F("model", w.stageModel("finalize")), event.F("reasoning_effort", w.stageReasoningEffort("finalize")), event.F("step", step.name), event.F("status", step.status)) {
+func (w *Workflow) emitPublicationSteps(result repository.Publication, fallback string) bool {
+	for _, step := range []struct{ name, status string }{{"commit", result.Commit}, {"push", result.Push}, {"change_request", result.ChangeRequest}} {
+		if step.status == "" {
+			step.status = fallback
+		}
+		if step.status == "" {
+			step.status = "unknown"
+		}
+		if !w.emit("step_completed", event.F("stage", "publish"), event.F("step", step.name), event.F("status", step.status)) {
 			return false
 		}
 	}
 	return true
+}
+
+func (w *Workflow) runFixCI(ctx context.Context, phase, cycle int, now func() time.Time) error {
+	started := now()
+	if !w.emit("stage_started", event.F("stage", "fix-ci"), event.F("model", w.stageModel("fix-ci")), event.F("reasoning_effort", w.stageReasoningEffort("fix-ci")), intField("review_phase", phase)) {
+		return fmt.Errorf("emit CI-fix start")
+	}
+	err := w.Agent.FixCI(runner.WithStageContext(ctx, runner.StageContext{Stage: "fix-ci", ReviewPhase: phase, Cycle: cycle, Model: w.stageModel("fix-ci"), ReasoningEffort: w.stageReasoningEffort("fix-ci")}))
+	status := "success"
+	if err != nil {
+		status = "failed"
+	}
+	if !w.emit("stage_completed", event.F("stage", "fix-ci"), event.F("model", w.stageModel("fix-ci")), event.F("reasoning_effort", w.stageReasoningEffort("fix-ci")), intField("review_phase", phase), event.F("status", status), durationField(now().Sub(started))) {
+		return fmt.Errorf("emit CI-fix completion")
+	}
+	if err != nil {
+		w.diagnostic("CI fix failed", err)
+	}
+	return err
 }
 
 func (w *Workflow) stageModel(stage string) string {
@@ -401,11 +382,6 @@ func (w *Workflow) stageModel(stage string) string {
 			return "gpt-5.6-luna"
 		}
 		return w.Config.FixModel
-	case "finalize":
-		if w.Config.FinalizeModel == "" {
-			return "gpt-5.3-codex-spark"
-		}
-		return w.Config.FinalizeModel
 	case "fix-ci":
 		if w.Config.CIFixModel != "" {
 			return w.Config.CIFixModel
@@ -428,11 +404,6 @@ func (w *Workflow) stageReasoningEffort(stage string) string {
 			return w.Config.FixEffort
 		}
 		return "medium"
-	case "finalize":
-		if w.Config.FinalizeEffort != "" {
-			return w.Config.FinalizeEffort
-		}
-		return "agent-default"
 	case "fix-ci":
 		if w.Config.CIFixEffort != "" {
 			return w.Config.CIFixEffort
@@ -441,10 +412,6 @@ func (w *Workflow) stageReasoningEffort(stage string) string {
 	default:
 		return "unknown"
 	}
-}
-
-func (w *Workflow) emitUnknownSteps() bool {
-	return w.emitSteps(codex.Finalization{Commit: "unknown", Push: "unknown", ChangeRequest: "unknown", CI: "unknown"})
 }
 
 func (w *Workflow) emit(name string, fields ...event.Field) bool {
@@ -470,6 +437,10 @@ func intField(key string, value int) event.Field { return event.F(key, strconv.I
 
 func durationField(value time.Duration) event.Field {
 	return event.F("duration_ms", milliseconds(value))
+}
+
+func durationFieldNamed(name string, value time.Duration) event.Field {
+	return event.F(name, milliseconds(value))
 }
 
 func milliseconds(value time.Duration) string {

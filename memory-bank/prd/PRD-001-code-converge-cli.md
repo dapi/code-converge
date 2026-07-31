@@ -59,8 +59,8 @@ The project needs one bounded local workflow that drives this loop to an explici
 - Invoke the configured local Codex review command with a strict final-response schema and safely classify only that response file as clean, findings, or failure.
 - Normalize finding priorities into the public severity buckets and report complete counters for every classified review.
 - Run bounded review/fix cycles, including the mandatory verification review after the final permitted fix.
-- Finalize only after a clean review and interpret a constrained finalization result, including commit, push, change-request, and CI step outcomes.
-- When publication succeeded but applicable required CI is red, run bounded CI recovery and restart review in a fresh review phase.
+- After a clean review, deterministically commit eligible work, push, find or create a pull request, and classify CI for the published SHA.
+- When applicable CI is red, run bounded CI recovery and restart review in a fresh review phase; a timeout remains operational.
 - Resolve settings from the documented CLI, project, user, environment, and built-in sources; expose them through `code-converge config`.
 - Emit the documented stdout records, diagnostics on stderr, and the specified exit codes.
 - Be buildable and distributable as a local Go CLI without requiring a Go runtime for a released binary.
@@ -75,8 +75,8 @@ The project needs one bounded local workflow that drives this loop to an explici
 ## UX / Business Rules
 
 - `BR-01` Downstream delivery must preserve the workflow invariants and terminal outcomes owned by [`../domain/rules.md`](../domain/rules.md) and the transitions owned by [`../domain/states.md`](../domain/states.md).
-- `BR-02` A clean review is necessary but not sufficient for run success; finalization must establish the documented successful terminal state.
-- `BR-03` Unclassified review output, an unrecognized finalization verdict, or inconsistent finalization details must never be interpreted as success.
+- `BR-02` A clean review is necessary but not sufficient for run success; deterministic publication and exact-head CI classification must establish the documented successful terminal state.
+- `BR-03` Unclassified review output, ambiguous publication identity, or unclassified provider data must never be interpreted as success.
 - `BR-04` Fix-findings and CI-recovery loops are independently bounded; exhausting either budget produces its specified non-zero terminal outcome.
 - `BR-05` Operational stdout uses an explicitly selected human or structured format. Structured `kv` remains machine-readable and one-record-per-line; non-TTY human output is newline-safe and ANSI-free. Raw agent output and diagnostics do not contaminate either stream.
 - `BR-06` An operator can inspect every effective setting and its source before execution.
@@ -97,7 +97,7 @@ These are contract-conformance targets for the complete utility. Adoption, time 
 ## Risks And Open Questions
 
 - `RISK-01` Resolved by FT-022: review classification requires the exact schema-valid final-response file and never infers clean from Codex terminal prose.
-- `RISK-02` Finalization delegates material Git, hosting, and CI actions to an agent; a process exit alone does not prove that required external outcomes occurred.
+- `RISK-02` Publication and CI require deterministic observation of Git, hosting, and check outcomes; a child-process exit alone does not prove that required external outcomes occurred.
 - `RISK-03` The default models are not available to every Codex account, which can block first-run success unless configuration and diagnostics are clear.
 - `RISK-04` Repeated review and CI-recovery loops can consume substantial time and model budget even when correctly bounded.
 - `RISK-05` The intended user pain and adoption hypothesis are specified but not validated by interviews or usage analytics.

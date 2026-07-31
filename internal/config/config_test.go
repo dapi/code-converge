@@ -29,9 +29,8 @@ func clearGitRepositoryEnvironment() {
 var codeConvergeEnv = []string{
 	"CODE_CONVERGE_LOG_FORMAT", "CODE_CONVERGE_HEARTBEAT", "CODE_CONVERGE_COLOR",
 	"CODE_CONVERGE_MODE",
-	"CODE_CONVERGE_MAX_CYCLES", "CODE_CONVERGE_MAX_CI_RECOVERIES", "CODE_CONVERGE_REVIEW_MODEL", "CODE_CONVERGE_REVIEW_REASONING_EFFORT",
-	"CODE_CONVERGE_FIX_MODEL", "CODE_CONVERGE_FIX_REASONING_EFFORT", "CODE_CONVERGE_FIX_PROMPT_FILE", "CODE_CONVERGE_FINALIZE_MODEL",
-	"CODE_CONVERGE_FINALIZE_REASONING_EFFORT", "CODE_CONVERGE_FINALIZE_PROMPT_FILE", "CODE_CONVERGE_CI_FIX_MODEL",
+	"CODE_CONVERGE_MAX_CYCLES", "CODE_CONVERGE_MAX_CI_RECOVERIES", "CODE_CONVERGE_CI_TIMEOUT", "CODE_CONVERGE_REVIEW_MODEL", "CODE_CONVERGE_REVIEW_REASONING_EFFORT",
+	"CODE_CONVERGE_FIX_MODEL", "CODE_CONVERGE_FIX_REASONING_EFFORT", "CODE_CONVERGE_FIX_PROMPT_FILE", "CODE_CONVERGE_CI_FIX_MODEL",
 	"CODE_CONVERGE_CI_FIX_REASONING_EFFORT", "CODE_CONVERGE_CI_FIX_PROMPT_FILE",
 	"CODE_CONVERGE_REVIEW_BASE",
 	"CODE_CONVERGE_SESSION_LOG_DIR", "CODE_CONVERGE_SESSION_LOG_RETENTION",
@@ -53,6 +52,21 @@ func TestLoggingConfiguration(t *testing.T) {
 		if !strings.Contains(Format(cfg), want) {
 			t.Errorf("missing %q in:\n%s", want, Format(cfg))
 		}
+	}
+}
+
+func TestCITimeoutPrecedenceAndValidation(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	t.Setenv("CODE_CONVERGE_CI_TIMEOUT", "20m")
+	write(t, filepath.Join(home, ".code-converge", "ci-timeout"), "30m")
+	write(t, filepath.Join(root, ".code-converge", "ci-timeout"), "40m")
+	cfg, err := Load(root, home, Overrides{CITimeout: OptionalString{Value: "50m", Set: true}})
+	if err != nil || cfg.CITimeout != 50*time.Minute || source(cfg, "ci-timeout") != SourceCLI {
+		t.Fatalf("ci timeout = %s (%s), %v", cfg.CITimeout, source(cfg, "ci-timeout"), err)
+	}
+	if _, err := Load(root, home, Overrides{CITimeout: OptionalString{Value: "0s", Set: true}}); err == nil {
+		t.Fatal("accepted invalid ci timeout")
 	}
 }
 
@@ -282,11 +296,11 @@ func TestProfileResolution(t *testing.T) {
 	}{
 		{
 			name: "default fast", wantMode: "fast",
-			want: []string{"gpt-5.6-terra", "medium", "gpt-5.6-luna", "medium", "gpt-5.6-luna", "medium", "gpt-5.6-luna", "medium"},
+			want: []string{"gpt-5.6-terra", "medium", "gpt-5.6-luna", "medium", "gpt-5.6-luna", "medium"},
 		},
 		{
 			name: "explicit best", overrides: Overrides{Mode: OptionalString{Value: "best", Set: true}}, wantMode: "best",
-			want: []string{"gpt-5.6-sol", "high", "gpt-5.6-terra", "high", "gpt-5.6-luna", "medium", "gpt-5.6-terra", "high"},
+			want: []string{"gpt-5.6-sol", "high", "gpt-5.6-terra", "high", "gpt-5.6-terra", "high"},
 		},
 	}
 	for _, test := range tests {
@@ -297,11 +311,11 @@ func TestProfileResolution(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got := []string{cfg.ReviewModel, cfg.ReviewEffort, cfg.FixModel, cfg.FixEffort, cfg.FinalizeModel, cfg.FinalizeEffort, cfg.CIFixModel, cfg.CIFixEffort}
+			got := []string{cfg.ReviewModel, cfg.ReviewEffort, cfg.FixModel, cfg.FixEffort, cfg.CIFixModel, cfg.CIFixEffort}
 			if cfg.Mode != test.wantMode || strings.Join(got, "|") != strings.Join(test.want, "|") {
 				t.Fatalf("mode/profile = %s %q, want %s %q", cfg.Mode, got, test.wantMode, test.want)
 			}
-			for _, name := range []string{"review-model", "review-reasoning-effort", "fix-model", "fix-reasoning-effort", "finalize-model", "finalize-reasoning-effort", "ci-fix-model", "ci-fix-reasoning-effort"} {
+			for _, name := range []string{"review-model", "review-reasoning-effort", "fix-model", "fix-reasoning-effort", "ci-fix-model", "ci-fix-reasoning-effort"} {
 				if gotSource := source(cfg, name); gotSource != test.wantMode+" profile" {
 					t.Errorf("%s source = %q", name, gotSource)
 				}
@@ -360,8 +374,6 @@ func TestEveryStageOverrideSourceBeatsProfile(t *testing.T) {
 		{"review-reasoning-effort", "CODE_CONVERGE_REVIEW_REASONING_EFFORT", func(o *Overrides, v string) { o.ReviewEffort = OptionalString{v, true} }, func(c Config) string { return c.ReviewEffort }},
 		{"fix-model", "CODE_CONVERGE_FIX_MODEL", func(o *Overrides, v string) { o.FixModel = OptionalString{v, true} }, func(c Config) string { return c.FixModel }},
 		{"fix-reasoning-effort", "CODE_CONVERGE_FIX_REASONING_EFFORT", func(o *Overrides, v string) { o.FixEffort = OptionalString{v, true} }, func(c Config) string { return c.FixEffort }},
-		{"finalize-model", "CODE_CONVERGE_FINALIZE_MODEL", func(o *Overrides, v string) { o.FinalizeModel = OptionalString{v, true} }, func(c Config) string { return c.FinalizeModel }},
-		{"finalize-reasoning-effort", "CODE_CONVERGE_FINALIZE_REASONING_EFFORT", func(o *Overrides, v string) { o.FinalizeEffort = OptionalString{v, true} }, func(c Config) string { return c.FinalizeEffort }},
 		{"ci-fix-model", "CODE_CONVERGE_CI_FIX_MODEL", func(o *Overrides, v string) { o.CIFixModel = OptionalString{v, true} }, func(c Config) string { return c.CIFixModel }},
 		{"ci-fix-reasoning-effort", "CODE_CONVERGE_CI_FIX_REASONING_EFFORT", func(o *Overrides, v string) { o.CIFixEffort = OptionalString{v, true} }, func(c Config) string { return c.CIFixEffort }},
 	}
@@ -471,7 +483,7 @@ func source(cfg Config, name string) string {
 }
 
 func TestLoadEmptyStageSettingValidation(t *testing.T) {
-	for _, name := range []string{"review-model", "review-reasoning-effort", "fix-model", "fix-reasoning-effort", "finalize-model", "finalize-reasoning-effort", "ci-fix-model", "ci-fix-reasoning-effort"} {
+	for _, name := range []string{"review-model", "review-reasoning-effort", "fix-model", "fix-reasoning-effort", "ci-fix-model", "ci-fix-reasoning-effort"} {
 		t.Run(name, func(t *testing.T) {
 			cleanEnv(t)
 			root, home := repo(t)
@@ -488,11 +500,9 @@ func TestResolveFileReadError(t *testing.T) {
 	cleanEnv(t)
 	root, home := repo(t)
 	path := filepath.Join(home, ".code-converge", "max-cycles")
-	write(t, path, "5\n")
-	if err := os.Chmod(path, 0o000); err != nil {
+	if err := os.MkdirAll(path, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chmod(path, 0o600)
 	_, err := Load(root, home, Overrides{})
 	if err == nil {
 		t.Fatal("expected read error")
@@ -543,7 +553,6 @@ func TestFormatProfileAndEqualExplicitSources(t *testing.T) {
 		"mode: best (cli; built-in: fast)",
 		"review-model: gpt-5.6-terra (cli)",
 		"fix-model: gpt-5.6-terra (best profile; built-in: gpt-5.6-luna)",
-		"finalize-model: gpt-5.6-luna (best profile)",
 	} {
 		if !strings.Contains(formatted, want) {
 			t.Errorf("missing %q in:\n%s", want, formatted)

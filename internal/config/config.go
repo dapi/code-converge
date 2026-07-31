@@ -30,14 +30,12 @@ type Overrides struct {
 	Mode                OptionalString
 	MaxCycles           OptionalString
 	MaxCIRecoveries     OptionalString
+	CITimeout           OptionalString
 	ReviewModel         OptionalString
 	ReviewEffort        OptionalString
 	FixModel            OptionalString
 	FixEffort           OptionalString
 	FixPromptPath       OptionalString
-	FinalizeModel       OptionalString
-	FinalizeEffort      OptionalString
-	FinalizePromptPath  OptionalString
 	CIFixModel          OptionalString
 	CIFixEffort         OptionalString
 	CIFixPromptPath     OptionalString
@@ -65,14 +63,12 @@ type Config struct {
 	Mode                string
 	MaxCycles           int
 	MaxCIRecoveries     int
+	CITimeout           time.Duration
 	ReviewModel         string
 	ReviewEffort        string
 	FixModel            string
 	FixEffort           string
 	FixPrompt           string
-	FinalizeModel       string
-	FinalizeEffort      string
-	FinalizePrompt      string
 	CIFixModel          string
 	CIFixEffort         string
 	CIFixPrompt         string
@@ -96,10 +92,9 @@ type spec struct {
 }
 
 type stageProfile struct {
-	reviewModel, reviewEffort     string
-	fixModel, fixEffort           string
-	finalizeModel, finalizeEffort string
-	ciFixModel, ciFixEffort       string
+	reviewModel, reviewEffort string
+	fixModel, fixEffort       string
+	ciFixModel, ciFixEffort   string
 }
 
 func profileFor(mode string) (stageProfile, bool) {
@@ -108,14 +103,12 @@ func profileFor(mode string) (stageProfile, bool) {
 		return stageProfile{
 			reviewModel: "gpt-5.6-terra", reviewEffort: "medium",
 			fixModel: "gpt-5.6-luna", fixEffort: "medium",
-			finalizeModel: "gpt-5.6-luna", finalizeEffort: "medium",
 			ciFixModel: "gpt-5.6-luna", ciFixEffort: "medium",
 		}, true
 	case "best":
 		return stageProfile{
 			reviewModel: "gpt-5.6-sol", reviewEffort: "high",
 			fixModel: "gpt-5.6-terra", fixEffort: "high",
-			finalizeModel: "gpt-5.6-luna", finalizeEffort: "medium",
 			ciFixModel: "gpt-5.6-terra", ciFixEffort: "high",
 		}, true
 	default:
@@ -182,14 +175,12 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 	specs := []spec{
 		{name: "max-cycles", file: "max-cycles", env: "CODE_CONVERGE_MAX_CYCLES", def: "10", builtIn: "10", defSource: SourceDefault, override: overrides.MaxCycles},
 		{name: "max-ci-recoveries", file: "max-ci-recoveries", env: "CODE_CONVERGE_MAX_CI_RECOVERIES", def: "3", builtIn: "3", defSource: SourceDefault, override: overrides.MaxCIRecoveries},
+		{name: "ci-timeout", file: "ci-timeout", env: "CODE_CONVERGE_CI_TIMEOUT", def: "60m", builtIn: "60m", defSource: SourceDefault, override: overrides.CITimeout},
 		{name: "review-model", file: "review-model", env: "CODE_CONVERGE_REVIEW_MODEL", def: profile.reviewModel, builtIn: fast.reviewModel, defSource: profileSource, override: overrides.ReviewModel},
 		{name: "review-reasoning-effort", file: "review-reasoning-effort", env: "CODE_CONVERGE_REVIEW_REASONING_EFFORT", def: profile.reviewEffort, builtIn: fast.reviewEffort, defSource: profileSource, override: overrides.ReviewEffort},
 		{name: "fix-model", file: "fix-model", env: "CODE_CONVERGE_FIX_MODEL", def: profile.fixModel, builtIn: fast.fixModel, defSource: profileSource, override: overrides.FixModel},
 		{name: "fix-reasoning-effort", file: "fix-reasoning-effort", env: "CODE_CONVERGE_FIX_REASONING_EFFORT", def: profile.fixEffort, builtIn: fast.fixEffort, defSource: profileSource, override: overrides.FixEffort},
 		{name: "fix-prompt", file: "fix-findings.md", env: "CODE_CONVERGE_FIX_PROMPT_FILE", def: "fix findings", builtIn: "fix findings", defSource: SourceDefault, override: overrides.FixPromptPath, promptFile: true},
-		{name: "finalize-model", file: "finalize-model", env: "CODE_CONVERGE_FINALIZE_MODEL", def: profile.finalizeModel, builtIn: fast.finalizeModel, defSource: profileSource, override: overrides.FinalizeModel},
-		{name: "finalize-reasoning-effort", file: "finalize-reasoning-effort", env: "CODE_CONVERGE_FINALIZE_REASONING_EFFORT", def: profile.finalizeEffort, builtIn: fast.finalizeEffort, defSource: profileSource, override: overrides.FinalizeEffort},
-		{name: "finalize-prompt", file: "finalize.md", env: "CODE_CONVERGE_FINALIZE_PROMPT_FILE", def: "commit, push, create PR, ensure CI is green", builtIn: "commit, push, create PR, ensure CI is green", defSource: SourceDefault, override: overrides.FinalizePromptPath, promptFile: true},
 		{name: "ci-fix-model", file: "ci-fix-model", env: "CODE_CONVERGE_CI_FIX_MODEL", def: profile.ciFixModel, builtIn: fast.ciFixModel, defSource: profileSource, override: overrides.CIFixModel},
 		{name: "ci-fix-reasoning-effort", file: "ci-fix-reasoning-effort", env: "CODE_CONVERGE_CI_FIX_REASONING_EFFORT", def: profile.ciFixEffort, builtIn: fast.ciFixEffort, defSource: profileSource, override: overrides.CIFixEffort},
 		{name: "ci-fix-prompt", file: "fix-ci.md", env: "CODE_CONVERGE_CI_FIX_PROMPT_FILE", def: "Исправь CI", builtIn: "Исправь CI", defSource: SourceDefault, override: overrides.CIFixPromptPath, promptFile: true},
@@ -222,6 +213,10 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	ciTimeout, err := time.ParseDuration(strings.TrimSpace(values["ci-timeout"]))
+	if err != nil || ciTimeout < time.Second {
+		return Config{}, fmt.Errorf("ci-timeout must be a duration of at least 1s")
+	}
 	sessionLogDir, err := sessionLogPath(values["session-log-dir"], home)
 	if err != nil {
 		return Config{}, err
@@ -239,7 +234,7 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 			settings[index].DisplayDefault = settings[index].Default
 		}
 	}
-	for _, name := range []string{"review-model", "review-reasoning-effort", "fix-model", "fix-reasoning-effort", "finalize-model", "finalize-reasoning-effort", "ci-fix-model", "ci-fix-reasoning-effort"} {
+	for _, name := range []string{"review-model", "review-reasoning-effort", "fix-model", "fix-reasoning-effort", "ci-fix-model", "ci-fix-reasoning-effort"} {
 		if strings.TrimSpace(values[name]) == "" {
 			return Config{}, fmt.Errorf("%s must not be empty", name)
 		}
@@ -247,10 +242,9 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 
 	return Config{
 		Root: root, LogFormat: logFormat, Heartbeat: heartbeat, Color: color,
-		Mode: mode, MaxCycles: maxCycles, MaxCIRecoveries: maxCI,
+		Mode: mode, MaxCycles: maxCycles, MaxCIRecoveries: maxCI, CITimeout: ciTimeout,
 		ReviewModel: values["review-model"], ReviewEffort: values["review-reasoning-effort"],
 		FixModel: values["fix-model"], FixEffort: values["fix-reasoning-effort"], FixPrompt: values["fix-prompt"],
-		FinalizeModel: values["finalize-model"], FinalizeEffort: values["finalize-reasoning-effort"], FinalizePrompt: values["finalize-prompt"],
 		CIFixModel: values["ci-fix-model"], CIFixEffort: values["ci-fix-reasoning-effort"], CIFixPrompt: values["ci-fix-prompt"], Settings: settings,
 		ReviewBase: values["review-base"], SessionLogDir: sessionLogDir, SessionLogRetention: sessionLogRetention, NoSessionLog: overrides.NoSessionLog,
 	}, nil
