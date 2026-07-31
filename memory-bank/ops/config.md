@@ -18,4 +18,6 @@ The root [`README.md`](../../README.md) solely owns configuration source precede
 
 `code-converge config` prints each effective value and its source. If the effective value differs from its built-in default, it prints that default too.
 
+Project and user file configuration each use exactly one strict, flat YAML document: `<git-root>/.code-converge/config.yaml` and `~/.code-converge/config.yaml`. The root README owns its complete schema, precedence and examples. Per-setting files are not an operational compatibility path.
+
 `codex` authentication and credentials for any configured Git remote or GitHub provider are environment prerequisites, not `code-converge` configuration values. GitHub credentials are required for Code Converge's deterministic pull-request and CI operations. The application must not log secrets or token values.

@@ -296,13 +296,13 @@ Agent output is sanitized before rendering: terminal controls are removed, inval
 
 ## Configuration
 
-Every option can be supplied in four places: a command-line flag, an environment variable, project configuration, or user configuration.
+Every option can be supplied in four places: a command-line flag, an environment variable, project YAML, or user YAML.
 
 Resolution order is highest to lowest priority:
 
 1. Command-line flags
-2. Project configuration in `<git-root>/.code-converge/`
-3. User configuration in `~/.code-converge/`
+2. Project configuration in `<git-root>/.code-converge/config.yaml`
+3. User configuration in `~/.code-converge/config.yaml`
 4. Environment variables
 5. Built-in defaults
 
@@ -322,9 +322,11 @@ The `fast` and `best` modes select these operative stage profiles. `fast` is the
 | Fix findings | `gpt-5.6-luna`, `medium` | `gpt-5.6-terra`, `high` | Findings involve architecture, security, migrations, concurrency, or several connected modules. |
 | Fix CI | `gpt-5.6-luna`, `medium` | `gpt-5.6-terra`, `high` | The cause is not localized by logs, spans multiple components, or persists after a repair. |
 
+`config.yaml` is the only file-based configuration source. It is a strict, flat YAML mapping: unknown, duplicate, nested, malformed, and invalid values are rejected. Legacy per-setting files are ignored without migration or fallback. Prompt values remain file references; relative paths resolve from the directory containing the YAML file.
+
 ### Options and defaults
 
-| Option | Flag | Environment variable | Project / user file | Default |
+| Option | Flag | Environment variable | YAML key | Default |
 | --- | --- | --- | --- | --- |
 | Workflow log format | `--log-format` | `CODE_CONVERGE_LOG_FORMAT` | `log-format` | `human` |
 | Human liveness heartbeat | `--heartbeat` | `CODE_CONVERGE_HEARTBEAT` | `heartbeat` | `0` (disabled) |
@@ -337,43 +339,38 @@ The `fast` and `best` modes select these operative stage profiles. `fast` is the
 | Review reasoning effort | `--review-reasoning-effort` | `CODE_CONVERGE_REVIEW_REASONING_EFFORT` | `review-reasoning-effort` | selected profile |
 | Fix-findings model | `--fix-model` | `CODE_CONVERGE_FIX_MODEL` | `fix-model` | selected profile |
 | Fix-findings reasoning effort | `--fix-reasoning-effort` | `CODE_CONVERGE_FIX_REASONING_EFFORT` | `fix-reasoning-effort` | selected profile |
-| Fix-findings prompt | `--fix-prompt-file` | `CODE_CONVERGE_FIX_PROMPT_FILE` | `fix-findings.md` | `fix findings` |
+| Fix-findings prompt | `--fix-prompt-file` | `CODE_CONVERGE_FIX_PROMPT_FILE` | `fix-prompt-file` | `fix findings` |
 | CI-fix model | `--ci-fix-model` | `CODE_CONVERGE_CI_FIX_MODEL` | `ci-fix-model` | selected profile |
 | CI-fix reasoning effort | `--ci-fix-reasoning-effort` | `CODE_CONVERGE_CI_FIX_REASONING_EFFORT` | `ci-fix-reasoning-effort` | selected profile |
-| CI-fix prompt | `--ci-fix-prompt-file` | `CODE_CONVERGE_CI_FIX_PROMPT_FILE` | `fix-ci.md` | `Исправь CI` |
+| CI-fix prompt | `--ci-fix-prompt-file` | `CODE_CONVERGE_CI_FIX_PROMPT_FILE` | `ci-fix-prompt-file` | `Исправь CI` |
 | Review base override | `--review-base` | `CODE_CONVERGE_REVIEW_BASE` | `review-base` | discover intended base |
 | Diagnostic session-log directory | `--session-log-dir` | `CODE_CONVERGE_SESSION_LOG_DIR` | `session-log-dir` | `~/.code-converge/session-logs` |
 | Diagnostic session-log retention | `--session-log-retention` | `CODE_CONVERGE_SESSION_LOG_RETENTION` | `session-log-retention` | `24h` |
 | Disable diagnostic logging for this run | `--no-session-log` | — | — | disabled only when flag supplied |
 
-`--finalize-model`, `--finalize-reasoning-effort`, and `--finalize-prompt-file`, their `CODE_CONVERGE_FINALIZE_*` environment variables, and `finalize-*` / `finalize.md` configuration files were removed in this release. Remove them during migration: obsolete environment or configuration-file settings cause an actionable configuration error rather than being ignored, because Codex no longer performs publication or CI polling.
+`--finalize-model`, `--finalize-reasoning-effort`, and `--finalize-prompt-file`, their `CODE_CONVERGE_FINALIZE_*` environment variables, and their YAML keys were removed in this release because Codex no longer performs publication or CI polling. Obsolete environment settings and YAML keys cause actionable configuration errors.
 
-For example, a team can commit these files:
+For example, a team can commit one project configuration document and keep prompt content alongside it:
 
 ```text
 .code-converge/
-├── log-format
-├── heartbeat
-├── color
-├── mode
-├── review-model
-├── review-reasoning-effort
-├── review-base
-├── fix-model
-├── fix-reasoning-effort
-├── ci-fix-model
-├── ci-fix-reasoning-effort
-├── max-cycles
-├── max-ci-recoveries
-
-├── ci-timeout
-├── session-log-dir
-├── session-log-retention
-├── fix-findings.md
-└── fix-ci.md
+├── config.yaml
+└── prompts/
+    ├── fix-findings.md
+    └── fix-ci.md
 ```
 
-The same layout in `~/.code-converge/` sets user-level defaults. Environment variables are particularly useful in CI or temporary shell sessions:
+```yaml
+# <git-root>/.code-converge/config.yaml
+mode: best
+max-cycles: 3
+ci-timeout: 45m
+review-base: main
+fix-prompt-file: prompts/fix-findings.md
+ci-fix-prompt-file: prompts/fix-ci.md
+```
+
+The same schema in `~/.code-converge/config.yaml` sets user-level defaults. Environment variables are particularly useful in CI or temporary shell sessions:
 
 ```sh
 CODE_CONVERGE_MAX_CYCLES=3 \
