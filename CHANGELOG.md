@@ -9,6 +9,7 @@ This project follows Semantic Versioning.
 ### Changed
 
 - **Breaking:** replaced legacy per-setting `.code-converge/` files with strict project and user `config.yaml` documents. The next release must be a SemVer major release.
+- **Breaking:** moved commit, push, pull-request creation, and CI polling from Codex to deterministic host-owned orchestration.
 
 ## [0.7.0] - 2026-07-30
 
