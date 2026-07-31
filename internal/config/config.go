@@ -24,18 +24,19 @@ type OptionalString struct {
 }
 
 type Overrides struct {
-	LogFormat           OptionalString
-	Heartbeat           OptionalString
-	Color               OptionalString
-	Mode                OptionalString
-	MaxCycles           OptionalString
-	MaxCIRecoveries     OptionalString
-	CITimeout           OptionalString
-	ReviewModel         OptionalString
-	ReviewEffort        OptionalString
-	FixModel            OptionalString
-	FixEffort           OptionalString
-	FixPromptPath       OptionalString
+	LogFormat       OptionalString
+	Heartbeat       OptionalString
+	Color           OptionalString
+	Mode            OptionalString
+	MaxCycles       OptionalString
+	MaxCIRecoveries OptionalString
+	CITimeout       OptionalString
+	ReviewModel     OptionalString
+	ReviewEffort    OptionalString
+	FixModel        OptionalString
+	FixEffort       OptionalString
+	FixPromptPath   OptionalString
+	// Deprecated internal compatibility only; these values are not resolved.
 	FinalizeModel       OptionalString
 	FinalizeEffort      OptionalString
 	FinalizePromptPath  OptionalString
@@ -60,18 +61,20 @@ type Setting struct {
 type Config struct {
 	Root string
 
-	LogFormat           string
-	Heartbeat           time.Duration
-	Color               string
-	Mode                string
-	MaxCycles           int
-	MaxCIRecoveries     int
-	CITimeout           time.Duration
-	ReviewModel         string
-	ReviewEffort        string
-	FixModel            string
-	FixEffort           string
-	FixPrompt           string
+	LogFormat       string
+	Heartbeat       time.Duration
+	Color           string
+	Mode            string
+	MaxCycles       int
+	MaxCIRecoveries int
+	CITimeout       time.Duration
+	ReviewModel     string
+	ReviewEffort    string
+	FixModel        string
+	FixEffort       string
+	FixPrompt       string
+	// Deprecated internal compatibility fields. They have no resolver, flag,
+	// environment, profile, file, config-output, or workflow effect.
 	FinalizeModel       string
 	FinalizeEffort      string
 	FinalizePrompt      string
@@ -98,10 +101,9 @@ type spec struct {
 }
 
 type stageProfile struct {
-	reviewModel, reviewEffort     string
-	fixModel, fixEffort           string
-	finalizeModel, finalizeEffort string
-	ciFixModel, ciFixEffort       string
+	reviewModel, reviewEffort string
+	fixModel, fixEffort       string
+	ciFixModel, ciFixEffort   string
 }
 
 func profileFor(mode string) (stageProfile, bool) {
@@ -110,14 +112,12 @@ func profileFor(mode string) (stageProfile, bool) {
 		return stageProfile{
 			reviewModel: "gpt-5.6-terra", reviewEffort: "medium",
 			fixModel: "gpt-5.6-luna", fixEffort: "medium",
-			finalizeModel: "gpt-5.6-luna", finalizeEffort: "medium",
 			ciFixModel: "gpt-5.6-luna", ciFixEffort: "medium",
 		}, true
 	case "best":
 		return stageProfile{
 			reviewModel: "gpt-5.6-sol", reviewEffort: "high",
 			fixModel: "gpt-5.6-terra", fixEffort: "high",
-			finalizeModel: "gpt-5.6-luna", finalizeEffort: "medium",
 			ciFixModel: "gpt-5.6-terra", ciFixEffort: "high",
 		}, true
 	default:
@@ -190,9 +190,6 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 		{name: "fix-model", file: "fix-model", env: "CODE_CONVERGE_FIX_MODEL", def: profile.fixModel, builtIn: fast.fixModel, defSource: profileSource, override: overrides.FixModel},
 		{name: "fix-reasoning-effort", file: "fix-reasoning-effort", env: "CODE_CONVERGE_FIX_REASONING_EFFORT", def: profile.fixEffort, builtIn: fast.fixEffort, defSource: profileSource, override: overrides.FixEffort},
 		{name: "fix-prompt", file: "fix-findings.md", env: "CODE_CONVERGE_FIX_PROMPT_FILE", def: "fix findings", builtIn: "fix findings", defSource: SourceDefault, override: overrides.FixPromptPath, promptFile: true},
-		{name: "finalize-model", file: "finalize-model", env: "CODE_CONVERGE_FINALIZE_MODEL", def: profile.finalizeModel, builtIn: fast.finalizeModel, defSource: profileSource, override: overrides.FinalizeModel},
-		{name: "finalize-reasoning-effort", file: "finalize-reasoning-effort", env: "CODE_CONVERGE_FINALIZE_REASONING_EFFORT", def: profile.finalizeEffort, builtIn: fast.finalizeEffort, defSource: profileSource, override: overrides.FinalizeEffort},
-		{name: "finalize-prompt", file: "finalize.md", env: "CODE_CONVERGE_FINALIZE_PROMPT_FILE", def: "commit, push, create PR, ensure CI is green", builtIn: "commit, push, create PR, ensure CI is green", defSource: SourceDefault, override: overrides.FinalizePromptPath, promptFile: true},
 		{name: "ci-fix-model", file: "ci-fix-model", env: "CODE_CONVERGE_CI_FIX_MODEL", def: profile.ciFixModel, builtIn: fast.ciFixModel, defSource: profileSource, override: overrides.CIFixModel},
 		{name: "ci-fix-reasoning-effort", file: "ci-fix-reasoning-effort", env: "CODE_CONVERGE_CI_FIX_REASONING_EFFORT", def: profile.ciFixEffort, builtIn: fast.ciFixEffort, defSource: profileSource, override: overrides.CIFixEffort},
 		{name: "ci-fix-prompt", file: "fix-ci.md", env: "CODE_CONVERGE_CI_FIX_PROMPT_FILE", def: "Исправь CI", builtIn: "Исправь CI", defSource: SourceDefault, override: overrides.CIFixPromptPath, promptFile: true},
@@ -246,7 +243,7 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 			settings[index].DisplayDefault = settings[index].Default
 		}
 	}
-	for _, name := range []string{"review-model", "review-reasoning-effort", "fix-model", "fix-reasoning-effort", "finalize-model", "finalize-reasoning-effort", "ci-fix-model", "ci-fix-reasoning-effort"} {
+	for _, name := range []string{"review-model", "review-reasoning-effort", "fix-model", "fix-reasoning-effort", "ci-fix-model", "ci-fix-reasoning-effort"} {
 		if strings.TrimSpace(values[name]) == "" {
 			return Config{}, fmt.Errorf("%s must not be empty", name)
 		}
@@ -257,7 +254,6 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 		Mode: mode, MaxCycles: maxCycles, MaxCIRecoveries: maxCI, CITimeout: ciTimeout,
 		ReviewModel: values["review-model"], ReviewEffort: values["review-reasoning-effort"],
 		FixModel: values["fix-model"], FixEffort: values["fix-reasoning-effort"], FixPrompt: values["fix-prompt"],
-		FinalizeModel: values["finalize-model"], FinalizeEffort: values["finalize-reasoning-effort"], FinalizePrompt: values["finalize-prompt"],
 		CIFixModel: values["ci-fix-model"], CIFixEffort: values["ci-fix-reasoning-effort"], CIFixPrompt: values["ci-fix-prompt"], Settings: settings,
 		ReviewBase: values["review-base"], SessionLogDir: sessionLogDir, SessionLogRetention: sessionLogRetention, NoSessionLog: overrides.NoSessionLog,
 	}, nil
