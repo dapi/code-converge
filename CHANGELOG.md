@@ -6,6 +6,8 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-31
+
 ### Changed
 
 - **Breaking:** replaced legacy per-setting `.code-converge/` files with strict project and user `config.yaml` documents. The next release must be a SemVer major release.
