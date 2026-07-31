@@ -36,6 +36,7 @@ var globalFlagSpecs = []globalFlagSpec{
 	{"mode", "Workflow", "Execution profile: fast or best.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "mode", &o.Mode) }},
 	{"max-cycles", "Workflow", "Maximum fix-findings attempts per review phase.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "max-cycles", &o.MaxCycles) }},
 	{"max-ci-recoveries", "Workflow", "Maximum CI recovery attempts.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "max-ci-recoveries", &o.MaxCIRecoveries) }},
+	{"ci-timeout", "Workflow", "Maximum time to wait for applicable CI (default 60m).", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "ci-timeout", &o.CITimeout) }},
 	{"review-model", "Stage overrides", "Review model.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "review-model", &o.ReviewModel) }},
 	{"review-reasoning-effort", "Stage overrides", "Review reasoning effort.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "review-reasoning-effort", &o.ReviewEffort) }},
 	{"fix-model", "Stage overrides", "Fix-findings model.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "fix-model", &o.FixModel) }},

@@ -30,6 +30,7 @@ type Overrides struct {
 	Mode                OptionalString
 	MaxCycles           OptionalString
 	MaxCIRecoveries     OptionalString
+	CITimeout           OptionalString
 	ReviewModel         OptionalString
 	ReviewEffort        OptionalString
 	FixModel            OptionalString
@@ -65,6 +66,7 @@ type Config struct {
 	Mode                string
 	MaxCycles           int
 	MaxCIRecoveries     int
+	CITimeout           time.Duration
 	ReviewModel         string
 	ReviewEffort        string
 	FixModel            string
@@ -182,6 +184,7 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 	specs := []spec{
 		{name: "max-cycles", file: "max-cycles", env: "CODE_CONVERGE_MAX_CYCLES", def: "10", builtIn: "10", defSource: SourceDefault, override: overrides.MaxCycles},
 		{name: "max-ci-recoveries", file: "max-ci-recoveries", env: "CODE_CONVERGE_MAX_CI_RECOVERIES", def: "3", builtIn: "3", defSource: SourceDefault, override: overrides.MaxCIRecoveries},
+		{name: "ci-timeout", file: "ci-timeout", env: "CODE_CONVERGE_CI_TIMEOUT", def: "60m", builtIn: "60m", defSource: SourceDefault, override: overrides.CITimeout},
 		{name: "review-model", file: "review-model", env: "CODE_CONVERGE_REVIEW_MODEL", def: profile.reviewModel, builtIn: fast.reviewModel, defSource: profileSource, override: overrides.ReviewModel},
 		{name: "review-reasoning-effort", file: "review-reasoning-effort", env: "CODE_CONVERGE_REVIEW_REASONING_EFFORT", def: profile.reviewEffort, builtIn: fast.reviewEffort, defSource: profileSource, override: overrides.ReviewEffort},
 		{name: "fix-model", file: "fix-model", env: "CODE_CONVERGE_FIX_MODEL", def: profile.fixModel, builtIn: fast.fixModel, defSource: profileSource, override: overrides.FixModel},
@@ -222,6 +225,10 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	ciTimeout, err := time.ParseDuration(strings.TrimSpace(values["ci-timeout"]))
+	if err != nil || ciTimeout < time.Second {
+		return Config{}, fmt.Errorf("ci-timeout must be a duration of at least 1s")
+	}
 	sessionLogDir, err := sessionLogPath(values["session-log-dir"], home)
 	if err != nil {
 		return Config{}, err
@@ -247,7 +254,7 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 
 	return Config{
 		Root: root, LogFormat: logFormat, Heartbeat: heartbeat, Color: color,
-		Mode: mode, MaxCycles: maxCycles, MaxCIRecoveries: maxCI,
+		Mode: mode, MaxCycles: maxCycles, MaxCIRecoveries: maxCI, CITimeout: ciTimeout,
 		ReviewModel: values["review-model"], ReviewEffort: values["review-reasoning-effort"],
 		FixModel: values["fix-model"], FixEffort: values["fix-reasoning-effort"], FixPrompt: values["fix-prompt"],
 		FinalizeModel: values["finalize-model"], FinalizeEffort: values["finalize-reasoning-effort"], FinalizePrompt: values["finalize-prompt"],
