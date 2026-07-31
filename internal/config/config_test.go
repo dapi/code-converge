@@ -32,6 +32,7 @@ var codeConvergeEnv = []string{
 	"CODE_CONVERGE_MAX_CYCLES", "CODE_CONVERGE_MAX_CI_RECOVERIES", "CODE_CONVERGE_CI_TIMEOUT", "CODE_CONVERGE_REVIEW_MODEL", "CODE_CONVERGE_REVIEW_REASONING_EFFORT",
 	"CODE_CONVERGE_FIX_MODEL", "CODE_CONVERGE_FIX_REASONING_EFFORT", "CODE_CONVERGE_FIX_PROMPT_FILE", "CODE_CONVERGE_CI_FIX_MODEL",
 	"CODE_CONVERGE_CI_FIX_REASONING_EFFORT", "CODE_CONVERGE_CI_FIX_PROMPT_FILE",
+	"CODE_CONVERGE_FINALIZE_MODEL", "CODE_CONVERGE_FINALIZE_REASONING_EFFORT", "CODE_CONVERGE_FINALIZE_PROMPT_FILE",
 	"CODE_CONVERGE_REVIEW_BASE",
 	"CODE_CONVERGE_SESSION_LOG_DIR", "CODE_CONVERGE_SESSION_LOG_RETENTION",
 }
@@ -67,6 +68,66 @@ func TestCITimeoutPrecedenceAndValidation(t *testing.T) {
 	}
 	if _, err := Load(root, home, Overrides{CITimeout: OptionalString{Value: "0s", Set: true}}); err == nil {
 		t.Fatal("accepted invalid ci timeout")
+	}
+}
+
+func TestCITimeoutSourcePrecedence(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		env        string
+		user       string
+		project    string
+		override   OptionalString
+		want       time.Duration
+		wantSource string
+	}{
+		{"built-in default", "", "", "", OptionalString{}, 60 * time.Minute, SourceDefault},
+		{"environment", "20m", "", "", OptionalString{}, 20 * time.Minute, SourceEnv},
+		{"user", "20m", "30m", "", OptionalString{}, 30 * time.Minute, SourceUser},
+		{"project", "20m", "30m", "40m", OptionalString{}, 40 * time.Minute, SourceProject},
+		{"CLI", "20m", "30m", "40m", OptionalString{Value: "50m", Set: true}, 50 * time.Minute, SourceCLI},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cleanEnv(t)
+			root, home := repo(t)
+			if test.env != "" {
+				t.Setenv("CODE_CONVERGE_CI_TIMEOUT", test.env)
+			}
+			if test.user != "" {
+				write(t, filepath.Join(home, ".code-converge", "ci-timeout"), test.user)
+			}
+			if test.project != "" {
+				write(t, filepath.Join(root, ".code-converge", "ci-timeout"), test.project)
+			}
+			cfg, err := Load(root, home, Overrides{CITimeout: test.override})
+			if err != nil || cfg.CITimeout != test.want || source(cfg, "ci-timeout") != test.wantSource {
+				t.Fatalf("ci-timeout=%s (%s), err=%v; want %s (%s)", cfg.CITimeout, source(cfg, "ci-timeout"), err, test.want, test.wantSource)
+			}
+		})
+	}
+}
+
+func TestObsoleteFinalizeSettingsFailExplicitly(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		set  func(t *testing.T, root, home string)
+	}{
+		{"environment", func(t *testing.T, _, _ string) { t.Setenv("CODE_CONVERGE_FINALIZE_MODEL", "gpt-legacy") }},
+		{"user file", func(t *testing.T, _, home string) {
+			write(t, filepath.Join(home, ".code-converge", "finalize-reasoning-effort"), "medium")
+		}},
+		{"project prompt", func(t *testing.T, root, _ string) {
+			write(t, filepath.Join(root, ".code-converge", "finalize.md"), "publish")
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cleanEnv(t)
+			root, home := repo(t)
+			test.set(t, root, home)
+			if _, err := Load(root, home, Overrides{}); err == nil || !strings.Contains(err.Error(), "Finalize-stage setting") {
+				t.Fatalf("Load obsolete setting error = %v", err)
+			}
+		})
 	}
 }
 

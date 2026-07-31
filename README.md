@@ -346,7 +346,7 @@ The `fast` and `best` modes select these operative stage profiles. `fast` is the
 | Diagnostic session-log retention | `--session-log-retention` | `CODE_CONVERGE_SESSION_LOG_RETENTION` | `session-log-retention` | `24h` |
 | Disable diagnostic logging for this run | `--no-session-log` | — | — | disabled only when flag supplied |
 
-`--finalize-model`, `--finalize-reasoning-effort`, and `--finalize-prompt-file`, their `CODE_CONVERGE_FINALIZE_*` environment variables, and `finalize-*` / `finalize.md` configuration files were removed in this release. Remove them during migration: they have no compatible runtime replacement because Codex no longer performs publication or CI polling.
+`--finalize-model`, `--finalize-reasoning-effort`, and `--finalize-prompt-file`, their `CODE_CONVERGE_FINALIZE_*` environment variables, and `finalize-*` / `finalize.md` configuration files were removed in this release. Remove them during migration: obsolete environment or configuration-file settings cause an actionable configuration error rather than being ignored, because Codex no longer performs publication or CI polling.
 
 For example, a team can commit these files:
 

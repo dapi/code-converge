@@ -327,6 +327,17 @@ func TestWaitCIFailsImmediatelyForPermanentProviderErrors(t *testing.T) {
 	}
 }
 
+func TestWaitCIRejectsEmptyPublishedHead(t *testing.T) {
+	fake := &fakeRunner{}
+	result, err := (Status{Runner: fake}).WaitCI(context.Background(), Publication{Repository: "dapi/code-converge"})
+	if result != "" || err == nil || !strings.Contains(err.Error(), "published head is empty") {
+		t.Fatalf("result=%q err=%v", result, err)
+	}
+	if len(fake.invocations) != 0 {
+		t.Fatalf("queried CI with an empty head: %#v", fake.invocations)
+	}
+}
+
 func TestWaitCIRetriesTransientProviderErrorWithinDeadline(t *testing.T) {
 	attempts, waits := 0, 0
 	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {

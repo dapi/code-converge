@@ -15,8 +15,11 @@ import (
 )
 
 type workflowAgent struct {
-	reviews []codex.ReviewResult
-	ciFixes int
+	reviews  []codex.ReviewResult
+	fixes    int
+	fixErr   error
+	ciFixes  int
+	ciFixErr error
 }
 
 func (a *workflowAgent) Review(context.Context) (codex.ReviewResult, error) {
@@ -27,8 +30,14 @@ func (a *workflowAgent) Review(context.Context) (codex.ReviewResult, error) {
 	a.reviews = a.reviews[1:]
 	return result, nil
 }
-func (*workflowAgent) FixFindings(context.Context, string) error { return nil }
-func (a *workflowAgent) FixCI(context.Context) error             { a.ciFixes++; return nil }
+func (a *workflowAgent) FixFindings(context.Context, string) error {
+	a.fixes++
+	return a.fixErr
+}
+func (a *workflowAgent) FixCI(context.Context) error {
+	a.ciFixes++
+	return a.ciFixErr
+}
 
 type workflowRepository struct {
 	changes     []bool
@@ -36,6 +45,7 @@ type workflowRepository struct {
 	publication repository.Publication
 	publishErr  error
 	ci          []repository.CIResult
+	ciErr       error
 	publishes   int
 	ciWaits     int
 }
@@ -82,6 +92,9 @@ func (r *workflowRepository) Publish(context.Context, bool) (repository.Publicat
 }
 func (r *workflowRepository) WaitCI(context.Context, repository.Publication) (repository.CIResult, error) {
 	r.ciWaits++
+	if r.ciErr != nil {
+		return "", r.ciErr
+	}
 	if len(r.ci) == 0 {
 		return repository.CISuccess, nil
 	}
@@ -133,10 +146,44 @@ func TestCIFailureRunsFixThenReviewsAndPublishesAgain(t *testing.T) {
 	}
 }
 
+func TestFindingsFixThenCleanPublishes(t *testing.T) {
+	findings := codex.ReviewResult{Clean: false, Report: "fix this"}
+	agent := &workflowAgent{reviews: []codex.ReviewResult{findings, cleanReview()}}
+	repo := &workflowRepository{changes: []bool{true}, ci: []repository.CIResult{repository.CISuccess}}
+	code, _ := runWorkflow(t, config.Config{CITimeout: time.Minute, MaxCycles: 1}, agent, repo)
+	if code != ExitSuccess || agent.fixes != 1 || repo.publishes != 1 {
+		t.Fatalf("code=%d fixes=%d publishes=%d", code, agent.fixes, repo.publishes)
+	}
+}
+
+func TestCIRecoveryLimitRemainsEffective(t *testing.T) {
+	agent := &workflowAgent{reviews: []codex.ReviewResult{cleanReview()}}
+	code, output := runWorkflow(t, config.Config{CITimeout: time.Minute, MaxCIRecoveries: 0}, agent, &workflowRepository{changes: []bool{true}, ci: []repository.CIResult{repository.CIFailed}})
+	if code != ExitCI || agent.ciFixes != 0 || !strings.Contains(output, "status=ci_failure exit_code=3") {
+		t.Fatalf("code=%d fixes=%d output=%s", code, agent.ciFixes, output)
+	}
+}
+
+func TestCIFixFailureStopsRecovery(t *testing.T) {
+	agent := &workflowAgent{reviews: []codex.ReviewResult{cleanReview()}, ciFixErr: errors.New("repair failed")}
+	code, output := runWorkflow(t, config.Config{CITimeout: time.Minute, MaxCIRecoveries: 1}, agent, &workflowRepository{changes: []bool{true}, ci: []repository.CIResult{repository.CIFailed}})
+	if code != ExitCI || agent.ciFixes != 1 || !strings.Contains(output, "stage=fix-ci") || !strings.Contains(output, "status=ci_failure exit_code=3") {
+		t.Fatalf("code=%d fixes=%d output=%s", code, agent.ciFixes, output)
+	}
+}
+
 func TestCITimeoutIsOperationalAndDoesNotFix(t *testing.T) {
 	agent := &workflowAgent{reviews: []codex.ReviewResult{cleanReview()}}
 	code, output := runWorkflow(t, config.Config{CITimeout: time.Minute}, agent, &workflowRepository{changes: []bool{true}, ci: []repository.CIResult{repository.CITimeout}})
 	if code != ExitOperational || agent.ciFixes != 0 || !strings.Contains(output, "stage_completed stage=ci status=timeout") || !strings.Contains(output, "timeout_ms=60000") || !strings.Contains(output, "status=ci_timeout exit_code=2") {
+		t.Fatalf("code=%d fixes=%d output=%s", code, agent.ciFixes, output)
+	}
+}
+
+func TestUnknownCIResultIsOperational(t *testing.T) {
+	agent := &workflowAgent{reviews: []codex.ReviewResult{cleanReview()}}
+	code, output := runWorkflow(t, config.Config{CITimeout: time.Minute}, agent, &workflowRepository{changes: []bool{true}, ci: []repository.CIResult{"unknown"}})
+	if code != ExitOperational || agent.ciFixes != 0 || !strings.Contains(output, "status=operational_failure") {
 		t.Fatalf("code=%d fixes=%d output=%s", code, agent.ciFixes, output)
 	}
 }
@@ -146,5 +193,13 @@ func TestPreexistingDirtyWorktreeIsNotCommitted(t *testing.T) {
 	code, output := runWorkflow(t, config.Config{CITimeout: time.Minute}, &workflowAgent{reviews: []codex.ReviewResult{cleanReview()}}, repo)
 	if code != ExitOperational || repo.publishes != 1 || !strings.Contains(output, "status=operational_failure") {
 		t.Fatalf("code=%d publishes=%d output=%s", code, repo.publishes, output)
+	}
+}
+
+func TestCIProviderErrorIsOperationalAndDoesNotFix(t *testing.T) {
+	agent := &workflowAgent{reviews: []codex.ReviewResult{cleanReview()}}
+	code, output := runWorkflow(t, config.Config{CITimeout: time.Minute}, agent, &workflowRepository{changes: []bool{true}, ciErr: errors.New("authentication failed")})
+	if code != ExitOperational || agent.ciFixes != 0 || !strings.Contains(output, "status=operational_failure") {
+		t.Fatalf("code=%d fixes=%d output=%s", code, agent.ciFixes, output)
 	}
 }

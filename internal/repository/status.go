@@ -317,6 +317,9 @@ func (s Status) WaitCI(ctx context.Context, publication Publication) (CIResult, 
 		if publication.Repository == "" {
 			return "", errors.New("query CI checks: publication repository is empty")
 		}
+		if strings.TrimSpace(publication.Head) == "" {
+			return "", errors.New("query CI checks: published head is empty")
+		}
 		// Check-runs is paginated.  Ask gh to collect every page rather than
 		// treating the default first page as the complete applicable set: a
 		// pending or failed run beyond that page must not yield a false green.

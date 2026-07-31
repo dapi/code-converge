@@ -60,7 +60,7 @@ must_not_define:
 ## Public and agent-contract compatibility
 
 - `--ci-timeout`, `CODE_CONVERGE_CI_TIMEOUT`, and `.code-converge/ci-timeout` resolve under the established CLI > project > user > environment > default precedence. The built-in default is `60m`; values below one second are configuration errors.
-- `finalize-model`, `finalize-reasoning-effort`, `finalize-prompt-file`, their environment variables, profile entries, configuration files, help entries, and `config` output are removed. This is an intentional breaking migration: retained settings must not silently have no effect.
+- `finalize-model`, `finalize-reasoning-effort`, `finalize-prompt-file`, their environment variables, profile entries, configuration files, help entries, and `config` output are removed. This is an intentional breaking migration: obsolete environment and configuration-file settings fail configuration with an actionable removal diagnostic; they are never silently ignored.
 - Codex receives only Review, Fix findings, and Fix CI prompts. There is no finalization prompt, output schema, verdict, or Codex process after a clean review.
 - The public state/event replacement is `publish` followed by `ci`. Publication emits deterministic `commit`, `push`, and `change_request` step outcomes. CI emits `success`, `skipped`, `failed`, or `timeout`; `timeout` produces `run_completed status=ci_timeout exit_code=2`.
 

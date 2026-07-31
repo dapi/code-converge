@@ -287,6 +287,10 @@ func (w *Workflow) Run(ctx context.Context) int {
 			w.diagnostic("CI polling failed", err)
 			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 		}
+		if ci != repository.CISuccess && ci != repository.CISkipped && ci != repository.CIFailed && ci != repository.CITimeout {
+			w.diagnostic("CI polling failed", fmt.Errorf("unknown CI result %q", ci))
+			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+		}
 		ciCompletion := []event.Field{event.F("stage", "ci"), event.F("status", string(ci)), durationField(now().Sub(stageStarted))}
 		if ci == repository.CITimeout {
 			ciCompletion = append(ciCompletion, durationFieldNamed("timeout_ms", w.Config.CITimeout))

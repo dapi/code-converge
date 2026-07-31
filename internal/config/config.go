@@ -129,6 +129,9 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 	}
 	projectDir := filepath.Join(root, ".code-converge")
 	userDir := filepath.Join(home, ".code-converge")
+	if err := rejectObsoleteFinalizeSettings(userDir, projectDir); err != nil {
+		return Config{}, err
+	}
 	logFormat, logFormatSetting, err := resolve(spec{
 		name: "log-format", file: "log-format", env: "CODE_CONVERGE_LOG_FORMAT", def: "human", builtIn: "human", defSource: SourceDefault, override: overrides.LogFormat,
 	}, cwd, userDir, projectDir)
@@ -248,6 +251,35 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 		CIFixModel: values["ci-fix-model"], CIFixEffort: values["ci-fix-reasoning-effort"], CIFixPrompt: values["ci-fix-prompt"], Settings: settings,
 		ReviewBase: values["review-base"], SessionLogDir: sessionLogDir, SessionLogRetention: sessionLogRetention, NoSessionLog: overrides.NoSessionLog,
 	}, nil
+}
+
+// rejectObsoleteFinalizeSettings makes the deliberate Finalize-stage removal
+// actionable.  Leaving a previously supported setting silently ignored would
+// make an operator believe it still controls delivery behavior.
+func rejectObsoleteFinalizeSettings(userDir, projectDir string) error {
+	for _, name := range []string{
+		"CODE_CONVERGE_FINALIZE_MODEL",
+		"CODE_CONVERGE_FINALIZE_REASONING_EFFORT",
+		"CODE_CONVERGE_FINALIZE_PROMPT_FILE",
+	} {
+		if value, ok := os.LookupEnv(name); ok && strings.TrimSpace(value) != "" {
+			return fmt.Errorf("%s was removed; remove this obsolete Finalize-stage setting", name)
+		}
+	}
+	for _, directory := range []struct {
+		path   string
+		source string
+	}{{userDir, "user"}, {projectDir, "project"}} {
+		for _, name := range []string{"finalize-model", "finalize-reasoning-effort", "finalize.md"} {
+			path := filepath.Join(directory.path, name)
+			if _, err := os.Stat(path); err == nil {
+				return fmt.Errorf("%s Finalize-stage setting %q was removed; delete it", directory.source, path)
+			} else if !os.IsNotExist(err) {
+				return fmt.Errorf("inspect obsolete Finalize-stage setting %q: %w", path, err)
+			}
+		}
+	}
+	return nil
 }
 
 func sessionLogPath(value, home string) (string, error) {
