@@ -500,11 +500,9 @@ func TestResolveFileReadError(t *testing.T) {
 	cleanEnv(t)
 	root, home := repo(t)
 	path := filepath.Join(home, ".code-converge", "max-cycles")
-	write(t, path, "5\n")
-	if err := os.Chmod(path, 0o000); err != nil {
+	if err := os.MkdirAll(path, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chmod(path, 0o600)
 	_, err := Load(root, home, Overrides{})
 	if err == nil {
 		t.Fatal("expected read error")

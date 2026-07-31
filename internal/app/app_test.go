@@ -67,7 +67,7 @@ func TestConfigCommand(t *testing.T) {
 		"mode: best (cli; built-in: fast)",
 		"max-cycles: 4 (cli; built-in: 10)",
 		"review-model: gpt-5.6-sol (best profile; built-in: gpt-5.6-terra)",
-		"finalize-reasoning-effort: medium (best profile)",
+		"ci-timeout: 60m (built-in default)",
 		"ci-fix-reasoning-effort: high (best profile; built-in: medium)",
 	} {
 		if !strings.Contains(stdout.String(), want) {
@@ -245,6 +245,8 @@ type appFakeRunner struct {
 	reviewMsg     string
 	skipReviewMsg bool
 	status        runner.Result
+	statusResults []runner.Result
+	statusCalls   int
 	statusErr     error
 	finalizeMsg   string
 	err           error
@@ -253,13 +255,30 @@ type appFakeRunner struct {
 func (f *appFakeRunner) Run(_ context.Context, invocation runner.Invocation) (runner.Result, error) {
 	f.invocations = append(f.invocations, invocation)
 	if invocation.Executable == "gh" {
+		if strings.HasPrefix(strings.Join(invocation.Args, " "), "pr create ") {
+			return runner.Result{Stdout: "https://github.com/dapi/code-converge/pull/40\n"}, nil
+		}
+		if strings.HasPrefix(strings.Join(invocation.Args, " "), "api ") {
+			return runner.Result{Stdout: `{"check_runs":[]}`}, nil
+		}
 		return runner.Result{Stdout: "[]"}, nil
 	}
 	if invocation.Executable == "git" {
 		args := strings.Join(invocation.Args, " ")
 		switch {
 		case strings.HasPrefix(args, "status "):
+			if f.statusCalls < len(f.statusResults) {
+				result := f.statusResults[f.statusCalls]
+				f.statusCalls++
+				return result, f.statusErr
+			}
 			return f.status, f.statusErr
+		case args == "add -A", args == "commit -m chore: finalize reviewed changes", strings.HasPrefix(args, "push "):
+			return runner.Result{}, nil
+		case args == "branch --show-current":
+			return runner.Result{Stdout: "feature\n"}, nil
+		case args == "rev-parse HEAD":
+			return runner.Result{Stdout: "published-sha\n"}, nil
 		case args == "symbolic-ref --quiet --short HEAD":
 			return runner.Result{Stdout: "feature"}, nil
 		case args == "config --get branch.feature.pushRemote", args == "config --get remote.pushDefault":
@@ -348,11 +367,11 @@ func TestAppWorkflowSuccessWithFakeRunner(t *testing.T) {
 	root, home := testRepo(t)
 	var stdout, stderr bytes.Buffer
 	fake := &appFakeRunner{
-		t:           t,
-		review:      runner.Result{Stdout: "No findings.\n"},
-		reviewMsg:   `{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"no findings","overall_confidence_score":0.99}`,
-		status:      runner.Result{Stdout: " M changed.go\n"},
-		finalizeMsg: `{"verdict":"SUCCESS","commit":"success","push":"success","change_request":"skipped","ci":"skipped"}`,
+		t:             t,
+		review:        runner.Result{Stdout: "No findings.\n"},
+		reviewMsg:     `{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"no findings","overall_confidence_score":0.99}`,
+		statusResults: []runner.Result{{}, {Stdout: " M changed.go\n"}, {Stdout: " M changed.go\n"}},
+		finalizeMsg:   `{"verdict":"SUCCESS","commit":"success","push":"success","change_request":"skipped","ci":"skipped"}`,
 	}
 	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home, Runner: fake}).Run(context.Background(), []string{"--log-format=kv"})
 	if code != workflow.ExitSuccess || stderr.Len() != 0 {
