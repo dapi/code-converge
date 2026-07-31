@@ -347,7 +347,7 @@ func rejectDuplicateJSONKeys(data []byte) error {
 		return err
 	}
 	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
-		return errors.New("finalization response contains trailing data")
+		return errors.New("structured review response contains trailing data")
 	}
 	return nil
 }

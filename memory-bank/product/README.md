@@ -34,7 +34,7 @@ Product-документы не определяют предметную мод
 Пример для `code-converge`:
 
 - Product: сократить ручную координацию review → fix → publish → CI.
-- Domain: finalization разрешён только после review без findings.
+- Domain: publication разрешена только после review без findings.
 
 ## Граница С PRD
 

@@ -25,13 +25,13 @@ The roadmap contains one product outcome: deliver the complete `code-converge` C
 
 | Horizon | Theme | Intended outcome | Current owner | Dependency | Status |
 | --- | --- | --- | --- | --- | --- |
-| `now` | Complete code-converge CLI | A distributable local Go CLI performs the full documented review/fix/finalization/CI-recovery workflow with observable terminal results | [`../features/FT-002/brief.md`](../features/FT-002/brief.md) | Implementation, deterministic tests, accepted PR and distribution evidence | completed |
+| `now` | Complete code-converge CLI | A distributable local Go CLI performs the full documented review/fix/publication/CI-recovery workflow with observable terminal results | [`../features/FT-002/brief.md`](../features/FT-002/brief.md), [`../features/FT-039/brief.md`](../features/FT-039/brief.md) | Implementation, deterministic tests, accepted PR and distribution evidence | in progress |
 
 ## Roadmap Rules
 
 - Roadmap theme описывает product intent, а не implementation plan.
 - Deliver the documented CLI as one coherent delivery-unit. Internal checkpoints do not become separate feature packages or an Epic unless scope materially changes.
-- Review/fix, finalization, CI recovery, configuration, observability, and packaging converge in the same feature-level acceptance contract.
+- Review/fix, deterministic publication, CI recovery, configuration, observability, and packaging converge in the same feature-level acceptance contract.
 - Work beyond the documented CLI is not implied follow-up; route it separately only after an explicit product decision.
 - Если тема меняет предметную модель, сначала обнови [`../domain/model.md`](../domain/model.md), [`../domain/rules.md`](../domain/rules.md) или [`../domain/context-map.md`](../domain/context-map.md).
 

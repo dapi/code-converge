@@ -38,10 +38,10 @@ The project needs one bounded local workflow that drives this loop to an explici
 
 ## Goals
 
-- `G-01` Provide one local CLI workflow that performs review, bounded finding remediation, finalization, and bounded CI recovery in the order required by the domain state machine.
+- `G-01` Provide one local CLI workflow that performs review, bounded finding remediation, deterministic publication, and bounded CI recovery in the order required by the domain state machine.
 - `G-02` Produce an explicit terminal outcome that distinguishes success, remaining findings, operational failure, and CI-recovery failure.
 - `G-03` Treat ambiguous or internally inconsistent agent output as failure rather than inferred success.
-- `G-04` Make stage progress, review severity counts, durations, finalization steps, terminal result and bounded long-stage liveness observable through the public stdout contract.
+- `G-04` Make stage progress, review severity counts, durations, publication and CI outcomes, terminal result and bounded long-stage liveness observable through the public stdout contract.
 - `G-05` Let operators inspect and override effective configuration without starting a workflow run.
 
 ## Non-Goals
@@ -108,10 +108,10 @@ These are contract-conformance targets for the complete utility. Adoption, time 
 
 ## Downstream Delivery
 
-The complete product is small enough to be delivered as one coherent delivery-unit through a single Feature Flow package. An Epic and separate feature packages for review, finalization, CI recovery, configuration, observability, or packaging would add coordination without creating independently useful product outcomes.
+The complete product is small enough to be delivered as one coherent delivery-unit through a single Feature Flow package. An Epic and separate feature packages for review, deterministic publication, CI recovery, configuration, observability, or packaging would add coordination without creating independently useful product outcomes.
 
 Observability remains a cross-cutting acceptance requirement: every internal checkpoint that adds or changes a workflow transition must include its corresponding stdout records, stderr behavior, counters, and durations. The feature package must finish with contract-convergence verification across the complete run.
 
 | Delivery unit | Included outcome | Status |
 | --- | --- | --- |
-| Code-Converge CLI complete delivery | Review/fix convergence, finalization, CI recovery, configuration inspection, operational records, terminal outcomes, reproducible binary, and distribution evidence | planned |
+| Code-Converge CLI complete delivery | Review/fix convergence, deterministic publication, CI recovery, configuration inspection, operational records, terminal outcomes, reproducible binary, and distribution evidence | planned |

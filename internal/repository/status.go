@@ -16,10 +16,13 @@ import (
 // Status reports whether Git sees staged, unstaged, or untracked changes.
 type Status struct {
 	Runner runner.Runner
+	// Wait is injectable only to make polling-time behavior deterministic in
+	// tests. Production uses the context-aware timer below.
+	Wait func(context.Context, time.Duration) bool
 }
 
 // Checkpoint is the local commit created for a successful findings-fix stage.
-// It is deliberately not pushed; publication remains finalization's job.
+// It is deliberately not pushed; publication remains the host workflow's job.
 type Checkpoint struct {
 	Created bool
 	Branch  string
@@ -322,7 +325,7 @@ func (s Status) WaitCI(ctx context.Context, publication Publication) (CIResult, 
 			if permanentProviderError(err.Error()) {
 				return "", fmt.Errorf("query CI checks: %w", err)
 			}
-			if !wait(ctx, interval) {
+			if !s.wait(ctx, interval) {
 				if ctx.Err() == context.DeadlineExceeded {
 					return CITimeout, nil
 				}
@@ -356,7 +359,7 @@ func (s Status) WaitCI(ctx context.Context, publication Publication) (CIResult, 
 		if !pending {
 			return CISuccess, nil
 		}
-		if !wait(ctx, interval) {
+		if !s.wait(ctx, interval) {
 			if ctx.Err() == context.DeadlineExceeded {
 				return CITimeout, nil
 			}
@@ -399,6 +402,13 @@ func permanentProviderError(message string) bool {
 		}
 	}
 	return false
+}
+
+func (s Status) wait(ctx context.Context, duration time.Duration) bool {
+	if s.Wait != nil {
+		return s.Wait(ctx, duration)
+	}
+	return wait(ctx, duration)
 }
 
 func wait(ctx context.Context, duration time.Duration) bool {

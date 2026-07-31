@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dapi/code-converge/internal/runner"
 )
@@ -324,6 +325,43 @@ func TestWaitCIFailsImmediatelyForPermanentProviderErrors(t *testing.T) {
 	if len(fake.invocations) != 1 {
 		t.Fatalf("permanent provider error retried: %#v", fake.invocations)
 	}
+}
+
+func TestWaitCIRetriesTransientProviderErrorWithinDeadline(t *testing.T) {
+	attempts, waits := 0, 0
+	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
+		attempts++
+		if attempts == 1 {
+			return runner.Result{}, errors.New("temporary GitHub API outage")
+		}
+		return runner.Result{Stdout: `[{"check_runs":[{"status":"completed","conclusion":"success"}]}]`}, nil
+	}}
+	result, err := (Status{Runner: fake, Wait: func(context.Context, time.Duration) bool {
+		waits++
+		return true
+	}}).WaitCI(context.Background(), Publication{Head: "published-sha", Repository: "dapi/code-converge"})
+	if err != nil || result != CISuccess || attempts != 2 || waits != 1 {
+		t.Fatalf("result=%q err=%v attempts=%d waits=%d", result, err, attempts, waits)
+	}
+}
+
+func TestWaitCIDistinguishesDeadlineFromCancellation(t *testing.T) {
+	t.Run("deadline", func(t *testing.T) {
+		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+		defer cancel()
+		result, err := (Status{Runner: &fakeRunner{}}).WaitCI(ctx, Publication{Head: "published-sha", Repository: "dapi/code-converge"})
+		if err != nil || result != CITimeout {
+			t.Fatalf("result=%q err=%v", result, err)
+		}
+	})
+	t.Run("cancelled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		result, err := (Status{Runner: &fakeRunner{}}).WaitCI(ctx, Publication{Head: "published-sha", Repository: "dapi/code-converge"})
+		if result != "" || !errors.Is(err, context.Canceled) {
+			t.Fatalf("result=%q err=%v", result, err)
+		}
+	})
 }
 
 func TestStatusCheckpointCommitsLocallyWithoutPush(t *testing.T) {

@@ -28,7 +28,7 @@ An operator should receive an explicit terminal result rather than having to int
 
 | Bet ID | Bet | Why now | Evidence | Review cadence |
 | --- | --- | --- | --- | --- |
-| `BET-01` | Deliver the complete local review → fix → finalization → CI-recovery loop as one bounded utility. | This is the intended product outcome, not a stepping stone to broader scope. | [`context.md`](context.md), [`../../README.md`](../../README.md) | No ongoing feature cadence is planned. |
+| `BET-01` | Deliver the complete local review → fix → deterministic publication → CI-recovery loop as one bounded utility. | This is the intended product outcome, not a stepping stone to broader scope. | [`context.md`](context.md), [`../../README.md`](../../README.md) | No ongoing feature cadence is planned. |
 | `BET-02` | Treat explicit outcomes and observable review trends as part of the product contract. | Operators must distinguish success from unresolved findings or stage failure. | [`metrics.md`](metrics.md), [`../../README.md`](../../README.md) | Revisit when implementation evidence exists. |
 
 ## Experience Principles
