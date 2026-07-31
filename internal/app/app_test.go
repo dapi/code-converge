@@ -67,7 +67,7 @@ func TestConfigCommand(t *testing.T) {
 		"mode: best (cli; built-in: fast)",
 		"max-cycles: 4 (cli; built-in: 10)",
 		"review-model: gpt-5.6-sol (best profile; built-in: gpt-5.6-terra)",
-		"finalize-reasoning-effort: medium (best profile)",
+		"ci-timeout: 60m (built-in default)",
 		"ci-fix-reasoning-effort: high (best profile; built-in: medium)",
 	} {
 		if !strings.Contains(stdout.String(), want) {
@@ -245,27 +245,57 @@ type appFakeRunner struct {
 	reviewMsg     string
 	skipReviewMsg bool
 	status        runner.Result
+	statusResults []runner.Result
+	statusCalls   int
 	statusErr     error
-	finalizeMsg   string
 	err           error
+}
+
+func codexInvocationsForApp(invocations []runner.Invocation) []runner.Invocation {
+	var result []runner.Invocation
+	for _, invocation := range invocations {
+		if invocation.Executable == "" {
+			result = append(result, invocation)
+		}
+	}
+	return result
 }
 
 func (f *appFakeRunner) Run(_ context.Context, invocation runner.Invocation) (runner.Result, error) {
 	f.invocations = append(f.invocations, invocation)
 	if invocation.Executable == "gh" {
+		if strings.HasPrefix(strings.Join(invocation.Args, " "), "pr create ") {
+			return runner.Result{Stdout: "https://github.com/dapi/code-converge/pull/40\n"}, nil
+		}
+		if strings.HasPrefix(strings.Join(invocation.Args, " "), "api ") {
+			return runner.Result{Stdout: `{"check_runs":[]}`}, nil
+		}
 		return runner.Result{Stdout: "[]"}, nil
 	}
 	if invocation.Executable == "git" {
 		args := strings.Join(invocation.Args, " ")
 		switch {
 		case strings.HasPrefix(args, "status "):
+			if f.statusCalls < len(f.statusResults) {
+				result := f.statusResults[f.statusCalls]
+				f.statusCalls++
+				return result, f.statusErr
+			}
 			return f.status, f.statusErr
+		case args == "add -A", args == "commit -m chore: publish reviewed changes", strings.HasPrefix(args, "push "):
+			return runner.Result{}, nil
+		case args == "branch --show-current":
+			return runner.Result{Stdout: "feature\n"}, nil
+		case args == "rev-parse HEAD":
+			return runner.Result{Stdout: "published-sha\n"}, nil
 		case args == "symbolic-ref --quiet --short HEAD":
 			return runner.Result{Stdout: "feature"}, nil
 		case args == "config --get branch.feature.pushRemote", args == "config --get remote.pushDefault":
 			return runner.Result{}, errors.New("not configured")
 		case args == "config --get branch.feature.remote":
 			return runner.Result{Stdout: "origin"}, nil
+		case args == "remote get-url --push --all origin":
+			return runner.Result{Stdout: "git@github.com:dapi/code-converge.git"}, nil
 		case args == "remote get-url --push --all origin":
 			return runner.Result{Stdout: "git@github.com:dapi/code-converge.git"}, nil
 		case args == "remote get-url --all origin":
@@ -290,13 +320,10 @@ func (f *appFakeRunner) Run(_ context.Context, invocation runner.Invocation) (ru
 	isReview := strings.Contains(invocation.Stdin, "prepared private Git index")
 	for i, arg := range invocation.Args {
 		if arg == "--output-last-message" && i+1 < len(invocation.Args) && f.err == nil {
-			message := f.finalizeMsg
-			if isReview {
-				if f.skipReviewMsg {
-					continue
-				}
-				message = f.reviewMsg
+			if !isReview || f.skipReviewMsg {
+				continue
 			}
+			message := f.reviewMsg
 			if err := os.WriteFile(invocation.Args[i+1], []byte(message), 0o600); err != nil {
 				f.t.Fatalf("write output message: %v", err)
 			}
@@ -311,10 +338,9 @@ func (f *appFakeRunner) Run(_ context.Context, invocation runner.Invocation) (ru
 func TestNilStreamsAndCwdDoNotPanic(t *testing.T) {
 	root, home := testRepo(t)
 	fake := &appFakeRunner{
-		t:           t,
-		review:      runner.Result{Stdout: "No findings.\n"},
-		reviewMsg:   `{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"no findings","overall_confidence_score":0.99}`,
-		finalizeMsg: `{"verdict":"SUCCESS","commit":"success","push":"success","change_request":"skipped","ci":"skipped"}`,
+		t:         t,
+		review:    runner.Result{Stdout: "No findings.\n"},
+		reviewMsg: `{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"no findings","overall_confidence_score":0.99}`,
 	}
 	code := (App{Cwd: root, Home: home, Runner: fake}).Run(context.Background(), nil)
 	if code != workflow.ExitSuccess {
@@ -348,11 +374,10 @@ func TestAppWorkflowSuccessWithFakeRunner(t *testing.T) {
 	root, home := testRepo(t)
 	var stdout, stderr bytes.Buffer
 	fake := &appFakeRunner{
-		t:           t,
-		review:      runner.Result{Stdout: "No findings.\n"},
-		reviewMsg:   `{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"no findings","overall_confidence_score":0.99}`,
-		status:      runner.Result{Stdout: " M changed.go\n"},
-		finalizeMsg: `{"verdict":"SUCCESS","commit":"success","push":"success","change_request":"skipped","ci":"skipped"}`,
+		t:             t,
+		review:        runner.Result{Stdout: "No findings.\n"},
+		reviewMsg:     `{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"no findings","overall_confidence_score":0.99}`,
+		statusResults: []runner.Result{{}, {Stdout: " M changed.go\n"}, {Stdout: " M changed.go\n"}},
 	}
 	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home, Runner: fake}).Run(context.Background(), []string{"--log-format=kv"})
 	if code != workflow.ExitSuccess || stderr.Len() != 0 {
@@ -361,8 +386,8 @@ func TestAppWorkflowSuccessWithFakeRunner(t *testing.T) {
 	if !strings.Contains(stdout.String(), "event=run_completed status=success exit_code=0") {
 		t.Fatalf("stdout:\n%s", stdout.String())
 	}
-	if len(fake.invocations) < 2 {
-		t.Fatalf("expected review and finalize invocations, got %d", len(fake.invocations))
+	if len(codexInvocationsForApp(fake.invocations)) != 1 {
+		t.Fatalf("expected exactly one Codex review invocation, got %#v", fake.invocations)
 	}
 	var review runner.Invocation
 	for _, invocation := range fake.invocations {
@@ -396,7 +421,7 @@ func TestAppWorkflowSuccessWithFakeRunner(t *testing.T) {
 	}
 }
 
-func TestAppNoChangeSkipsFinalize(t *testing.T) {
+func TestAppNoChangeSkipsPublication(t *testing.T) {
 	root, home := testRepo(t)
 	var stdout, stderr bytes.Buffer
 	fake := &appFakeRunner{
@@ -408,7 +433,7 @@ func TestAppNoChangeSkipsFinalize(t *testing.T) {
 	if code != workflow.ExitSuccess || stderr.Len() != 0 {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "event=review_completed") || !strings.Contains(stdout.String(), "status=clean") || !strings.Contains(stdout.String(), "findings_total=0") || !strings.Contains(stdout.String(), "event=run_completed status=success exit_code=0") || strings.Contains(stdout.String(), "stage=finalize") {
+	if !strings.Contains(stdout.String(), "event=review_completed") || !strings.Contains(stdout.String(), "status=clean") || !strings.Contains(stdout.String(), "findings_total=0") || !strings.Contains(stdout.String(), "event=run_completed status=success exit_code=0") || strings.Contains(stdout.String(), "stage=publish") {
 		t.Fatalf("stdout:\n%s", stdout.String())
 	}
 	last := fake.invocations[len(fake.invocations)-1]
@@ -451,10 +476,9 @@ func TestAppHumanNonTTYWorkflow(t *testing.T) {
 	root, home := testRepo(t)
 	var stdout, stderr bytes.Buffer
 	fake := &appFakeRunner{
-		t:           t,
-		review:      runner.Result{Stdout: "No findings.\n"},
-		reviewMsg:   `{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"no findings","overall_confidence_score":0.99}`,
-		finalizeMsg: `{"verdict":"SUCCESS","commit":"success","push":"success","change_request":"skipped","ci":"skipped"}`,
+		t:         t,
+		review:    runner.Result{Stdout: "No findings.\n"},
+		reviewMsg: `{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"no findings","overall_confidence_score":0.99}`,
 	}
 	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home, Runner: fake}).Run(context.Background(), nil)
 	if code != workflow.ExitSuccess || !strings.Contains(stdout.String(), "Done (") || strings.Contains(stdout.String(), "\x1b") || strings.Contains(stdout.String(), "event=") || strings.Contains(stdout.String(), "No findings") {
@@ -566,10 +590,9 @@ func TestAppHumanDevNullWorkflow(t *testing.T) {
 	defer device.Close()
 	var stderr bytes.Buffer
 	fake := &appFakeRunner{
-		t:           t,
-		review:      runner.Result{Stdout: "No findings.\n"},
-		reviewMsg:   `{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"no findings","overall_confidence_score":0.99}`,
-		finalizeMsg: `{"verdict":"SUCCESS","commit":"success","push":"success","change_request":"skipped","ci":"skipped"}`,
+		t:         t,
+		review:    runner.Result{Stdout: "No findings.\n"},
+		reviewMsg: `{"findings":[],"overall_correctness":"patch is correct","overall_explanation":"no findings","overall_confidence_score":0.99}`,
 	}
 	code := (App{Stdout: device, Stderr: &stderr, Cwd: root, Home: home, Runner: fake}).Run(context.Background(), nil)
 	if code != workflow.ExitSuccess || stderr.Len() != 0 {
@@ -581,10 +604,9 @@ func TestAppHumanDumbTerminalUsesPermanentProgress(t *testing.T) {
 	root, home := testRepo(t)
 	var stdout, stderr bytes.Buffer
 	fake := &appFakeRunner{
-		t:           t,
-		review:      runner.Result{Stdout: "No findings.\n"},
-		reviewMsg:   cleanReviewJSONForApp,
-		finalizeMsg: `{"verdict":"SUCCESS","commit":"success","push":"success","change_request":"skipped","ci":"skipped"}`,
+		t:         t,
+		review:    runner.Result{Stdout: "No findings.\n"},
+		reviewMsg: cleanReviewJSONForApp,
 	}
 	code := (App{
 		Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home, Runner: fake,

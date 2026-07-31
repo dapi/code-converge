@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dapi/code-converge/internal/runner"
 )
@@ -111,6 +112,267 @@ func TestStatusPropagatesRunnerError(t *testing.T) {
 	if _, err := (Status{Runner: fake}).HasChanges(context.Background()); err == nil {
 		t.Fatal("expected runner error")
 	}
+}
+
+func TestPublishUsesDirectRefspecAndReusesPR(t *testing.T) {
+	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
+		switch strings.Join(inv.Args, " ") {
+		case "status --porcelain --untracked-files=all":
+			return runner.Result{}, nil
+		case "branch --show-current":
+			return runner.Result{Stdout: "feature/one\n"}, nil
+		case "config --get branch.feature/one.pushRemote", "config --get remote.pushDefault":
+			return runner.Result{}, errors.New("not configured")
+		case "remote":
+			return runner.Result{Stdout: "origin\n"}, nil
+		case "remote get-url --push --all origin":
+			return runner.Result{Stdout: "git@github.com:dapi/code-converge.git\n"}, nil
+		case "push origin HEAD:refs/heads/feature/one":
+			return runner.Result{}, nil
+		case "rev-parse HEAD":
+			return runner.Result{Stdout: "published-sha\n"}, nil
+		case "pr list --repo dapi/code-converge --head feature/one --state open --json url --limit 2":
+			return runner.Result{Stdout: `[{"url":"https://github.com/dapi/code-converge/pull/39"}]`}, nil
+		default:
+			t.Fatalf("unexpected invocation: %#v", inv)
+			return runner.Result{}, nil
+		}
+	}}
+	publication, err := (Status{Runner: fake}).Publish(context.Background(), true)
+	if err != nil || publication.Push != "success" || publication.Head != "published-sha" {
+		t.Fatalf("publication=%#v err=%v", publication, err)
+	}
+	for _, inv := range fake.invocations {
+		if strings.Contains(strings.Join(inv.Args, " "), "push origin") && strings.Contains(strings.Join(inv.Args, " "), "--set-upstream") {
+			t.Fatal("publication updated tracking state")
+		}
+	}
+}
+
+func TestPublishCreatesPRFromGHURL(t *testing.T) {
+	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
+		switch strings.Join(inv.Args, " ") {
+		case "status --porcelain --untracked-files=all":
+			return runner.Result{}, nil
+		case "branch --show-current":
+			return runner.Result{Stdout: "feature/one\n"}, nil
+		case "config --get branch.feature/one.pushRemote", "config --get remote.pushDefault":
+			return runner.Result{}, errors.New("not configured")
+		case "remote":
+			return runner.Result{Stdout: "origin\n"}, nil
+		case "remote get-url --push --all origin":
+			return runner.Result{Stdout: "git@github.com:dapi/code-converge.git\n"}, nil
+		case "push origin HEAD:refs/heads/feature/one":
+			return runner.Result{}, nil
+		case "rev-parse HEAD":
+			return runner.Result{Stdout: "published-sha\n"}, nil
+		case "pr list --repo dapi/code-converge --head feature/one --state open --json url --limit 2":
+			return runner.Result{Stdout: "[]"}, nil
+		case "pr create --repo dapi/code-converge --head feature/one --fill":
+			return runner.Result{Stdout: "https://github.com/dapi/code-converge/pull/40\n"}, nil
+		default:
+			t.Fatalf("unexpected invocation: %#v", inv)
+			return runner.Result{}, nil
+		}
+	}}
+	publication, err := (Status{Runner: fake}).Publish(context.Background(), true)
+	if err != nil || publication.ChangeRequest != "success" || publication.URL != "https://github.com/dapi/code-converge/pull/40" {
+		t.Fatalf("publication=%#v err=%v", publication, err)
+	}
+}
+
+func TestOpenPRRejectsMalformedProviderIdentity(t *testing.T) {
+	for _, test := range []struct {
+		name, listed, created string
+	}{
+		{name: "malformed discovered URL", listed: `[{"url":"not-a-pr"}]`},
+		{name: "malformed created URL", listed: "[]", created: "created pull request"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
+				switch strings.Join(inv.Args, " ") {
+				case "pr list --repo dapi/code-converge --head feature/one --state open --json url --limit 2":
+					return runner.Result{Stdout: test.listed}, nil
+				case "pr create --repo dapi/code-converge --head feature/one --fill":
+					return runner.Result{Stdout: test.created}, nil
+				default:
+					t.Fatalf("unexpected invocation: %#v", inv)
+					return runner.Result{}, nil
+				}
+			}}
+			if _, err := (Status{Runner: fake}).openPR(context.Background(), "dapi/code-converge", "feature/one"); err == nil {
+				t.Fatal("expected malformed provider identity error")
+			}
+		})
+	}
+}
+
+func TestPublishFromLinkedWorktreeUsesHostGitMetadata(t *testing.T) {
+	// The linked worktree owns its files while the branch/ref metadata lives in
+	// root/.git.  Publish runs through runner.Exec (the Code Converge host), not
+	// a Codex workspace, so it can update that common Git directory.
+	root := t.TempDir()
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	worktree := filepath.Join(t.TempDir(), "linked-worktree")
+	runGit := func(dir string, args ...string) {
+		t.Helper()
+		command := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+	}
+	runBareGit := func(args ...string) {
+		t.Helper()
+		command := exec.Command("git", append([]string{"--git-dir", remote}, args...)...)
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git --git-dir %s %v: %v: %s", remote, args, err, output)
+		}
+	}
+	runGit(root, "init", "-q")
+	runGit(root, "config", "user.email", "test@example.com")
+	runGit(root, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(root, "tracked.txt"), []byte("base"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGit(root, "add", "tracked.txt")
+	runGit(root, "commit", "-qm", "base")
+	if output, err := exec.Command("git", "init", "--bare", "-q", remote).CombinedOutput(); err != nil {
+		t.Fatalf("init bare remote: %v: %s", err, output)
+	}
+	// Use a GitHub-shaped remote for repository identity, routed locally by the
+	// test SSH shim below so no network access is involved.
+	runGit(root, "remote", "add", "origin", "git@github.com:dapi/code-converge.git")
+	runGit(root, "worktree", "add", "-q", "-b", "feature/linked", worktree)
+
+	bin := t.TempDir()
+	ssh := filepath.Join(bin, "ssh")
+	if err := os.WriteFile(ssh, []byte("#!/bin/sh\nif [ \"$1\" = -G ]; then exit 0; fi\nexec git-receive-pack \"$CODE_CONVERGE_TEST_REMOTE\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	gh := filepath.Join(bin, "gh")
+	if err := os.WriteFile(gh, []byte("#!/bin/sh\ncase \"$1 $2\" in\n  'pr list') printf '[]' ;;\n  'pr create') printf 'https://github.com/dapi/code-converge/pull/39\\n' ;;\n  *) echo \"unexpected gh invocation: $*\" >&2; exit 1 ;;\nesac\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_SSH_COMMAND", ssh)
+	t.Setenv("CODE_CONVERGE_TEST_REMOTE", remote)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	publication, err := (Status{Runner: runner.Exec{Dir: worktree}}).Publish(context.Background(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if publication.Push != "success" || publication.ChangeRequest != "success" || publication.Head == "" {
+		t.Fatalf("publication=%#v", publication)
+	}
+	remoteHeadCommand := exec.Command("git", "--git-dir", remote, "rev-parse", "refs/heads/feature/linked")
+	remoteHead, err := remoteHeadCommand.Output()
+	if err != nil || strings.TrimSpace(string(remoteHead)) != publication.Head {
+		t.Fatalf("remote head=%q err=%v, publication=%#v", remoteHead, err, publication)
+	}
+	// Keep the helper used so its failures remain easy to diagnose when Git's
+	// transport invocation changes on a supported platform.
+	runBareGit("show-ref", "--verify", "refs/heads/feature/linked")
+}
+
+func TestWaitCIClassifiesExactHeadRuns(t *testing.T) {
+	for _, test := range []struct {
+		name, body string
+		want       CIResult
+	}{
+		{"skipped", `[{"check_runs":[]}]`, CISkipped},
+		{"green", `[{"check_runs":[{"status":"completed","conclusion":"success"},{"status":"completed","conclusion":"skipped"}]}]`, CISuccess},
+		{"failed", `[{"check_runs":[{"status":"completed","conclusion":"failure"}]}]`, CIFailed},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &fakeRunner{result: runner.Result{Stdout: test.body}}
+			got, err := (Status{Runner: fake}).WaitCI(context.Background(), Publication{Head: "published-sha", Repository: "dapi/code-converge"})
+			if err != nil || got != test.want {
+				t.Fatalf("WaitCI=%q,%v", got, err)
+			}
+			query := strings.Join(fake.invocations[0].Args, " ")
+			if !strings.Contains(query, "repos/dapi/code-converge/commits/published-sha/check-runs?per_page=100") || !strings.Contains(query, "--paginate --slurp") {
+				t.Fatalf("CI query was not pinned to the published remote and SHA: %q", query)
+			}
+		})
+	}
+}
+
+func TestGitHubRepositoryFromURL(t *testing.T) {
+	for _, test := range []struct {
+		url  string
+		want string
+		ok   bool
+	}{
+		{"git@github.com:dapi/code-converge.git", "dapi/code-converge", true},
+		{"https://github.com/dapi/code-converge.git", "dapi/code-converge", true},
+		{"ssh://git@github.com/dapi/code-converge", "dapi/code-converge", true},
+		{"https://example.com/dapi/code-converge.git", "", false},
+		{"git@github.com:dapi/code-converge/extra.git", "", false},
+	} {
+		got, ok := githubRepositoryFromURL(test.url)
+		if got != test.want || ok != test.ok {
+			t.Errorf("githubRepositoryFromURL(%q) = %q, %t; want %q, %t", test.url, got, ok, test.want, test.ok)
+		}
+	}
+}
+
+func TestWaitCIFailsImmediatelyForPermanentProviderErrors(t *testing.T) {
+	fake := &fakeRunner{err: errors.New("To get started with GitHub CLI, please run: gh auth login")}
+	result, err := (Status{Runner: fake}).WaitCI(context.Background(), Publication{Head: "published-sha", Repository: "dapi/code-converge"})
+	if result != "" || err == nil || !strings.Contains(err.Error(), "query CI checks") {
+		t.Fatalf("result=%q err=%v", result, err)
+	}
+	if len(fake.invocations) != 1 {
+		t.Fatalf("permanent provider error retried: %#v", fake.invocations)
+	}
+}
+
+func TestWaitCIRejectsEmptyPublishedHead(t *testing.T) {
+	fake := &fakeRunner{}
+	result, err := (Status{Runner: fake}).WaitCI(context.Background(), Publication{Repository: "dapi/code-converge"})
+	if result != "" || err == nil || !strings.Contains(err.Error(), "published head is empty") {
+		t.Fatalf("result=%q err=%v", result, err)
+	}
+	if len(fake.invocations) != 0 {
+		t.Fatalf("queried CI with an empty head: %#v", fake.invocations)
+	}
+}
+
+func TestWaitCIRetriesTransientProviderErrorWithinDeadline(t *testing.T) {
+	attempts, waits := 0, 0
+	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
+		attempts++
+		if attempts == 1 {
+			return runner.Result{}, errors.New("temporary GitHub API outage")
+		}
+		return runner.Result{Stdout: `[{"check_runs":[{"status":"completed","conclusion":"success"}]}]`}, nil
+	}}
+	result, err := (Status{Runner: fake, Wait: func(context.Context, time.Duration) bool {
+		waits++
+		return true
+	}}).WaitCI(context.Background(), Publication{Head: "published-sha", Repository: "dapi/code-converge"})
+	if err != nil || result != CISuccess || attempts != 2 || waits != 1 {
+		t.Fatalf("result=%q err=%v attempts=%d waits=%d", result, err, attempts, waits)
+	}
+}
+
+func TestWaitCIDistinguishesDeadlineFromCancellation(t *testing.T) {
+	t.Run("deadline", func(t *testing.T) {
+		ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+		defer cancel()
+		result, err := (Status{Runner: &fakeRunner{}}).WaitCI(ctx, Publication{Head: "published-sha", Repository: "dapi/code-converge"})
+		if err != nil || result != CITimeout {
+			t.Fatalf("result=%q err=%v", result, err)
+		}
+	})
+	t.Run("cancelled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		result, err := (Status{Runner: &fakeRunner{}}).WaitCI(ctx, Publication{Head: "published-sha", Repository: "dapi/code-converge"})
+		if result != "" || !errors.Is(err, context.Canceled) {
+			t.Fatalf("result=%q err=%v", result, err)
+		}
+	})
 }
 
 func TestStatusCheckpointCommitsLocallyWithoutPush(t *testing.T) {

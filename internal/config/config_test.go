@@ -29,10 +29,10 @@ func clearGitRepositoryEnvironment() {
 var codeConvergeEnv = []string{
 	"CODE_CONVERGE_LOG_FORMAT", "CODE_CONVERGE_HEARTBEAT", "CODE_CONVERGE_COLOR",
 	"CODE_CONVERGE_MODE",
-	"CODE_CONVERGE_MAX_CYCLES", "CODE_CONVERGE_MAX_CI_RECOVERIES", "CODE_CONVERGE_REVIEW_MODEL", "CODE_CONVERGE_REVIEW_REASONING_EFFORT",
-	"CODE_CONVERGE_FIX_MODEL", "CODE_CONVERGE_FIX_REASONING_EFFORT", "CODE_CONVERGE_FIX_PROMPT_FILE", "CODE_CONVERGE_FINALIZE_MODEL",
-	"CODE_CONVERGE_FINALIZE_REASONING_EFFORT", "CODE_CONVERGE_FINALIZE_PROMPT_FILE", "CODE_CONVERGE_CI_FIX_MODEL",
+	"CODE_CONVERGE_MAX_CYCLES", "CODE_CONVERGE_MAX_CI_RECOVERIES", "CODE_CONVERGE_CI_TIMEOUT", "CODE_CONVERGE_REVIEW_MODEL", "CODE_CONVERGE_REVIEW_REASONING_EFFORT",
+	"CODE_CONVERGE_FIX_MODEL", "CODE_CONVERGE_FIX_REASONING_EFFORT", "CODE_CONVERGE_FIX_PROMPT_FILE", "CODE_CONVERGE_CI_FIX_MODEL",
 	"CODE_CONVERGE_CI_FIX_REASONING_EFFORT", "CODE_CONVERGE_CI_FIX_PROMPT_FILE",
+	"CODE_CONVERGE_FINALIZE_MODEL", "CODE_CONVERGE_FINALIZE_REASONING_EFFORT", "CODE_CONVERGE_FINALIZE_PROMPT_FILE",
 	"CODE_CONVERGE_REVIEW_BASE",
 	"CODE_CONVERGE_SESSION_LOG_DIR", "CODE_CONVERGE_SESSION_LOG_RETENTION",
 }
@@ -53,6 +53,81 @@ func TestLoggingConfiguration(t *testing.T) {
 		if !strings.Contains(Format(cfg), want) {
 			t.Errorf("missing %q in:\n%s", want, Format(cfg))
 		}
+	}
+}
+
+func TestCITimeoutPrecedenceAndValidation(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	t.Setenv("CODE_CONVERGE_CI_TIMEOUT", "20m")
+	write(t, filepath.Join(home, ".code-converge", "ci-timeout"), "30m")
+	write(t, filepath.Join(root, ".code-converge", "ci-timeout"), "40m")
+	cfg, err := Load(root, home, Overrides{CITimeout: OptionalString{Value: "50m", Set: true}})
+	if err != nil || cfg.CITimeout != 50*time.Minute || source(cfg, "ci-timeout") != SourceCLI {
+		t.Fatalf("ci timeout = %s (%s), %v", cfg.CITimeout, source(cfg, "ci-timeout"), err)
+	}
+	if _, err := Load(root, home, Overrides{CITimeout: OptionalString{Value: "0s", Set: true}}); err == nil {
+		t.Fatal("accepted invalid ci timeout")
+	}
+}
+
+func TestCITimeoutSourcePrecedence(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		env        string
+		user       string
+		project    string
+		override   OptionalString
+		want       time.Duration
+		wantSource string
+	}{
+		{"built-in default", "", "", "", OptionalString{}, 60 * time.Minute, SourceDefault},
+		{"environment", "20m", "", "", OptionalString{}, 20 * time.Minute, SourceEnv},
+		{"user", "20m", "30m", "", OptionalString{}, 30 * time.Minute, SourceUser},
+		{"project", "20m", "30m", "40m", OptionalString{}, 40 * time.Minute, SourceProject},
+		{"CLI", "20m", "30m", "40m", OptionalString{Value: "50m", Set: true}, 50 * time.Minute, SourceCLI},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cleanEnv(t)
+			root, home := repo(t)
+			if test.env != "" {
+				t.Setenv("CODE_CONVERGE_CI_TIMEOUT", test.env)
+			}
+			if test.user != "" {
+				write(t, filepath.Join(home, ".code-converge", "ci-timeout"), test.user)
+			}
+			if test.project != "" {
+				write(t, filepath.Join(root, ".code-converge", "ci-timeout"), test.project)
+			}
+			cfg, err := Load(root, home, Overrides{CITimeout: test.override})
+			if err != nil || cfg.CITimeout != test.want || source(cfg, "ci-timeout") != test.wantSource {
+				t.Fatalf("ci-timeout=%s (%s), err=%v; want %s (%s)", cfg.CITimeout, source(cfg, "ci-timeout"), err, test.want, test.wantSource)
+			}
+		})
+	}
+}
+
+func TestObsoleteFinalizeSettingsFailExplicitly(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		set  func(t *testing.T, root, home string)
+	}{
+		{"environment", func(t *testing.T, _, _ string) { t.Setenv("CODE_CONVERGE_FINALIZE_MODEL", "gpt-legacy") }},
+		{"user file", func(t *testing.T, _, home string) {
+			write(t, filepath.Join(home, ".code-converge", "finalize-reasoning-effort"), "medium")
+		}},
+		{"project prompt", func(t *testing.T, root, _ string) {
+			write(t, filepath.Join(root, ".code-converge", "finalize.md"), "publish")
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cleanEnv(t)
+			root, home := repo(t)
+			test.set(t, root, home)
+			if _, err := Load(root, home, Overrides{}); err == nil || !strings.Contains(err.Error(), "Finalize-stage setting") {
+				t.Fatalf("Load obsolete setting error = %v", err)
+			}
+		})
 	}
 }
 
@@ -282,11 +357,11 @@ func TestProfileResolution(t *testing.T) {
 	}{
 		{
 			name: "default fast", wantMode: "fast",
-			want: []string{"gpt-5.6-terra", "medium", "gpt-5.6-luna", "medium", "gpt-5.6-luna", "medium", "gpt-5.6-luna", "medium"},
+			want: []string{"gpt-5.6-terra", "medium", "gpt-5.6-luna", "medium", "gpt-5.6-luna", "medium"},
 		},
 		{
 			name: "explicit best", overrides: Overrides{Mode: OptionalString{Value: "best", Set: true}}, wantMode: "best",
-			want: []string{"gpt-5.6-sol", "high", "gpt-5.6-terra", "high", "gpt-5.6-luna", "medium", "gpt-5.6-terra", "high"},
+			want: []string{"gpt-5.6-sol", "high", "gpt-5.6-terra", "high", "gpt-5.6-terra", "high"},
 		},
 	}
 	for _, test := range tests {
@@ -297,11 +372,11 @@ func TestProfileResolution(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got := []string{cfg.ReviewModel, cfg.ReviewEffort, cfg.FixModel, cfg.FixEffort, cfg.FinalizeModel, cfg.FinalizeEffort, cfg.CIFixModel, cfg.CIFixEffort}
+			got := []string{cfg.ReviewModel, cfg.ReviewEffort, cfg.FixModel, cfg.FixEffort, cfg.CIFixModel, cfg.CIFixEffort}
 			if cfg.Mode != test.wantMode || strings.Join(got, "|") != strings.Join(test.want, "|") {
 				t.Fatalf("mode/profile = %s %q, want %s %q", cfg.Mode, got, test.wantMode, test.want)
 			}
-			for _, name := range []string{"review-model", "review-reasoning-effort", "fix-model", "fix-reasoning-effort", "finalize-model", "finalize-reasoning-effort", "ci-fix-model", "ci-fix-reasoning-effort"} {
+			for _, name := range []string{"review-model", "review-reasoning-effort", "fix-model", "fix-reasoning-effort", "ci-fix-model", "ci-fix-reasoning-effort"} {
 				if gotSource := source(cfg, name); gotSource != test.wantMode+" profile" {
 					t.Errorf("%s source = %q", name, gotSource)
 				}
@@ -360,8 +435,6 @@ func TestEveryStageOverrideSourceBeatsProfile(t *testing.T) {
 		{"review-reasoning-effort", "CODE_CONVERGE_REVIEW_REASONING_EFFORT", func(o *Overrides, v string) { o.ReviewEffort = OptionalString{v, true} }, func(c Config) string { return c.ReviewEffort }},
 		{"fix-model", "CODE_CONVERGE_FIX_MODEL", func(o *Overrides, v string) { o.FixModel = OptionalString{v, true} }, func(c Config) string { return c.FixModel }},
 		{"fix-reasoning-effort", "CODE_CONVERGE_FIX_REASONING_EFFORT", func(o *Overrides, v string) { o.FixEffort = OptionalString{v, true} }, func(c Config) string { return c.FixEffort }},
-		{"finalize-model", "CODE_CONVERGE_FINALIZE_MODEL", func(o *Overrides, v string) { o.FinalizeModel = OptionalString{v, true} }, func(c Config) string { return c.FinalizeModel }},
-		{"finalize-reasoning-effort", "CODE_CONVERGE_FINALIZE_REASONING_EFFORT", func(o *Overrides, v string) { o.FinalizeEffort = OptionalString{v, true} }, func(c Config) string { return c.FinalizeEffort }},
 		{"ci-fix-model", "CODE_CONVERGE_CI_FIX_MODEL", func(o *Overrides, v string) { o.CIFixModel = OptionalString{v, true} }, func(c Config) string { return c.CIFixModel }},
 		{"ci-fix-reasoning-effort", "CODE_CONVERGE_CI_FIX_REASONING_EFFORT", func(o *Overrides, v string) { o.CIFixEffort = OptionalString{v, true} }, func(c Config) string { return c.CIFixEffort }},
 	}
@@ -471,7 +544,7 @@ func source(cfg Config, name string) string {
 }
 
 func TestLoadEmptyStageSettingValidation(t *testing.T) {
-	for _, name := range []string{"review-model", "review-reasoning-effort", "fix-model", "fix-reasoning-effort", "finalize-model", "finalize-reasoning-effort", "ci-fix-model", "ci-fix-reasoning-effort"} {
+	for _, name := range []string{"review-model", "review-reasoning-effort", "fix-model", "fix-reasoning-effort", "ci-fix-model", "ci-fix-reasoning-effort"} {
 		t.Run(name, func(t *testing.T) {
 			cleanEnv(t)
 			root, home := repo(t)
@@ -488,11 +561,9 @@ func TestResolveFileReadError(t *testing.T) {
 	cleanEnv(t)
 	root, home := repo(t)
 	path := filepath.Join(home, ".code-converge", "max-cycles")
-	write(t, path, "5\n")
-	if err := os.Chmod(path, 0o000); err != nil {
+	if err := os.MkdirAll(path, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chmod(path, 0o600)
 	_, err := Load(root, home, Overrides{})
 	if err == nil {
 		t.Fatal("expected read error")
@@ -543,7 +614,6 @@ func TestFormatProfileAndEqualExplicitSources(t *testing.T) {
 		"mode: best (cli; built-in: fast)",
 		"review-model: gpt-5.6-terra (cli)",
 		"fix-model: gpt-5.6-terra (best profile; built-in: gpt-5.6-luna)",
-		"finalize-model: gpt-5.6-luna (best profile)",
 	} {
 		if !strings.Contains(formatted, want) {
 			t.Errorf("missing %q in:\n%s", want, formatted)
