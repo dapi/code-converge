@@ -113,6 +113,102 @@ func TestStatusPropagatesRunnerError(t *testing.T) {
 	}
 }
 
+func TestPublishUsesDirectRefspecAndReusesPR(t *testing.T) {
+	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
+		switch strings.Join(inv.Args, " ") {
+		case "status --porcelain --untracked-files=all":
+			return runner.Result{}, nil
+		case "branch --show-current":
+			return runner.Result{Stdout: "feature/one\n"}, nil
+		case "config --get branch.feature/one.pushRemote", "config --get remote.pushDefault":
+			return runner.Result{}, errors.New("not configured")
+		case "remote":
+			return runner.Result{Stdout: "origin\n"}, nil
+		case "push origin HEAD:refs/heads/feature/one":
+			return runner.Result{}, nil
+		case "rev-parse HEAD":
+			return runner.Result{Stdout: "published-sha\n"}, nil
+		case "pr list --head feature/one --state open --json url --limit 2":
+			return runner.Result{Stdout: `[{"url":"https://github.com/dapi/code-converge/pull/39"}]`}, nil
+		default:
+			t.Fatalf("unexpected invocation: %#v", inv)
+			return runner.Result{}, nil
+		}
+	}}
+	publication, err := (Status{Runner: fake}).Publish(context.Background(), true)
+	if err != nil || publication.Push != "success" || publication.Head != "published-sha" {
+		t.Fatalf("publication=%#v err=%v", publication, err)
+	}
+	for _, inv := range fake.invocations {
+		if strings.Contains(strings.Join(inv.Args, " "), "push origin") && strings.Contains(strings.Join(inv.Args, " "), "--set-upstream") {
+			t.Fatal("publication updated tracking state")
+		}
+	}
+}
+
+func TestPublishCreatesPRFromGHURL(t *testing.T) {
+	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
+		switch strings.Join(inv.Args, " ") {
+		case "status --porcelain --untracked-files=all":
+			return runner.Result{}, nil
+		case "branch --show-current":
+			return runner.Result{Stdout: "feature/one\n"}, nil
+		case "config --get branch.feature/one.pushRemote", "config --get remote.pushDefault":
+			return runner.Result{}, errors.New("not configured")
+		case "remote":
+			return runner.Result{Stdout: "origin\n"}, nil
+		case "push origin HEAD:refs/heads/feature/one":
+			return runner.Result{}, nil
+		case "rev-parse HEAD":
+			return runner.Result{Stdout: "published-sha\n"}, nil
+		case "pr list --head feature/one --state open --json url --limit 2":
+			return runner.Result{Stdout: "[]"}, nil
+		case "pr create --head feature/one --fill":
+			return runner.Result{Stdout: "https://github.com/dapi/code-converge/pull/40\n"}, nil
+		default:
+			t.Fatalf("unexpected invocation: %#v", inv)
+			return runner.Result{}, nil
+		}
+	}}
+	publication, err := (Status{Runner: fake}).Publish(context.Background(), true)
+	if err != nil || publication.ChangeRequest != "success" || publication.URL != "https://github.com/dapi/code-converge/pull/40" {
+		t.Fatalf("publication=%#v err=%v", publication, err)
+	}
+}
+
+func TestWaitCIClassifiesExactHeadRuns(t *testing.T) {
+	for _, test := range []struct {
+		name, body string
+		want       CIResult
+	}{
+		{"skipped", `{"check_runs":[]}`, CISkipped},
+		{"green", `{"check_runs":[{"status":"completed","conclusion":"success"},{"status":"completed","conclusion":"skipped"}]}`, CISuccess},
+		{"failed", `{"check_runs":[{"status":"completed","conclusion":"failure"}]}`, CIFailed},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &fakeRunner{result: runner.Result{Stdout: test.body}}
+			got, err := (Status{Runner: fake}).WaitCI(context.Background(), Publication{Head: "published-sha"})
+			if err != nil || got != test.want {
+				t.Fatalf("WaitCI=%q,%v", got, err)
+			}
+			if !strings.Contains(strings.Join(fake.invocations[0].Args, " "), "published-sha") {
+				t.Fatal("CI query was not SHA pinned")
+			}
+		})
+	}
+}
+
+func TestWaitCIFailsImmediatelyForPermanentProviderErrors(t *testing.T) {
+	fake := &fakeRunner{err: errors.New("To get started with GitHub CLI, please run: gh auth login")}
+	result, err := (Status{Runner: fake}).WaitCI(context.Background(), Publication{Head: "published-sha"})
+	if result != "" || err == nil || !strings.Contains(err.Error(), "query CI checks") {
+		t.Fatalf("result=%q err=%v", result, err)
+	}
+	if len(fake.invocations) != 1 {
+		t.Fatalf("permanent provider error retried: %#v", fake.invocations)
+	}
+}
+
 func TestStatusCheckpointCommitsLocallyWithoutPush(t *testing.T) {
 	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
 		switch strings.Join(inv.Args, " ") {

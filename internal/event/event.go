@@ -492,8 +492,10 @@ func renderHuman(eventName string, fields []Field, maxCycles, maxCIRecoveries in
 			return "Review started", nil
 		case "fix-findings":
 			return "Fixing findings", nil
-		case "finalize":
-			return "Finalizing", nil
+		case "publish":
+			return "Publishing", nil
+		case "ci":
+			return "Waiting for CI", nil
 		case "fix-ci":
 			return "CI recovery", nil
 		}
@@ -563,23 +565,28 @@ func renderHuman(eventName string, fields []Field, maxCycles, maxCIRecoveries in
 			case "failed":
 				return fmt.Sprintf("CI recovery failed (%s)", d), nil
 			}
-		case "finalize":
-			switch values["verdict"] {
-			case "SUCCESS":
-				return fmt.Sprintf("Finalized successfully (%s)", d), nil
-			case "CI_FAILED":
-				return fmt.Sprintf("Finalized, but CI is failing (%s)", d), nil
-			case "FAILED":
-				return fmt.Sprintf("Finalization failed (%s)", d), nil
-			case "":
-				if values["status"] == "failed" {
-					return fmt.Sprintf("Finalization failed (%s)", d), nil
-				}
+		case "publish":
+			if values["status"] == "success" {
+				return fmt.Sprintf("Published (%s)", d), nil
+			}
+			if values["status"] == "failed" {
+				return fmt.Sprintf("Publication failed (%s)", d), nil
+			}
+		case "ci":
+			switch values["status"] {
+			case "success":
+				return fmt.Sprintf("CI passed (%s)", d), nil
+			case "skipped":
+				return fmt.Sprintf("CI skipped: no applicable checks (%s)", d), nil
+			case "failed":
+				return fmt.Sprintf("CI failed (%s)", d), nil
+			case "timeout":
+				return fmt.Sprintf("CI timed out (%s)", d), nil
 			}
 		}
 	case "step_completed":
 		labels := map[string]string{"commit": "Commit", "push": "Push", "change_request": "Change request", "ci": "CI"}
-		statuses := map[string]string{"success": "done", "skipped": "not needed", "failed": "failed", "unknown": "unknown"}
+		statuses := map[string]string{"success": "done", "skipped": "not needed", "failed": "failed", "timeout": "timed out", "unknown": "unknown"}
 		label, labelOK := labels[values["step"]]
 		status, statusOK := statuses[values["status"]]
 		if !labelOK || !statusOK {
@@ -622,6 +629,8 @@ func renderHuman(eventName string, fields []Field, maxCycles, maxCIRecoveries in
 			return fmt.Sprintf("Cancelled (%s, exit 130)", d), nil
 		case "ci_failure":
 			return fmt.Sprintf("Stopped: CI is still failing (%s, exit 3)", d), nil
+		case "ci_timeout":
+			return fmt.Sprintf("Failed: CI timed out (%s, exit 2)", d), nil
 		}
 	}
 	return "", fmt.Errorf("unsupported human event %s with fields %#v", eventName, fields)
@@ -672,7 +681,8 @@ func (l *Logger) livenessLabel(stage StageContext, transient bool) string {
 	labels := map[string][2]string{
 		"review":       {"Reviewing", "Review"},
 		"fix-findings": {"Fixing findings", "Fixing findings"},
-		"finalize":     {"Finalizing", "Finalization"},
+		"publish":      {"Publishing", "Publication"},
+		"ci":           {"Waiting for CI", "CI"},
 		"fix-ci":       {"CI recovery", "CI recovery"},
 	}
 	label, ok := labels[stage.Stage]

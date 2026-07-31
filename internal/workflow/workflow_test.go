@@ -50,6 +50,10 @@ type fakeRepository struct {
 	cleanCalls      int
 	checkpointCalls int
 	head            string
+	publication     repository.Publication
+	publishErr      error
+	ci              repository.CIResult
+	ciErr           error
 }
 
 func (f *fakeRepository) HasChanges(context.Context) (bool, error) {
@@ -73,6 +77,20 @@ func (f *fakeRepository) Checkpoint(context.Context, string, bool) (repository.C
 		return f.checkpoints[index], f.checkpointErr
 	}
 	return f.checkpoint, f.checkpointErr
+}
+
+func (f *fakeRepository) Publish(context.Context, bool) (repository.Publication, error) {
+	if f.publication == (repository.Publication{}) {
+		return repository.Publication{Commit: "success", Push: "success", ChangeRequest: "skipped", Head: "sha"}, f.publishErr
+	}
+	return f.publication, f.publishErr
+}
+
+func (f *fakeRepository) WaitCI(context.Context, repository.Publication) (repository.CIResult, error) {
+	if f.ci == "" {
+		return repository.CISuccess, f.ciErr
+	}
+	return f.ci, f.ciErr
 }
 
 func (f *fakeAgent) Review(ctx context.Context) (codex.ReviewResult, error) {
