@@ -48,4 +48,5 @@ audience: humans_and_agents
 - [`FT-024/README.md`](FT-024/README.md) — completed local checkpoints for successful findings fixes, with publication deferred to clean-review finalization for issue #24.
 - [`FT-028/README.md`](FT-028/README.md) — active remediation of stale interactive liveness frames for issue #28 through footprint-aware clearing and deterministic reflow coverage.
 - [`FT-036/README.md`](FT-036/README.md) — planned discoverable root and subcommand CLI help for issue #36.
+- [`FT-038/README.md`](FT-038/README.md) — strict YAML configuration delivery for issue #38.
 - [`FT-039/README.md`](FT-039/README.md) — active deterministic repository publication and CI orchestration for issue #39.

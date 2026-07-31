@@ -2,12 +2,15 @@ package config
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -89,6 +92,29 @@ type spec struct {
 	defSource  string
 	override   OptionalString
 	promptFile bool
+}
+
+type fileConfig map[string]string
+
+type yamlFileConfig struct {
+	LogFormat           *string `yaml:"log-format"`
+	Heartbeat           *string `yaml:"heartbeat"`
+	Color               *string `yaml:"color"`
+	Mode                *string `yaml:"mode"`
+	MaxCycles           *int    `yaml:"max-cycles"`
+	MaxCIRecoveries     *int    `yaml:"max-ci-recoveries"`
+	CITimeout           *string `yaml:"ci-timeout"`
+	ReviewModel         *string `yaml:"review-model"`
+	ReviewEffort        *string `yaml:"review-reasoning-effort"`
+	FixModel            *string `yaml:"fix-model"`
+	FixEffort           *string `yaml:"fix-reasoning-effort"`
+	FixPromptPath       *string `yaml:"fix-prompt-file"`
+	CIFixModel          *string `yaml:"ci-fix-model"`
+	CIFixEffort         *string `yaml:"ci-fix-reasoning-effort"`
+	CIFixPromptPath     *string `yaml:"ci-fix-prompt-file"`
+	ReviewBase          *string `yaml:"review-base"`
+	SessionLogDir       *string `yaml:"session-log-dir"`
+	SessionLogRetention *string `yaml:"session-log-retention"`
 }
 
 type stageProfile struct {
@@ -183,10 +209,10 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 		{name: "review-reasoning-effort", file: "review-reasoning-effort", env: "CODE_CONVERGE_REVIEW_REASONING_EFFORT", def: profile.reviewEffort, builtIn: fast.reviewEffort, defSource: profileSource, override: overrides.ReviewEffort},
 		{name: "fix-model", file: "fix-model", env: "CODE_CONVERGE_FIX_MODEL", def: profile.fixModel, builtIn: fast.fixModel, defSource: profileSource, override: overrides.FixModel},
 		{name: "fix-reasoning-effort", file: "fix-reasoning-effort", env: "CODE_CONVERGE_FIX_REASONING_EFFORT", def: profile.fixEffort, builtIn: fast.fixEffort, defSource: profileSource, override: overrides.FixEffort},
-		{name: "fix-prompt", file: "fix-findings.md", env: "CODE_CONVERGE_FIX_PROMPT_FILE", def: "fix findings", builtIn: "fix findings", defSource: SourceDefault, override: overrides.FixPromptPath, promptFile: true},
+		{name: "fix-prompt", file: "fix-prompt-file", env: "CODE_CONVERGE_FIX_PROMPT_FILE", def: "fix findings", builtIn: "fix findings", defSource: SourceDefault, override: overrides.FixPromptPath, promptFile: true},
 		{name: "ci-fix-model", file: "ci-fix-model", env: "CODE_CONVERGE_CI_FIX_MODEL", def: profile.ciFixModel, builtIn: fast.ciFixModel, defSource: profileSource, override: overrides.CIFixModel},
 		{name: "ci-fix-reasoning-effort", file: "ci-fix-reasoning-effort", env: "CODE_CONVERGE_CI_FIX_REASONING_EFFORT", def: profile.ciFixEffort, builtIn: fast.ciFixEffort, defSource: profileSource, override: overrides.CIFixEffort},
-		{name: "ci-fix-prompt", file: "fix-ci.md", env: "CODE_CONVERGE_CI_FIX_PROMPT_FILE", def: "Исправь CI", builtIn: "Исправь CI", defSource: SourceDefault, override: overrides.CIFixPromptPath, promptFile: true},
+		{name: "ci-fix-prompt", file: "ci-fix-prompt-file", env: "CODE_CONVERGE_CI_FIX_PROMPT_FILE", def: "Исправь CI", builtIn: "Исправь CI", defSource: SourceDefault, override: overrides.CIFixPromptPath, promptFile: true},
 		{name: "review-base", file: "review-base", env: "CODE_CONVERGE_REVIEW_BASE", def: "", builtIn: "", defSource: SourceDefault, override: overrides.ReviewBase},
 		{name: "session-log-dir", file: "session-log-dir", env: "CODE_CONVERGE_SESSION_LOG_DIR", def: filepath.Join(home, ".code-converge", "session-logs"), builtIn: filepath.Join(home, ".code-converge", "session-logs"), defSource: SourceDefault, override: overrides.SessionLogDir},
 		{name: "session-log-retention", file: "session-log-retention", env: "CODE_CONVERGE_SESSION_LOG_RETENTION", def: "24h", builtIn: "24h", defSource: SourceDefault, override: overrides.SessionLogRetention},
@@ -264,19 +290,6 @@ func rejectObsoleteFinalizeSettings(userDir, projectDir string) error {
 	} {
 		if value, ok := os.LookupEnv(name); ok && strings.TrimSpace(value) != "" {
 			return fmt.Errorf("%s was removed; remove this obsolete Finalize-stage setting", name)
-		}
-	}
-	for _, directory := range []struct {
-		path   string
-		source string
-	}{{userDir, "user"}, {projectDir, "project"}} {
-		for _, name := range []string{"finalize-model", "finalize-reasoning-effort", "finalize.md"} {
-			path := filepath.Join(directory.path, name)
-			if _, err := os.Stat(path); err == nil {
-				return fmt.Errorf("%s Finalize-stage setting %q was removed; delete it", directory.source, path)
-			} else if !os.IsNotExist(err) {
-				return fmt.Errorf("inspect obsolete Finalize-stage setting %q: %w", path, err)
-			}
 		}
 	}
 	return nil
@@ -359,18 +372,22 @@ func resolve(item spec, cwd, userDir, projectDir string) (string, Setting, error
 		source = SourceEnv
 	}
 	for _, candidate := range []struct{ dir, source string }{{userDir, SourceUser}, {projectDir, SourceProject}} {
-		path := filepath.Join(candidate.dir, item.file)
-		content, err := os.ReadFile(path)
+		config, err := readFileConfig(candidate.dir)
 		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return "", Setting{}, fmt.Errorf("read %s: %w", path, err)
+			return "", Setting{}, err
+		}
+		content, ok := config[item.file]
+		if !ok {
+			continue
 		}
 		if item.promptFile {
-			value, display = string(content), path
+			prompt, path, err := readConfiguredPrompt(candidate.dir, content)
+			if err != nil {
+				return "", Setting{}, fmt.Errorf("%s from %s config: %w", item.name, candidate.source, err)
+			}
+			value, display = prompt, path
 		} else {
-			value, display = strings.TrimSpace(string(content)), strings.TrimSpace(string(content))
+			value, display = strings.TrimSpace(content), strings.TrimSpace(content)
 		}
 		source = candidate.source
 	}
@@ -387,6 +404,74 @@ func resolve(item spec, cwd, userDir, projectDir string) (string, Setting, error
 		source = SourceCLI
 	}
 	return value, Setting{Name: item.name, Value: value, Source: source, Default: item.builtIn, DisplayValue: display, DisplayDefault: displayDefault(item)}, nil
+}
+
+func readFileConfig(dir string) (fileConfig, error) {
+	path := filepath.Join(dir, "config.yaml")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fileConfig{}, nil
+		}
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	var decoded yamlFileConfig
+	decoder := yaml.NewDecoder(strings.NewReader(string(content)))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&decoded); err == io.EOF {
+		return fileConfig{}, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("invalid YAML configuration %s: %w", path, err)
+	}
+	var extra yaml.Node
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("invalid YAML configuration %s: only one YAML document is permitted", path)
+		}
+		return nil, fmt.Errorf("invalid YAML configuration %s: %w", path, err)
+	}
+	values := fileConfig{}
+	setString := func(key string, value *string) {
+		if value != nil {
+			values[key] = *value
+		}
+	}
+	setInt := func(key string, value *int) {
+		if value != nil {
+			values[key] = strconv.Itoa(*value)
+		}
+	}
+	setString("log-format", decoded.LogFormat)
+	setString("heartbeat", decoded.Heartbeat)
+	setString("color", decoded.Color)
+	setString("mode", decoded.Mode)
+	setInt("max-cycles", decoded.MaxCycles)
+	setInt("max-ci-recoveries", decoded.MaxCIRecoveries)
+	setString("ci-timeout", decoded.CITimeout)
+	setString("review-model", decoded.ReviewModel)
+	setString("review-reasoning-effort", decoded.ReviewEffort)
+	setString("fix-model", decoded.FixModel)
+	setString("fix-reasoning-effort", decoded.FixEffort)
+	setString("fix-prompt-file", decoded.FixPromptPath)
+	setString("ci-fix-model", decoded.CIFixModel)
+	setString("ci-fix-reasoning-effort", decoded.CIFixEffort)
+	setString("ci-fix-prompt-file", decoded.CIFixPromptPath)
+	setString("review-base", decoded.ReviewBase)
+	setString("session-log-dir", decoded.SessionLogDir)
+	setString("session-log-retention", decoded.SessionLogRetention)
+	return values, nil
+}
+
+func readConfiguredPrompt(configDir, value string) (string, string, error) {
+	path := value
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(configDir, path)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", "", fmt.Errorf("read prompt file %s: %w", path, err)
+	}
+	return string(content), path, nil
 }
 
 func displayDefault(item spec) string {

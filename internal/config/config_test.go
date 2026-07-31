@@ -4,290 +4,186 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestMain(m *testing.M) {
-	clearGitRepositoryEnvironment()
-	os.Exit(m.Run())
-}
-
-func clearGitRepositoryEnvironment() {
-	for _, name := range []string{
-		"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
-		"GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-		"GIT_NAMESPACE", "GIT_CEILING_DIRECTORIES",
-		"GIT_DISCOVERY_ACROSS_FILESYSTEM", "GIT_IMPLICIT_WORK_TREE",
-	} {
-		_ = os.Unsetenv(name)
-	}
-}
-
 var codeConvergeEnv = []string{
-	"CODE_CONVERGE_LOG_FORMAT", "CODE_CONVERGE_HEARTBEAT", "CODE_CONVERGE_COLOR",
-	"CODE_CONVERGE_MODE",
+	"CODE_CONVERGE_LOG_FORMAT", "CODE_CONVERGE_HEARTBEAT", "CODE_CONVERGE_COLOR", "CODE_CONVERGE_MODE",
 	"CODE_CONVERGE_MAX_CYCLES", "CODE_CONVERGE_MAX_CI_RECOVERIES", "CODE_CONVERGE_CI_TIMEOUT", "CODE_CONVERGE_REVIEW_MODEL", "CODE_CONVERGE_REVIEW_REASONING_EFFORT",
-	"CODE_CONVERGE_FIX_MODEL", "CODE_CONVERGE_FIX_REASONING_EFFORT", "CODE_CONVERGE_FIX_PROMPT_FILE", "CODE_CONVERGE_CI_FIX_MODEL",
-	"CODE_CONVERGE_CI_FIX_REASONING_EFFORT", "CODE_CONVERGE_CI_FIX_PROMPT_FILE",
-	"CODE_CONVERGE_FINALIZE_MODEL", "CODE_CONVERGE_FINALIZE_REASONING_EFFORT", "CODE_CONVERGE_FINALIZE_PROMPT_FILE",
-	"CODE_CONVERGE_REVIEW_BASE",
+	"CODE_CONVERGE_FIX_MODEL", "CODE_CONVERGE_FIX_REASONING_EFFORT", "CODE_CONVERGE_FIX_PROMPT_FILE", "CODE_CONVERGE_FINALIZE_MODEL",
+	"CODE_CONVERGE_FINALIZE_REASONING_EFFORT", "CODE_CONVERGE_FINALIZE_PROMPT_FILE", "CODE_CONVERGE_CI_FIX_MODEL",
+	"CODE_CONVERGE_CI_FIX_REASONING_EFFORT", "CODE_CONVERGE_CI_FIX_PROMPT_FILE", "CODE_CONVERGE_REVIEW_BASE",
 	"CODE_CONVERGE_SESSION_LOG_DIR", "CODE_CONVERGE_SESSION_LOG_RETENTION",
 }
 
-func TestLoggingConfiguration(t *testing.T) {
+func TestMain(m *testing.M) {
+	for _, name := range []string{"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"} {
+		_ = os.Unsetenv(name)
+	}
+	os.Exit(m.Run())
+}
+
+func TestYAMLPrecedenceAndConfigReport(t *testing.T) {
 	cleanEnv(t)
 	root, home := repo(t)
-	t.Setenv("CODE_CONVERGE_LOG_FORMAT", "human")
-	write(t, filepath.Join(root, ".code-converge", "heartbeat"), "30s\n")
-	cfg, err := Load(root, home, Overrides{Color: OptionalString{Value: "never", Set: true}})
+	t.Setenv("CODE_CONVERGE_MAX_CYCLES", "2")
+	writeConfig(t, home, "max-cycles: 3\nmode: best\n")
+	writeConfig(t, root, "max-cycles: 4\nmode: fast\n")
+	cfg, err := Load(root, home, Overrides{MaxCycles: OptionalString{Value: "5", Set: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.LogFormat != "human" || cfg.Heartbeat != 30*time.Second || cfg.Color != "never" {
-		t.Fatalf("logging config = %#v", cfg)
+	if cfg.MaxCycles != 5 || cfg.Mode != "fast" || source(cfg, "max-cycles") != SourceCLI || source(cfg, "mode") != SourceProject {
+		t.Fatalf("cfg = %#v", cfg)
 	}
-	for _, want := range []string{"log-format: human (environment)", "heartbeat: 30s (project; built-in: 0)", "color: never (cli; built-in: auto)"} {
-		if !strings.Contains(Format(cfg), want) {
-			t.Errorf("missing %q in:\n%s", want, Format(cfg))
-		}
+	if got := Format(cfg); !strings.Contains(got, "max-cycles: 5 (cli; built-in: 10)") || !strings.Contains(got, "mode: fast (project)") {
+		t.Fatalf("config output:\n%s", got)
+	}
+	cfg, err = Load(root, home, Overrides{})
+	if err != nil || cfg.MaxCycles != 4 || source(cfg, "max-cycles") != SourceProject {
+		t.Fatalf("project precedence: %#v, %v", cfg, err)
+	}
+	if err := os.Remove(filepath.Join(root, ".code-converge", "config.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Load(root, home, Overrides{})
+	if err != nil || cfg.MaxCycles != 3 || source(cfg, "max-cycles") != SourceUser {
+		t.Fatalf("user precedence: %#v, %v", cfg, err)
+	}
+	if err := os.Remove(filepath.Join(home, ".code-converge", "config.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Load(root, home, Overrides{})
+	if err != nil || cfg.MaxCycles != 2 || source(cfg, "max-cycles") != SourceEnv {
+		t.Fatalf("environment precedence: %#v, %v", cfg, err)
 	}
 }
 
-func TestCITimeoutPrecedenceAndValidation(t *testing.T) {
+func TestYAMLRepresentsAllSettings(t *testing.T) {
 	cleanEnv(t)
 	root, home := repo(t)
-	t.Setenv("CODE_CONVERGE_CI_TIMEOUT", "20m")
-	write(t, filepath.Join(home, ".code-converge", "ci-timeout"), "30m")
-	write(t, filepath.Join(root, ".code-converge", "ci-timeout"), "40m")
-	cfg, err := Load(root, home, Overrides{CITimeout: OptionalString{Value: "50m", Set: true}})
-	if err != nil || cfg.CITimeout != 50*time.Minute || source(cfg, "ci-timeout") != SourceCLI {
-		t.Fatalf("ci timeout = %s (%s), %v", cfg.CITimeout, source(cfg, "ci-timeout"), err)
-	}
-	if _, err := Load(root, home, Overrides{CITimeout: OptionalString{Value: "0s", Set: true}}); err == nil {
-		t.Fatal("accepted invalid ci timeout")
-	}
-}
-
-func TestCITimeoutSourcePrecedence(t *testing.T) {
-	for _, test := range []struct {
-		name       string
-		env        string
-		user       string
-		project    string
-		override   OptionalString
-		want       time.Duration
-		wantSource string
-	}{
-		{"built-in default", "", "", "", OptionalString{}, 60 * time.Minute, SourceDefault},
-		{"environment", "20m", "", "", OptionalString{}, 20 * time.Minute, SourceEnv},
-		{"user", "20m", "30m", "", OptionalString{}, 30 * time.Minute, SourceUser},
-		{"project", "20m", "30m", "40m", OptionalString{}, 40 * time.Minute, SourceProject},
-		{"CLI", "20m", "30m", "40m", OptionalString{Value: "50m", Set: true}, 50 * time.Minute, SourceCLI},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			cleanEnv(t)
-			root, home := repo(t)
-			if test.env != "" {
-				t.Setenv("CODE_CONVERGE_CI_TIMEOUT", test.env)
-			}
-			if test.user != "" {
-				write(t, filepath.Join(home, ".code-converge", "ci-timeout"), test.user)
-			}
-			if test.project != "" {
-				write(t, filepath.Join(root, ".code-converge", "ci-timeout"), test.project)
-			}
-			cfg, err := Load(root, home, Overrides{CITimeout: test.override})
-			if err != nil || cfg.CITimeout != test.want || source(cfg, "ci-timeout") != test.wantSource {
-				t.Fatalf("ci-timeout=%s (%s), err=%v; want %s (%s)", cfg.CITimeout, source(cfg, "ci-timeout"), err, test.want, test.wantSource)
-			}
-		})
-	}
-}
-
-func TestObsoleteFinalizeSettingsFailExplicitly(t *testing.T) {
-	for _, test := range []struct {
-		name string
-		set  func(t *testing.T, root, home string)
-	}{
-		{"environment", func(t *testing.T, _, _ string) { t.Setenv("CODE_CONVERGE_FINALIZE_MODEL", "gpt-legacy") }},
-		{"user file", func(t *testing.T, _, home string) {
-			write(t, filepath.Join(home, ".code-converge", "finalize-reasoning-effort"), "medium")
-		}},
-		{"project prompt", func(t *testing.T, root, _ string) {
-			write(t, filepath.Join(root, ".code-converge", "finalize.md"), "publish")
-		}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			cleanEnv(t)
-			root, home := repo(t)
-			test.set(t, root, home)
-			if _, err := Load(root, home, Overrides{}); err == nil || !strings.Contains(err.Error(), "Finalize-stage setting") {
-				t.Fatalf("Load obsolete setting error = %v", err)
-			}
-		})
-	}
-}
-
-func TestLoggingConfigurationPrecedence(t *testing.T) {
-	cleanEnv(t)
-	root, home := repo(t)
-	t.Setenv("CODE_CONVERGE_LOG_FORMAT", "human")
-	t.Setenv("CODE_CONVERGE_HEARTBEAT", "1s")
-	t.Setenv("CODE_CONVERGE_COLOR", "never")
-	for _, item := range []struct{ dir, name, value string }{
-		{filepath.Join(home, ".code-converge"), "log-format", "human"},
-		{filepath.Join(home, ".code-converge"), "heartbeat", "2s"},
-		{filepath.Join(home, ".code-converge"), "color", "auto"},
-		{filepath.Join(root, ".code-converge"), "log-format", "human"},
-		{filepath.Join(root, ".code-converge"), "heartbeat", "3s"},
-		{filepath.Join(root, ".code-converge"), "color", "never"},
-	} {
-		write(t, filepath.Join(item.dir, item.name), item.value)
-	}
-	assert := func(wantSource, wantHeartbeat, wantColor string, overrides Overrides) {
-		t.Helper()
-		cfg, err := Load(root, home, overrides)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if source(cfg, "log-format") != wantSource || source(cfg, "heartbeat") != wantSource || source(cfg, "color") != wantSource || cfg.Heartbeat.String() != wantHeartbeat || cfg.Color != wantColor {
-			t.Fatalf("source/value = %s/%s/%s %s %s", source(cfg, "log-format"), source(cfg, "heartbeat"), source(cfg, "color"), cfg.Heartbeat, cfg.Color)
-		}
-	}
-	assert(SourceCLI, "4s", "auto", Overrides{
-		LogFormat: OptionalString{"human", true}, Heartbeat: OptionalString{"4s", true}, Color: OptionalString{"auto", true},
-	})
-	assert(SourceProject, "3s", "never", Overrides{})
-	for _, name := range []string{"log-format", "heartbeat", "color"} {
-		if err := os.Remove(filepath.Join(root, ".code-converge", name)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	assert(SourceUser, "2s", "auto", Overrides{})
-	for _, name := range []string{"log-format", "heartbeat", "color"} {
-		if err := os.Remove(filepath.Join(home, ".code-converge", name)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	assert(SourceEnv, "1s", "never", Overrides{})
-}
-
-func TestInvalidLoggingConfiguration(t *testing.T) {
-	tests := []Overrides{
-		{LogFormat: OptionalString{"json", true}},
-		{Color: OptionalString{"always", true}},
-		{LogFormat: OptionalString{"human", true}, Heartbeat: OptionalString{"500ms", true}},
-		{LogFormat: OptionalString{"human", true}, Heartbeat: OptionalString{"-1s", true}},
-		{LogFormat: OptionalString{"kv", true}, Heartbeat: OptionalString{"1s", true}},
-	}
-	for _, overrides := range tests {
-		cleanEnv(t)
-		root, home := repo(t)
-		if _, err := Load(root, home, overrides); err == nil {
-			t.Errorf("accepted invalid overrides: %#v", overrides)
-		}
-	}
-}
-
-func TestDefaultLogFormatIsHuman(t *testing.T) {
-	cleanEnv(t)
-	root, home := repo(t)
+	write(t, filepath.Join(root, ".code-converge", "prompts", "fix.md"), "fix prompt\n")
+	write(t, filepath.Join(root, ".code-converge", "prompts", "ci.md"), "ci prompt\n")
+	writeConfig(t, root, strings.Join([]string{
+		"log-format: human", "heartbeat: 2s", "color: never", "mode: best", "max-cycles: 1", "max-ci-recoveries: 2", "ci-timeout: 30m",
+		"review-model: review", "review-reasoning-effort: low", "fix-model: fix", "fix-reasoning-effort: medium", "fix-prompt-file: prompts/fix.md",
+		"ci-fix-model: ci", "ci-fix-reasoning-effort: medium", "ci-fix-prompt-file: prompts/ci.md",
+		"review-base: main", "session-log-dir: " + filepath.Join(home, "logs"), "session-log-retention: 2h",
+	}, "\n")+"\n")
 	cfg, err := Load(root, home, Overrides{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.LogFormat != "human" || source(cfg, "log-format") != SourceDefault {
-		t.Fatalf("log format = %q from %q, want human from built-in default", cfg.LogFormat, source(cfg, "log-format"))
+	if cfg.Heartbeat != 2*time.Second || cfg.MaxCycles != 1 || cfg.MaxCIRecoveries != 2 || cfg.CITimeout != 30*time.Minute || cfg.ReviewModel != "review" || cfg.FixPrompt != "fix prompt\n" || cfg.CIFixPrompt != "ci prompt\n" || cfg.ReviewBase != "main" || cfg.SessionLogRetention != 2*time.Hour {
+		t.Fatalf("cfg = %#v", cfg)
 	}
-	if !strings.Contains(Format(cfg), "log-format: human (built-in default)") {
-		t.Fatalf("config output:\n%s", Format(cfg))
-	}
-}
-
-func TestSessionLogConfiguration(t *testing.T) {
-	cleanEnv(t)
-	root, home := repo(t)
-	projectDir := filepath.Join(root, "logs")
-	write(t, filepath.Join(home, ".code-converge", "session-log-dir"), filepath.Join(home, "user-logs"))
-	write(t, filepath.Join(root, ".code-converge", "session-log-dir"), projectDir)
-	write(t, filepath.Join(root, ".code-converge", "session-log-retention"), "2h")
-	cfg, err := Load(root, home, Overrides{SessionLogDir: OptionalString{Value: "~/cli-logs", Set: true}, SessionLogRetention: OptionalString{Value: "3h", Set: true}, NoSessionLog: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.SessionLogDir != filepath.Join(home, "cli-logs") || cfg.SessionLogRetention != 3*time.Hour || !cfg.NoSessionLog || source(cfg, "session-log-dir") != SourceCLI || source(cfg, "session-log-retention") != SourceCLI {
-		t.Fatalf("cfg=%#v", cfg)
-	}
-	for _, overrides := range []Overrides{{SessionLogDir: OptionalString{Value: "relative", Set: true}}, {SessionLogRetention: OptionalString{Value: "0", Set: true}}, {SessionLogRetention: OptionalString{Value: "-1s", Set: true}}} {
-		if _, err := Load(root, home, overrides); err == nil {
-			t.Fatalf("accepted invalid session config: %#v", overrides)
+	for _, name := range []string{
+		"log-format", "heartbeat", "color", "mode", "max-cycles", "max-ci-recoveries", "ci-timeout",
+		"review-model", "review-reasoning-effort", "fix-model", "fix-reasoning-effort", "fix-prompt",
+		"ci-fix-model", "ci-fix-reasoning-effort", "ci-fix-prompt",
+		"review-base", "session-log-dir", "session-log-retention",
+	} {
+		if source(cfg, name) != SourceProject {
+			t.Errorf("%s source = %q", name, source(cfg, name))
 		}
 	}
 }
 
-func TestSessionLogConfigurationPrecedence(t *testing.T) {
-	for _, setting := range []struct {
-		name, env string
-		value     func(string, string) string
-		get       func(Config) string
-	}{
-		{"session-log-dir", "CODE_CONVERGE_SESSION_LOG_DIR", func(_, home string) string { return filepath.Join(home, "environment") }, func(cfg Config) string { return cfg.SessionLogDir }},
-		{"session-log-retention", "CODE_CONVERGE_SESSION_LOG_RETENTION", func(root, _ string) string { return "1h" }, func(cfg Config) string {
-			if cfg.SessionLogRetention == 3*time.Hour {
-				return "3h"
-			}
-			return cfg.SessionLogRetention.String()
-		}},
+func TestYAMLValidation(t *testing.T) {
+	for _, test := range []struct{ name, contents, want string }{
+		{"malformed", "mode: [fast\n", "did not find expected"},
+		{"unknown key", "typo: true\n", "field typo not found"},
+		{"nested value", "mode:\n  value: fast\n", "cannot unmarshal"},
+		{"duplicate", "mode: fast\nmode: best\n", "mapping key \"mode\" already defined"},
+		{"invalid mode", "mode: invalid\n", "mode must be one of"},
+		{"invalid integer", "max-cycles: -1\n", "max-cycles must be a non-negative integer"},
+		{"invalid duration", "session-log-retention: 0\n", "session-log-retention must be a duration of at least 1s"},
 	} {
-		t.Run(setting.name, func(t *testing.T) {
+		t.Run(test.name, func(t *testing.T) {
 			cleanEnv(t)
 			root, home := repo(t)
-			environment := setting.value(root, home)
-			user := setting.value(filepath.Join(root, "user"), home)
-			project := setting.value(filepath.Join(root, "project"), home)
-			cli := setting.value(filepath.Join(root, "cli"), home)
-			if setting.name == "session-log-dir" {
-				user, project, cli = filepath.Join(home, "user"), filepath.Join(home, "project"), filepath.Join(home, "cli")
-			}
-			t.Setenv(setting.env, environment)
-			write(t, filepath.Join(home, ".code-converge", setting.name), user)
-			write(t, filepath.Join(root, ".code-converge", setting.name), project)
-			overrides := Overrides{}
-			if setting.name == "session-log-dir" {
-				overrides.SessionLogDir = OptionalString{Value: cli, Set: true}
-			} else {
-				overrides.SessionLogRetention = OptionalString{Value: "3h", Set: true}
-				cli = "3h"
-			}
-			cfg, err := Load(root, home, overrides)
-			if err != nil || setting.get(cfg) != cli || source(cfg, setting.name) != SourceCLI {
-				t.Fatalf("cfg=%#v err=%v", cfg, err)
+			writeConfig(t, root, test.contents)
+			_, err := Load(root, home, Overrides{})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestYAMLPromptPathFailureIsActionable(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	writeConfig(t, root, "fix-prompt-file: prompts/missing.md\n")
+	_, err := Load(root, home, Overrides{})
+	if err == nil || !strings.Contains(err.Error(), "fix-prompt from project config") || !strings.Contains(err.Error(), "prompts/missing.md") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestLegacyFilesAreIgnored(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	write(t, filepath.Join(home, ".code-converge", "mode"), "best\n")
+	write(t, filepath.Join(root, ".code-converge", "max-cycles"), "1\n")
+	write(t, filepath.Join(root, ".code-converge", "fix-findings.md"), "legacy prompt\n")
+	cfg, err := Load(root, home, Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Mode != "fast" || cfg.MaxCycles != 10 || cfg.FixPrompt != "fix findings" || source(cfg, "mode") != SourceDefault {
+		t.Fatalf("legacy file was read: %#v", cfg)
+	}
+}
+
+func TestCLIAndEnvironmentStillWin(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	t.Setenv("CODE_CONVERGE_COLOR", "never")
+	writeConfig(t, home, "color: auto\n")
+	writeConfig(t, root, "color: never\n")
+	cfg, err := Load(root, home, Overrides{Color: OptionalString{Value: "auto", Set: true}})
+	if err != nil || cfg.Color != "auto" || source(cfg, "color") != SourceCLI {
+		t.Fatalf("cfg=%#v err=%v", cfg, err)
+	}
+}
+
+func TestResolveLogFormatReadsYAML(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	writeConfig(t, root, "log-format: kv\n")
+	format, err := ResolveLogFormat(root, home, OptionalString{})
+	if err != nil || format != "kv" {
+		t.Fatalf("format=%q err=%v", format, err)
+	}
+}
+
+func TestDefaultsAndProfileResolution(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	writeConfig(t, root, "mode: best\n")
+	cfg, err := Load(root, home, Overrides{})
+	if err != nil || cfg.ReviewModel != "gpt-5.6-sol" || cfg.FixModel != "gpt-5.6-terra" || source(cfg, "review-model") != "best profile" {
+		t.Fatalf("cfg=%#v err=%v", cfg, err)
 	}
 }
 
 func cleanEnv(t *testing.T) {
 	t.Helper()
 	for _, name := range codeConvergeEnv {
-		t.Setenv(name, "")
 		_ = os.Unsetenv(name)
 	}
 }
-
 func repo(t *testing.T) (string, string) {
 	t.Helper()
 	root := t.TempDir()
-	if output, err := exec.Command("git", "init", "-q", root).CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v: %s", err, output)
+	if out, err := exec.Command("git", "init", "-q", root).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
 	}
-	home := t.TempDir()
-	return root, home
+	return root, t.TempDir()
 }
-
 func write(t *testing.T, path, value string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -297,243 +193,10 @@ func write(t *testing.T, path, value string) {
 		t.Fatal(err)
 	}
 }
-
-func TestLoadPrecedence(t *testing.T) {
-	cleanEnv(t)
-	root, home := repo(t)
-	t.Setenv("CODE_CONVERGE_MAX_CYCLES", "2")
-	write(t, filepath.Join(home, ".code-converge", "max-cycles"), "3\n")
-	write(t, filepath.Join(root, ".code-converge", "max-cycles"), "4\n")
-	cfg, err := Load(root, home, Overrides{MaxCycles: OptionalString{Value: "5", Set: true}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.MaxCycles != 5 || source(cfg, "max-cycles") != SourceCLI {
-		t.Fatalf("max cycles = %d (%s)", cfg.MaxCycles, source(cfg, "max-cycles"))
-	}
-	cfg, err = Load(root, home, Overrides{})
-	if err != nil || cfg.MaxCycles != 4 || source(cfg, "max-cycles") != SourceProject {
-		t.Fatalf("project precedence = %d (%s), %v", cfg.MaxCycles, source(cfg, "max-cycles"), err)
-	}
-	if !strings.Contains(Format(cfg), "max-cycles: 4 (project; built-in: 10)") {
-		t.Fatalf("formatted config:\n%s", Format(cfg))
-	}
+func writeConfig(t *testing.T, directory, value string) {
+	t.Helper()
+	write(t, filepath.Join(directory, ".code-converge", "config.yaml"), value)
 }
-
-func TestReviewBasePrecedence(t *testing.T) {
-	cleanEnv(t)
-	root, home := repo(t)
-	t.Setenv("CODE_CONVERGE_REVIEW_BASE", "env-base")
-	write(t, filepath.Join(home, ".code-converge", "review-base"), "user-base")
-	write(t, filepath.Join(root, ".code-converge", "review-base"), "project-base")
-	cfg, err := Load(root, home, Overrides{ReviewBase: OptionalString{Value: "cli-base", Set: true}})
-	if err != nil || cfg.ReviewBase != "cli-base" || source(cfg, "review-base") != SourceCLI {
-		t.Fatalf("review base = %q (%s), %v", cfg.ReviewBase, source(cfg, "review-base"), err)
-	}
-	cfg, err = Load(root, home, Overrides{})
-	if err != nil || cfg.ReviewBase != "project-base" || source(cfg, "review-base") != SourceProject {
-		t.Fatalf("review base = %q (%s), %v", cfg.ReviewBase, source(cfg, "review-base"), err)
-	}
-	if err := os.Remove(filepath.Join(root, ".code-converge", "review-base")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(filepath.Join(home, ".code-converge", "review-base")); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("CODE_CONVERGE_REVIEW_BASE", "")
-	_ = os.Unsetenv("CODE_CONVERGE_REVIEW_BASE")
-	cfg, err = Load(root, home, Overrides{})
-	if err != nil || !strings.Contains(Format(cfg), "review-base: discover (built-in default)") {
-		t.Fatalf("default review base config:\n%s\nerr=%v", Format(cfg), err)
-	}
-}
-
-func TestProfileResolution(t *testing.T) {
-	tests := []struct {
-		name      string
-		overrides Overrides
-		wantMode  string
-		want      []string
-	}{
-		{
-			name: "default fast", wantMode: "fast",
-			want: []string{"gpt-5.6-terra", "medium", "gpt-5.6-luna", "medium", "gpt-5.6-luna", "medium"},
-		},
-		{
-			name: "explicit best", overrides: Overrides{Mode: OptionalString{Value: "best", Set: true}}, wantMode: "best",
-			want: []string{"gpt-5.6-sol", "high", "gpt-5.6-terra", "high", "gpt-5.6-terra", "high"},
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			cleanEnv(t)
-			root, home := repo(t)
-			cfg, err := Load(root, home, test.overrides)
-			if err != nil {
-				t.Fatal(err)
-			}
-			got := []string{cfg.ReviewModel, cfg.ReviewEffort, cfg.FixModel, cfg.FixEffort, cfg.CIFixModel, cfg.CIFixEffort}
-			if cfg.Mode != test.wantMode || strings.Join(got, "|") != strings.Join(test.want, "|") {
-				t.Fatalf("mode/profile = %s %q, want %s %q", cfg.Mode, got, test.wantMode, test.want)
-			}
-			for _, name := range []string{"review-model", "review-reasoning-effort", "fix-model", "fix-reasoning-effort", "ci-fix-model", "ci-fix-reasoning-effort"} {
-				if gotSource := source(cfg, name); gotSource != test.wantMode+" profile" {
-					t.Errorf("%s source = %q", name, gotSource)
-				}
-			}
-		})
-	}
-}
-
-func TestModePrecedence(t *testing.T) {
-	tests := []struct {
-		name     string
-		want     string
-		wantMode string
-		set      func(*testing.T, string, string, *Overrides)
-	}{
-		{"environment", SourceEnv, "best", func(t *testing.T, _, _ string, _ *Overrides) { t.Setenv("CODE_CONVERGE_MODE", "best") }},
-		{"user", SourceUser, "fast", func(t *testing.T, _, home string, _ *Overrides) {
-			t.Setenv("CODE_CONVERGE_MODE", "best")
-			write(t, filepath.Join(home, ".code-converge", "mode"), "fast")
-		}},
-		{"project", SourceProject, "fast", func(t *testing.T, root, home string, _ *Overrides) {
-			t.Setenv("CODE_CONVERGE_MODE", "fast")
-			write(t, filepath.Join(home, ".code-converge", "mode"), "best")
-			write(t, filepath.Join(root, ".code-converge", "mode"), "fast")
-		}},
-		{"cli", SourceCLI, "fast", func(t *testing.T, root, home string, overrides *Overrides) {
-			t.Setenv("CODE_CONVERGE_MODE", "best")
-			write(t, filepath.Join(home, ".code-converge", "mode"), "fast")
-			write(t, filepath.Join(root, ".code-converge", "mode"), "best")
-			overrides.Mode = OptionalString{Value: "fast", Set: true}
-		}},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			cleanEnv(t)
-			root, home := repo(t)
-			overrides := Overrides{}
-			test.set(t, root, home, &overrides)
-			cfg, err := Load(root, home, overrides)
-			if err != nil || cfg.Mode != test.wantMode || source(cfg, "mode") != test.want {
-				t.Fatalf("mode = %q (%s), %v", cfg.Mode, source(cfg, "mode"), err)
-			}
-		})
-	}
-}
-
-func TestEveryStageOverrideSourceBeatsProfile(t *testing.T) {
-	type field struct {
-		name string
-		env  string
-		set  func(*Overrides, string)
-		get  func(Config) string
-	}
-	fields := []field{
-		{"review-model", "CODE_CONVERGE_REVIEW_MODEL", func(o *Overrides, v string) { o.ReviewModel = OptionalString{v, true} }, func(c Config) string { return c.ReviewModel }},
-		{"review-reasoning-effort", "CODE_CONVERGE_REVIEW_REASONING_EFFORT", func(o *Overrides, v string) { o.ReviewEffort = OptionalString{v, true} }, func(c Config) string { return c.ReviewEffort }},
-		{"fix-model", "CODE_CONVERGE_FIX_MODEL", func(o *Overrides, v string) { o.FixModel = OptionalString{v, true} }, func(c Config) string { return c.FixModel }},
-		{"fix-reasoning-effort", "CODE_CONVERGE_FIX_REASONING_EFFORT", func(o *Overrides, v string) { o.FixEffort = OptionalString{v, true} }, func(c Config) string { return c.FixEffort }},
-		{"ci-fix-model", "CODE_CONVERGE_CI_FIX_MODEL", func(o *Overrides, v string) { o.CIFixModel = OptionalString{v, true} }, func(c Config) string { return c.CIFixModel }},
-		{"ci-fix-reasoning-effort", "CODE_CONVERGE_CI_FIX_REASONING_EFFORT", func(o *Overrides, v string) { o.CIFixEffort = OptionalString{v, true} }, func(c Config) string { return c.CIFixEffort }},
-	}
-	sources := []struct {
-		name string
-		want string
-		set  func(*testing.T, string, string, field, *Overrides)
-	}{
-		{"environment", SourceEnv, func(t *testing.T, _, _ string, f field, _ *Overrides) { t.Setenv(f.env, "environment-value") }},
-		{"user", SourceUser, func(t *testing.T, _, home string, f field, _ *Overrides) {
-			t.Setenv(f.env, "environment-value")
-			write(t, filepath.Join(home, ".code-converge", f.name), "user-value")
-		}},
-		{"project", SourceProject, func(t *testing.T, root, home string, f field, _ *Overrides) {
-			t.Setenv(f.env, "environment-value")
-			write(t, filepath.Join(home, ".code-converge", f.name), "user-value")
-			write(t, filepath.Join(root, ".code-converge", f.name), "project-value")
-		}},
-		{"cli", SourceCLI, func(t *testing.T, root, home string, f field, o *Overrides) {
-			t.Setenv(f.env, "environment-value")
-			write(t, filepath.Join(home, ".code-converge", f.name), "user-value")
-			write(t, filepath.Join(root, ".code-converge", f.name), "project-value")
-			f.set(o, "cli-value")
-		}},
-	}
-	for _, f := range fields {
-		for _, candidate := range sources {
-			t.Run(f.name+"/"+candidate.name, func(t *testing.T) {
-				cleanEnv(t)
-				root, home := repo(t)
-				overrides := Overrides{Mode: OptionalString{Value: "best", Set: true}}
-				candidate.set(t, root, home, f, &overrides)
-				cfg, err := Load(root, home, overrides)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if f.get(cfg) != candidate.name+"-value" || source(cfg, f.name) != candidate.want {
-					t.Fatalf("%s = %q (%s)", f.name, f.get(cfg), source(cfg, f.name))
-				}
-			})
-		}
-	}
-}
-
-func TestInvalidModes(t *testing.T) {
-	for _, value := range []string{"", "   ", "FAST", "unknown"} {
-		t.Run(strconv.Quote(value), func(t *testing.T) {
-			cleanEnv(t)
-			root, home := repo(t)
-			_, err := Load(root, home, Overrides{Mode: OptionalString{Value: value, Set: true}})
-			if err == nil || !strings.Contains(err.Error(), "mode must be one of") {
-				t.Fatalf("error = %v", err)
-			}
-		})
-	}
-}
-
-func TestPromptResolutionAndMissingExplicitPath(t *testing.T) {
-	cleanEnv(t)
-	root, home := repo(t)
-	write(t, filepath.Join(home, ".code-converge", "fix-findings.md"), "user prompt\n")
-	cfg, err := Load(root, home, Overrides{})
-	if err != nil || cfg.FixPrompt != "user prompt\n" || source(cfg, "fix-prompt") != SourceUser {
-		t.Fatalf("prompt = %q (%s), %v", cfg.FixPrompt, source(cfg, "fix-prompt"), err)
-	}
-	_, err = Load(root, home, Overrides{FixPromptPath: OptionalString{Value: "missing.md", Set: true}})
-	if err == nil || !strings.Contains(err.Error(), "missing.md") {
-		t.Fatalf("missing path error = %v", err)
-	}
-}
-
-func TestValidationAndGitRoot(t *testing.T) {
-	cleanEnv(t)
-	root, home := repo(t)
-	child := filepath.Join(root, "a", "b")
-	if err := os.MkdirAll(child, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(child, home, Overrides{MaxCycles: OptionalString{Value: "-1", Set: true}})
-	if err == nil || cfg.Root != "" {
-		t.Fatalf("negative value accepted: %#v, %v", cfg, err)
-	}
-	cfg, err = Load(child, home, Overrides{})
-	physicalRoot, physicalErr := filepath.EvalSymlinks(root)
-	if err != nil || physicalErr != nil || cfg.Root != physicalRoot {
-		t.Fatalf("root = %s, want %s: %v / %v", cfg.Root, physicalRoot, err, physicalErr)
-	}
-	if _, err := FindGitRoot(t.TempDir()); err == nil {
-		t.Fatal("non-git directory accepted")
-	}
-	fake := t.TempDir()
-	if err := os.Mkdir(filepath.Join(fake, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := FindGitRoot(fake); err == nil {
-		t.Fatal("empty .git marker accepted")
-	}
-}
-
 func source(cfg Config, name string) string {
 	for _, setting := range cfg.Settings {
 		if setting.Name == name {
@@ -541,82 +204,4 @@ func source(cfg Config, name string) string {
 		}
 	}
 	return ""
-}
-
-func TestLoadEmptyStageSettingValidation(t *testing.T) {
-	for _, name := range []string{"review-model", "review-reasoning-effort", "fix-model", "fix-reasoning-effort", "ci-fix-model", "ci-fix-reasoning-effort"} {
-		t.Run(name, func(t *testing.T) {
-			cleanEnv(t)
-			root, home := repo(t)
-			write(t, filepath.Join(root, ".code-converge", name), "   ")
-			_, err := Load(root, home, Overrides{})
-			if err == nil || !strings.Contains(err.Error(), name+" must not be empty") {
-				t.Fatalf("error = %v", err)
-			}
-		})
-	}
-}
-
-func TestResolveFileReadError(t *testing.T) {
-	cleanEnv(t)
-	root, home := repo(t)
-	path := filepath.Join(home, ".code-converge", "max-cycles")
-	if err := os.MkdirAll(path, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	_, err := Load(root, home, Overrides{})
-	if err == nil {
-		t.Fatal("expected read error")
-	}
-}
-
-func TestReadExplicitPromptAbsolutePath(t *testing.T) {
-	cleanEnv(t)
-	root, home := repo(t)
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "prompt.md")
-	if err := os.WriteFile(path, []byte("absolute prompt\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(root, home, Overrides{FixPromptPath: OptionalString{Value: path, Set: true}})
-	if err != nil || cfg.FixPrompt != "absolute prompt\n" {
-		t.Fatalf("prompt = %q, %v", cfg.FixPrompt, err)
-	}
-}
-
-func TestFormatDefaultSource(t *testing.T) {
-	cleanEnv(t)
-	root, home := repo(t)
-	cfg, err := Load(root, home, Overrides{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	formatted := Format(cfg)
-	for _, line := range strings.Split(formatted, "\n") {
-		if line != "" && strings.Contains(line, "built-in:") {
-			t.Fatalf("default source should not show built-in: %q", line)
-		}
-	}
-}
-
-func TestFormatProfileAndEqualExplicitSources(t *testing.T) {
-	cleanEnv(t)
-	root, home := repo(t)
-	cfg, err := Load(root, home, Overrides{
-		Mode:        OptionalString{Value: "best", Set: true},
-		ReviewModel: OptionalString{Value: "gpt-5.6-terra", Set: true},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	formatted := Format(cfg)
-	for _, want := range []string{
-		"mode: best (cli; built-in: fast)",
-		"review-model: gpt-5.6-terra (cli)",
-		"fix-model: gpt-5.6-terra (best profile; built-in: gpt-5.6-luna)",
-	} {
-		if !strings.Contains(formatted, want) {
-			t.Errorf("missing %q in:\n%s", want, formatted)
-		}
-	}
 }
