@@ -434,6 +434,29 @@ func TestReviewUsesOnlyFinalResponseAndPreservesTarget(t *testing.T) {
 	}
 }
 
+func TestDocumentReviewPromptScopesDiffToEligiblePaths(t *testing.T) {
+	prompt := reviewPrompt(repository.ReviewTarget{
+		BaseCommit: "base",
+		MergeBase:  "merge-base",
+		DocumentPaths: []string{
+			"README.md",
+			"docs/it's.md",
+		},
+	}, config.Config{DocumentReview: true})
+
+	for _, want := range []string{
+		"git diff --cached merge-base -- ':(literal)README.md' ':(literal)docs/it'\\''s.md'",
+		"Eligible Markdown paths:\nREADME.md\ndocs/it's.md",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("document review prompt does not contain %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "git diff --cached merge-base so") {
+		t.Fatalf("document review prompt contains an unscoped diff instruction:\n%s", prompt)
+	}
+}
+
 func TestReviewTargetValidation(t *testing.T) {
 	for _, test := range []struct {
 		name       string
