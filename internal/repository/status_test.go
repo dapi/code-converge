@@ -114,6 +114,20 @@ func TestStatusPropagatesRunnerError(t *testing.T) {
 	}
 }
 
+func TestReviewScopeDocumentPathsPreservesLeadingWhitespace(t *testing.T) {
+	fake := &fakeRunner{result: runner.Result{Stdout: " docs.md\x00README.md\x00memory-bank/prompts/review.md\x00"}}
+	scope := &ReviewScope{Runner: fake, mergeBase: "base"}
+
+	paths, err := scope.documentPaths(context.Background())
+	if err != nil {
+		t.Fatalf("documentPaths() error = %v", err)
+	}
+	want := []string{" docs.md", "README.md"}
+	if !reflect.DeepEqual(paths, want) {
+		t.Fatalf("documentPaths() = %#v, want %#v", paths, want)
+	}
+}
+
 func TestPublishUsesDirectRefspecAndReusesPR(t *testing.T) {
 	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
 		switch strings.Join(inv.Args, " ") {

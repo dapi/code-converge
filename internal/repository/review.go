@@ -129,12 +129,12 @@ func (s *ReviewScope) Prepare(ctx context.Context) (ReviewTarget, error) {
 }
 
 func (s *ReviewScope) documentPaths(ctx context.Context) ([]string, error) {
-	output, err := s.git(ctx, s.snapshotEnvironment(), s.rootGitArgs("diff", "--cached", "--name-only", "-z", s.mergeBase)...)
+	result, err := s.runGit(ctx, s.snapshotEnvironment(), s.rootGitArgs("diff", "--cached", "--name-only", "-z", s.mergeBase)...)
 	if err != nil {
 		return nil, fmt.Errorf("list review snapshot files: %w", err)
 	}
 	var paths []string
-	for _, path := range strings.Split(strings.TrimSuffix(output, "\x00"), "\x00") {
+	for _, path := range strings.Split(strings.TrimSuffix(result.Stdout, "\x00"), "\x00") {
 		if path == "" || !strings.HasSuffix(strings.ToLower(path), ".md") || strings.HasPrefix(path, "memory-bank/prompts/") {
 			continue
 		}
