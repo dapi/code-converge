@@ -227,6 +227,18 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 		{name: "session-log-dir", file: "session-log-dir", env: "CODE_CONVERGE_SESSION_LOG_DIR", def: filepath.Join(home, ".code-converge", "session-logs"), builtIn: filepath.Join(home, ".code-converge", "session-logs"), defSource: SourceDefault, override: overrides.SessionLogDir},
 		{name: "session-log-retention", file: "session-log-retention", env: "CODE_CONVERGE_SESSION_LOG_RETENTION", def: "24h", builtIn: "24h", defSource: SourceDefault, override: overrides.SessionLogRetention},
 	}
+	if documentReview {
+		// The ordinary fix prompt is not part of document-review mode. Do not
+		// resolve it or expose it in config output: an invalid ordinary prompt
+		// must not prevent document review from starting.
+		filtered := specs[:0]
+		for _, item := range specs {
+			if item.name != "fix-prompt" {
+				filtered = append(filtered, item)
+			}
+		}
+		specs = filtered
+	}
 
 	values := make(map[string]string, len(specs))
 	settings := make([]Setting, 0, len(specs)+4)

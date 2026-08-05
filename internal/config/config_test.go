@@ -186,6 +186,24 @@ func TestDocumentReviewPromptResolution(t *testing.T) {
 	}
 }
 
+func TestDocumentReviewIgnoresOrdinaryFixPrompt(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	writeConfig(t, root, "fix-prompt-file: prompts/missing.md\n")
+	t.Setenv("CODE_CONVERGE_FIX_PROMPT_FILE", filepath.Join(t.TempDir(), "missing.md"))
+
+	cfg, err := Load(root, home, Overrides{DocumentReview: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.FixPrompt != DocumentFixPrompt {
+		t.Fatalf("fix prompt = %q, want document prompt", cfg.FixPrompt)
+	}
+	if source(cfg, "fix-prompt") != "" {
+		t.Fatalf("ordinary fix prompt should not be reported in document mode: %#v", cfg.Settings)
+	}
+}
+
 func TestDocumentReviewPromptConflictsFailClosed(t *testing.T) {
 	cleanEnv(t)
 	root, home := repo(t)
