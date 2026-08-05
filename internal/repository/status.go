@@ -85,30 +85,24 @@ func (s Status) ChangedPaths(ctx context.Context) ([]string, error) {
 	return s.changedPaths(ctx, "HEAD")
 }
 
-// Checkpoint records a local fix commit, optionally restricting all changes
-// introduced since baselinePaths to the supplied repository-relative paths.
-// The restriction is checked before staging so document-mode fixes cannot
-// make git add -A capture unrelated worktree changes. It is independent of
-// canCommit: dirty worktrees cannot be checkpointed, but their fix-stage delta
-// must still stay within document scope.
-func (s Status) Checkpoint(ctx context.Context, initialHead string, canCommit bool, eligiblePaths, baselinePaths []string) (Checkpoint, error) {
+// Checkpoint records a local fix commit, optionally restricting all resulting
+// changes to the supplied repository-relative paths. The restriction is
+// checked before staging so document-mode fixes cannot make git add -A capture
+// unrelated worktree changes. Pre-existing paths are not exempt: a dirty
+// out-of-scope worktree is rejected rather than trusted by pathname alone.
+// It is independent of canCommit: dirty worktrees cannot be checkpointed, but
+// their fix-stage delta must still stay within document scope.
+func (s Status) Checkpoint(ctx context.Context, initialHead string, canCommit bool, eligiblePaths, _ []string) (Checkpoint, error) {
 	if len(eligiblePaths) > 0 {
 		changed, err := s.changedPaths(ctx, initialHead)
 		if err != nil {
 			return Checkpoint{}, fmt.Errorf("inspect findings checkpoint scope: %w", err)
-		}
-		baseline := make(map[string]struct{}, len(baselinePaths))
-		for _, path := range baselinePaths {
-			baseline[path] = struct{}{}
 		}
 		allowed := make(map[string]struct{}, len(eligiblePaths))
 		for _, path := range eligiblePaths {
 			allowed[path] = struct{}{}
 		}
 		for _, path := range changed {
-			if _, existed := baseline[path]; existed {
-				continue
-			}
 			if _, ok := allowed[path]; !ok {
 				return Checkpoint{}, fmt.Errorf("findings fix changed out-of-scope path %q", path)
 			}

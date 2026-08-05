@@ -449,7 +449,7 @@ func TestStatusCheckpointRejectsOutOfScopeChangesBeforeStaging(t *testing.T) {
 	}
 }
 
-func TestStatusCheckpointIgnoresOutOfScopePreExistingChangesWhenCommitIsDisabled(t *testing.T) {
+func TestStatusCheckpointRejectsOutOfScopePreExistingChangesWhenCommitIsDisabled(t *testing.T) {
 	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
 		switch strings.Join(inv.Args, " ") {
 		case "diff --name-only --no-renames -z old-sha":
@@ -465,12 +465,9 @@ func TestStatusCheckpointIgnoresOutOfScopePreExistingChangesWhenCommitIsDisabled
 			return runner.Result{}, nil
 		}
 	}}
-	checkpoint, err := (Status{Runner: fake}).Checkpoint(context.Background(), "old-sha", false, []string{"README.md"}, []string{"internal/app/app.go"})
-	if err != nil || checkpoint.Created {
-		t.Fatalf("checkpoint=%#v err=%v", checkpoint, err)
-	}
-	if !containsInvocation(fake.invocations, "diff --name-only --no-renames -z old-sha") {
-		t.Fatalf("scope validation was skipped: %#v", fake.invocations)
+	_, err := (Status{Runner: fake}).Checkpoint(context.Background(), "old-sha", false, []string{"README.md"}, []string{"internal/app/app.go"})
+	if err == nil || !strings.Contains(err.Error(), `out-of-scope path "internal/app/app.go"`) {
+		t.Fatalf("error=%v", err)
 	}
 }
 
