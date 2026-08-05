@@ -139,6 +139,17 @@ func TestEmptyDocumentReviewScopeDoesNotPublish(t *testing.T) {
 	}
 }
 
+func TestDocumentReviewDoesNotPublishAfterCleanScopedReview(t *testing.T) {
+	repo := &workflowRepository{changes: []bool{true}, ci: []repository.CIResult{repository.CISuccess}}
+	code, output := runWorkflow(t, config.Config{CITimeout: time.Minute, DocumentReview: true}, &workflowAgent{reviews: []codex.ReviewResult{cleanReview()}}, repo)
+	if code != ExitSuccess || repo.publishes != 0 || repo.ciWaits != 0 {
+		t.Fatalf("code=%d publishes=%d waits=%d", code, repo.publishes, repo.ciWaits)
+	}
+	if strings.Contains(output, "stage=publish") || strings.Contains(output, "stage=ci") {
+		t.Fatalf("document review reached publication or CI: %s", output)
+	}
+}
+
 func TestNoApplicableCISucceeds(t *testing.T) {
 	code, output := runWorkflow(t, config.Config{CITimeout: time.Minute}, &workflowAgent{reviews: []codex.ReviewResult{cleanReview()}}, &workflowRepository{changes: []bool{true}, ci: []repository.CIResult{repository.CISkipped}})
 	if code != ExitSuccess || !strings.Contains(output, "stage=ci step=ci status=skipped") {

@@ -61,7 +61,7 @@ must_not_define:
 - `INV-01` Ordinary review and `--fix-prompt-file` preserve their current behavior when document flags are absent.
 - `INV-02` Any invalid selector, conflict, or selected-file read error exits `2` before Codex starts.
 - `INV-03` Document mode never passes non-Markdown or excluded prompt-catalog files to Codex.
-- `INV-04` Empty document scope is clean and non-publishing behavior remains owned by the existing workflow.
+- `INV-04` Empty document scope is clean and non-publishing; any non-empty document review also terminates before publication and CI because the existing publication API stages the whole worktree.
 - `FM-01` Missing, unreadable, directory, non-Markdown, invalid-name, or write failure → actionable operational exit `2`.
 - `FM-02` Two review selectors, document fix without document mode, or both fix selectors → actionable operational exit `2`.
 - `FM-03` No eligible documents → structured `scope-empty` diagnostic and no Codex process.

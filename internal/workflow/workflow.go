@@ -149,7 +149,6 @@ func (w *Workflow) Run(ctx context.Context) int {
 		if review.ScopeEmpty {
 			return w.complete("scope_empty", ExitSuccess, now().Sub(runStarted))
 		}
-
 		if !review.Clean {
 			if fixes >= w.Config.MaxCycles {
 				return w.completeFindingsRemaining(now().Sub(runStarted), lastCheckpoint, fixes > 0, checkpointSkipReason)
@@ -245,6 +244,13 @@ func (w *Workflow) Run(ctx context.Context) int {
 			fixes++
 			cycle++
 			continue
+		}
+		if w.Config.DocumentReview {
+			// Document mode deliberately has no publication path. Its review
+			// snapshot is scoped to Markdown files, while the repository status
+			// and publication APIs operate on the whole worktree. Continuing here
+			// could therefore stage and publish unrelated source changes.
+			return w.complete("success", ExitSuccess, now().Sub(runStarted))
 		}
 
 		if w.Repository != nil {
