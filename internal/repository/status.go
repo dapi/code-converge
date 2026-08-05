@@ -78,10 +78,26 @@ func (s Status) Head(ctx context.Context) (string, error) {
 	return strings.TrimSpace(result.Stdout), nil
 }
 
-// Checkpoint records a commit made during a fix stage and, when allowed,
-// creates one for remaining worktree changes. initialHead must be captured
-// immediately before the agent starts fixing findings.
-func (s Status) Checkpoint(ctx context.Context, initialHead string, canCommit bool) (Checkpoint, error) {
+// Checkpoint records a local fix commit, optionally restricting all changes
+// since initialHead to the supplied repository-relative paths. The restriction
+// is checked before staging so document-mode fixes cannot make git add -A
+// capture unrelated worktree changes.
+func (s Status) Checkpoint(ctx context.Context, initialHead string, canCommit bool, eligiblePaths []string) (Checkpoint, error) {
+	if len(eligiblePaths) > 0 {
+		changed, err := s.changedPaths(ctx, initialHead)
+		if err != nil {
+			return Checkpoint{}, fmt.Errorf("inspect findings checkpoint scope: %w", err)
+		}
+		allowed := make(map[string]struct{}, len(eligiblePaths))
+		for _, path := range eligiblePaths {
+			allowed[path] = struct{}{}
+		}
+		for _, path := range changed {
+			if _, ok := allowed[path]; !ok {
+				return Checkpoint{}, fmt.Errorf("findings fix changed out-of-scope path %q", path)
+			}
+		}
+	}
 	hasChanges, err := s.HasChanges(ctx)
 	if err != nil {
 		return Checkpoint{}, err
@@ -114,6 +130,36 @@ func (s Status) Checkpoint(ctx context.Context, initialHead string, canCommit bo
 		return Checkpoint{}, fmt.Errorf("checkpoint branch and commit must be non-empty")
 	}
 	return Checkpoint{Created: true, Branch: branchName, Commit: commitID}, nil
+}
+
+func (s Status) changedPaths(ctx context.Context, initialHead string) ([]string, error) {
+	if strings.TrimSpace(initialHead) == "" {
+		return nil, errors.New("initial checkpoint head is empty")
+	}
+	tracked, err := s.Runner.Run(ctx, runner.Invocation{Executable: "git", Args: []string{"diff", "--name-only", "--no-renames", initialHead}})
+	if err != nil {
+		return nil, fmt.Errorf("list tracked checkpoint changes: %w", err)
+	}
+	untracked, err := s.Runner.Run(ctx, runner.Invocation{Executable: "git", Args: []string{"ls-files", "--others", "--exclude-standard"}})
+	if err != nil {
+		return nil, fmt.Errorf("list untracked checkpoint changes: %w", err)
+	}
+	seen := make(map[string]struct{})
+	var paths []string
+	for _, output := range []string{tracked.Stdout, untracked.Stdout} {
+		for _, path := range strings.Split(output, "\n") {
+			path = strings.TrimSpace(path)
+			if path == "" {
+				continue
+			}
+			if _, ok := seen[path]; ok {
+				continue
+			}
+			seen[path] = struct{}{}
+			paths = append(paths, path)
+		}
+	}
+	return paths, nil
 }
 
 // Publish commits only changes that appeared in a clean run, pushes through a
