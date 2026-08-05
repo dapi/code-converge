@@ -127,6 +127,18 @@ func TestCleanReviewPublishesAndWaitsForCI(t *testing.T) {
 	}
 }
 
+func TestEmptyDocumentReviewScopeDoesNotPublish(t *testing.T) {
+	repo := &workflowRepository{changes: []bool{true}, ci: []repository.CIResult{repository.CISuccess}}
+	result := codex.ReviewResult{Clean: true, ScopeEmpty: true}
+	code, output := runWorkflow(t, config.Config{CITimeout: time.Minute, DocumentReview: true}, &workflowAgent{reviews: []codex.ReviewResult{result}}, repo)
+	if code != ExitSuccess || repo.publishes != 0 || repo.ciWaits != 0 {
+		t.Fatalf("code=%d publishes=%d waits=%d", code, repo.publishes, repo.ciWaits)
+	}
+	if !strings.Contains(output, "status=scope_empty") || !strings.Contains(output, "event=run_completed status=scope_empty exit_code=0") {
+		t.Fatalf("output=%s", output)
+	}
+}
+
 func TestNoApplicableCISucceeds(t *testing.T) {
 	code, output := runWorkflow(t, config.Config{CITimeout: time.Minute}, &workflowAgent{reviews: []codex.ReviewResult{cleanReview()}}, &workflowRepository{changes: []bool{true}, ci: []repository.CIResult{repository.CISkipped}})
 	if code != ExitSuccess || !strings.Contains(output, "stage=ci step=ci status=skipped") {

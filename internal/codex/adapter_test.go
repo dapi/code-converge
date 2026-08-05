@@ -457,6 +457,18 @@ func TestDocumentReviewPromptScopesDiffToEligiblePaths(t *testing.T) {
 	}
 }
 
+func TestDocumentReviewEmptyScopeReturnsExplicitResultWithoutCodex(t *testing.T) {
+	r := &recordingRunner{}
+	a := newReviewAdapter(t, r, config.Config{DocumentReview: true})
+	result, err := a.Review(context.Background())
+	if err != nil || !result.Clean || !result.ScopeEmpty {
+		t.Fatalf("review = %#v, %v", result, err)
+	}
+	if got := codexInvocations(r.invocations); len(got) != 0 {
+		t.Fatalf("codex invocations = %#v", got)
+	}
+}
+
 func TestReviewTargetValidation(t *testing.T) {
 	for _, test := range []struct {
 		name       string

@@ -127,6 +127,9 @@ func (w *Workflow) Run(ctx context.Context) int {
 		if review.Clean {
 			status = "clean"
 		}
+		if review.ScopeEmpty {
+			status = "scope_empty"
+		}
 		fields := []event.Field{event.F("stage", "review"), event.F("model", w.stageModel("review")), event.F("reasoning_effort", w.stageReasoningEffort("review")), intField("review_phase", phase), intField("cycle", cycle), event.F("status", status)}
 		if review.Scope.Source != "" {
 			fields = append(fields,
@@ -136,10 +139,15 @@ func (w *Workflow) Run(ctx context.Context) int {
 				event.F("review_base_source", review.Scope.Source),
 			)
 		}
-		fields = append(fields, countFields(review.Counts)...)
+		if !review.ScopeEmpty {
+			fields = append(fields, countFields(review.Counts)...)
+		}
 		fields = append(fields, duration)
 		if !w.emit("review_completed", fields...) {
 			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+		}
+		if review.ScopeEmpty {
+			return w.complete("scope_empty", ExitSuccess, now().Sub(runStarted))
 		}
 
 		if !review.Clean {

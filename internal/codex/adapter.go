@@ -29,10 +29,11 @@ type Counts struct {
 func (c Counts) Total() int { return c.Critical + c.High + c.Medium + c.Low + c.Unknown }
 
 type ReviewResult struct {
-	Clean  bool
-	Counts Counts
-	Report string
-	Scope  repository.ReviewTarget
+	Clean      bool
+	ScopeEmpty bool
+	Counts     Counts
+	Report     string
+	Scope      repository.ReviewTarget
 }
 
 type structuredReview struct {
@@ -79,7 +80,7 @@ func (a Adapter) Review(ctx context.Context) (ReviewResult, error) {
 		return ReviewResult{}, errors.New("review target requires a selected base commit and merge base")
 	}
 	if a.Config.DocumentReview && len(target.DocumentPaths) == 0 {
-		return ReviewResult{Clean: true, Scope: target}, nil
+		return ReviewResult{Clean: true, ScopeEmpty: true, Scope: target}, nil
 	}
 	args, err := scopedReviewArgs(a.Config, target)
 	if err != nil {

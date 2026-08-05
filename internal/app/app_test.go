@@ -115,6 +115,32 @@ func TestVersionCommand(t *testing.T) {
 	}
 }
 
+func TestInitDocumentReviewPromptForceRepairsPermissions(t *testing.T) {
+	root, home := testRepo(t)
+	promptPath := filepath.Join(root, ".code-converge", "default.md")
+	if err := os.MkdirAll(filepath.Dir(promptPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(promptPath, []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home}).Run(context.Background(), []string{"init-document-review-prompt", "--force"})
+	if code != workflow.ExitSuccess || stderr.Len() != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	info, err := os.Stat(promptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("prompt mode = %o, want 600", got)
+	}
+	if got, err := os.ReadFile(promptPath); err != nil || string(got) != config.DocumentReviewPrompt+"\n" {
+		t.Fatalf("prompt = %q, error=%v", got, err)
+	}
+}
+
 func TestRootHelpAliasesExitBeforeOperationalSetup(t *testing.T) {
 	for _, args := range [][]string{{"-h"}, {"--help"}} {
 		t.Run(args[0], func(t *testing.T) {

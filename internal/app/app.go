@@ -152,6 +152,10 @@ func (a App) Run(ctx context.Context, args []string) int {
 			fmt.Fprintf(stderr, "code-converge init-document-review-prompt: %v\n", err)
 			return workflow.ExitOperational
 		}
+		if err := os.Chmod(path, 0o600); err != nil {
+			fmt.Fprintf(stderr, "code-converge init-document-review-prompt: %v\n", err)
+			return workflow.ExitOperational
+		}
 		fmt.Fprintln(stdout, path)
 		return workflow.ExitSuccess
 	}
