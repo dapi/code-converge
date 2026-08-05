@@ -407,7 +407,7 @@ func TestStatusCheckpointCommitsLocallyWithoutPush(t *testing.T) {
 			return runner.Result{}, nil
 		}
 	}}
-	checkpoint, err := (Status{Runner: fake}).Checkpoint(context.Background(), "old-sha", true, nil)
+	checkpoint, err := (Status{Runner: fake}).Checkpoint(context.Background(), "old-sha", true, nil, nil)
 	if err != nil || checkpoint != (Checkpoint{Created: true, Branch: "feature/checkpoints", Commit: "abc1234"}) {
 		t.Fatalf("checkpoint=%#v err=%v", checkpoint, err)
 	}
@@ -420,7 +420,7 @@ func TestStatusCheckpointCommitsLocallyWithoutPush(t *testing.T) {
 
 func TestStatusCheckpointSkipsEmptyCommit(t *testing.T) {
 	fake := &fakeRunner{result: runner.Result{Stdout: ""}}
-	checkpoint, err := (Status{Runner: fake}).Checkpoint(context.Background(), "", true, nil)
+	checkpoint, err := (Status{Runner: fake}).Checkpoint(context.Background(), "", true, nil, nil)
 	if err != nil || checkpoint.Created || len(fake.invocations) != 2 {
 		t.Fatalf("checkpoint=%#v err=%v invocations=%#v", checkpoint, err, fake.invocations)
 	}
@@ -438,7 +438,7 @@ func TestStatusCheckpointRejectsOutOfScopeChangesBeforeStaging(t *testing.T) {
 			return runner.Result{}, nil
 		}
 	}}
-	_, err := (Status{Runner: fake}).Checkpoint(context.Background(), "old-sha", true, []string{"README.md"})
+	_, err := (Status{Runner: fake}).Checkpoint(context.Background(), "old-sha", true, []string{"README.md"}, nil)
 	if err == nil || !strings.Contains(err.Error(), `out-of-scope path "internal/app/app.go"`) {
 		t.Fatalf("error=%v", err)
 	}
@@ -449,9 +449,13 @@ func TestStatusCheckpointRejectsOutOfScopeChangesBeforeStaging(t *testing.T) {
 	}
 }
 
-func TestStatusCheckpointAllowsOutOfScopePreExistingChangesWhenCommitIsDisabled(t *testing.T) {
+func TestStatusCheckpointIgnoresOutOfScopePreExistingChangesWhenCommitIsDisabled(t *testing.T) {
 	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
 		switch strings.Join(inv.Args, " ") {
+		case "diff --name-only --no-renames -z old-sha":
+			return runner.Result{Stdout: "README.md\x00internal/app/app.go\x00"}, nil
+		case "ls-files --others --exclude-standard -z":
+			return runner.Result{}, nil
 		case "status --porcelain --untracked-files=all":
 			return runner.Result{Stdout: " M internal/app/app.go\n M README.md\n"}, nil
 		case "rev-parse HEAD":
@@ -461,15 +465,40 @@ func TestStatusCheckpointAllowsOutOfScopePreExistingChangesWhenCommitIsDisabled(
 			return runner.Result{}, nil
 		}
 	}}
-	checkpoint, err := (Status{Runner: fake}).Checkpoint(context.Background(), "old-sha", false, []string{"README.md"})
+	checkpoint, err := (Status{Runner: fake}).Checkpoint(context.Background(), "old-sha", false, []string{"README.md"}, []string{"internal/app/app.go"})
 	if err != nil || checkpoint.Created {
 		t.Fatalf("checkpoint=%#v err=%v", checkpoint, err)
 	}
-	for _, invocation := range fake.invocations {
-		if strings.HasPrefix(strings.Join(invocation.Args, " "), "diff ") || strings.HasPrefix(strings.Join(invocation.Args, " "), "ls-files ") {
-			t.Fatalf("scope validation inspected pre-existing changes: %#v", fake.invocations)
+	if !containsInvocation(fake.invocations, "diff --name-only --no-renames -z old-sha") {
+		t.Fatalf("scope validation was skipped: %#v", fake.invocations)
+	}
+}
+
+func TestStatusCheckpointRejectsNewOutOfScopeChangesWhenCommitIsDisabled(t *testing.T) {
+	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
+		switch strings.Join(inv.Args, " ") {
+		case "diff --name-only --no-renames -z old-sha":
+			return runner.Result{Stdout: "README.md\x00internal/app/app.go\x00"}, nil
+		case "ls-files --others --exclude-standard -z":
+			return runner.Result{}, nil
+		default:
+			t.Fatalf("unexpected invocation: %#v", inv)
+			return runner.Result{}, nil
+		}
+	}}
+	_, err := (Status{Runner: fake}).Checkpoint(context.Background(), "old-sha", false, []string{"README.md"}, []string{"README.md"})
+	if err == nil || !strings.Contains(err.Error(), `out-of-scope path "internal/app/app.go"`) {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+func containsInvocation(invocations []runner.Invocation, want string) bool {
+	for _, invocation := range invocations {
+		if strings.Join(invocation.Args, " ") == want {
+			return true
 		}
 	}
+	return false
 }
 
 func TestStatusCheckpointAllowsEligibleTrackedAndUntrackedChanges(t *testing.T) {
@@ -494,7 +523,7 @@ func TestStatusCheckpointAllowsEligibleTrackedAndUntrackedChanges(t *testing.T) 
 			return runner.Result{}, nil
 		}
 	}}
-	checkpoint, err := (Status{Runner: fake}).Checkpoint(context.Background(), "old-sha", true, []string{"README.md", "docs/new.md"})
+	checkpoint, err := (Status{Runner: fake}).Checkpoint(context.Background(), "old-sha", true, []string{"README.md", "docs/new.md"}, nil)
 	if err != nil || !checkpoint.Created {
 		t.Fatalf("checkpoint=%#v err=%v", checkpoint, err)
 	}
@@ -526,7 +555,7 @@ func TestStatusCheckpointPreservesLiteralGitPathnamesInScope(t *testing.T) {
 		}
 	}}
 	paths := []string{leadingSpace, internalSpace, newline}
-	checkpoint, err := (Status{Runner: fake}).Checkpoint(context.Background(), "old-sha", true, paths)
+	checkpoint, err := (Status{Runner: fake}).Checkpoint(context.Background(), "old-sha", true, paths, nil)
 	if err != nil || !checkpoint.Created {
 		t.Fatalf("checkpoint=%#v err=%v", checkpoint, err)
 	}
@@ -546,7 +575,7 @@ func TestStatusCheckpointPropagatesCommitFailure(t *testing.T) {
 			return runner.Result{}, nil
 		}
 	}}
-	_, err := (Status{Runner: fake}).Checkpoint(context.Background(), "old-sha", true, nil)
+	_, err := (Status{Runner: fake}).Checkpoint(context.Background(), "old-sha", true, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "commit findings checkpoint") {
 		t.Fatalf("error=%v", err)
 	}
@@ -568,7 +597,7 @@ func TestStatusCheckpointDetectsAgentCommitOnCleanWorktree(t *testing.T) {
 			return runner.Result{}, nil
 		}
 	}}
-	checkpoint, err := (Status{Runner: fake}).Checkpoint(context.Background(), "old-sha", false, nil)
+	checkpoint, err := (Status{Runner: fake}).Checkpoint(context.Background(), "old-sha", false, nil, nil)
 	if err != nil || checkpoint != (Checkpoint{Created: true, Branch: "feature/fix", Commit: "abc1234"}) {
 		t.Fatalf("checkpoint=%#v err=%v", checkpoint, err)
 	}

@@ -78,26 +78,37 @@ func (s Status) Head(ctx context.Context) (string, error) {
 	return strings.TrimSpace(result.Stdout), nil
 }
 
+// ChangedPaths returns the paths already changed before a fix stage starts.
+// It is used to distinguish a dirty worktree baseline from paths introduced
+// by the findings-fix agent.
+func (s Status) ChangedPaths(ctx context.Context) ([]string, error) {
+	return s.changedPaths(ctx, "HEAD")
+}
+
 // Checkpoint records a local fix commit, optionally restricting all changes
-// since initialHead to the supplied repository-relative paths. The restriction
-// is checked before staging so document-mode fixes cannot make git add -A
-// capture unrelated worktree changes.
-func (s Status) Checkpoint(ctx context.Context, initialHead string, canCommit bool, eligiblePaths []string) (Checkpoint, error) {
-	// A dirty baseline is deliberately not checkpointable. In that case the
-	// paths since initialHead include pre-existing user changes, so they cannot
-	// be used to determine whether this fix stage stayed within document scope.
-	// The workflow will skip committing this worktree; do not reject a valid
-	// document fix because an unrelated path was already dirty.
-	if canCommit && len(eligiblePaths) > 0 {
+// introduced since baselinePaths to the supplied repository-relative paths.
+// The restriction is checked before staging so document-mode fixes cannot
+// make git add -A capture unrelated worktree changes. It is independent of
+// canCommit: dirty worktrees cannot be checkpointed, but their fix-stage delta
+// must still stay within document scope.
+func (s Status) Checkpoint(ctx context.Context, initialHead string, canCommit bool, eligiblePaths, baselinePaths []string) (Checkpoint, error) {
+	if len(eligiblePaths) > 0 {
 		changed, err := s.changedPaths(ctx, initialHead)
 		if err != nil {
 			return Checkpoint{}, fmt.Errorf("inspect findings checkpoint scope: %w", err)
+		}
+		baseline := make(map[string]struct{}, len(baselinePaths))
+		for _, path := range baselinePaths {
+			baseline[path] = struct{}{}
 		}
 		allowed := make(map[string]struct{}, len(eligiblePaths))
 		for _, path := range eligiblePaths {
 			allowed[path] = struct{}{}
 		}
 		for _, path := range changed {
+			if _, existed := baseline[path]; existed {
+				continue
+			}
 			if _, ok := allowed[path]; !ok {
 				return Checkpoint{}, fmt.Errorf("findings fix changed out-of-scope path %q", path)
 			}

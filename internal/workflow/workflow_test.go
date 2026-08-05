@@ -76,8 +76,9 @@ func (r *workflowRepository) IsClean(context.Context) (bool, error) {
 	r.clean = r.clean[1:]
 	return value, nil
 }
-func (*workflowRepository) Head(context.Context) (string, error) { return "head", nil }
-func (*workflowRepository) Checkpoint(context.Context, string, bool, []string) (repository.Checkpoint, error) {
+func (*workflowRepository) Head(context.Context) (string, error)           { return "head", nil }
+func (*workflowRepository) ChangedPaths(context.Context) ([]string, error) { return nil, nil }
+func (*workflowRepository) Checkpoint(context.Context, string, bool, []string, []string) (repository.Checkpoint, error) {
 	return repository.Checkpoint{}, nil
 }
 func (r *workflowRepository) Publish(context.Context, bool) (repository.Publication, error) {

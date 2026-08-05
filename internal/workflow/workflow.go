@@ -33,7 +33,8 @@ type Repository interface {
 	HasChanges(context.Context) (bool, error)
 	IsClean(context.Context) (bool, error)
 	Head(context.Context) (string, error)
-	Checkpoint(context.Context, string, bool, []string) (repository.Checkpoint, error)
+	ChangedPaths(context.Context) ([]string, error)
+	Checkpoint(context.Context, string, bool, []string, []string) (repository.Checkpoint, error)
 	Publish(context.Context, bool) (repository.Publication, error)
 	WaitCI(context.Context, repository.Publication) (repository.CIResult, error)
 }
@@ -155,6 +156,7 @@ func (w *Workflow) Run(ctx context.Context) int {
 			}
 			canCheckpoint := w.Repository != nil
 			initialHead := ""
+			var baselinePaths []string
 			if w.Repository != nil {
 				clean, err := w.Repository.IsClean(ctx)
 				if err != nil {
@@ -177,6 +179,16 @@ func (w *Workflow) Run(ctx context.Context) int {
 					}
 					w.diagnostic("checkpoint head failed", err)
 					return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+				}
+				if w.Config.DocumentReview {
+					baselinePaths, err = w.Repository.ChangedPaths(ctx)
+					if err != nil {
+						if ctx.Err() != nil {
+							return w.complete("cancelled", ExitInterrupted, now().Sub(runStarted))
+						}
+						w.diagnostic("checkpoint baseline failed", err)
+						return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+					}
 				}
 			}
 			stageStarted = now()
@@ -232,7 +244,7 @@ func (w *Workflow) Run(ctx context.Context) int {
 				if w.Config.DocumentReview {
 					eligiblePaths = review.Scope.DocumentPaths
 				}
-				checkpoint, checkpointErr := w.Repository.Checkpoint(ctx, initialHead, canCheckpoint, eligiblePaths)
+				checkpoint, checkpointErr := w.Repository.Checkpoint(ctx, initialHead, canCheckpoint, eligiblePaths, baselinePaths)
 				if checkpointErr != nil {
 					if ctx.Err() != nil {
 						return w.complete("cancelled", ExitInterrupted, now().Sub(runStarted))
