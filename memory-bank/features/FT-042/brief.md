@@ -9,7 +9,7 @@ derived_from:
   - ../../../README.md
   - https://github.com/dapi/code-converge/issues/42
 status: active
-delivery_status: in_progress
+delivery_status: done
 audience: humans_and_agents
 must_not_define:
   - implementation_sequence

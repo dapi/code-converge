@@ -7,7 +7,7 @@ derived_from:
   - brief.md
   - design.md
   - ../../engineering/testing-policy.md
-status: active
+status: archived
 audience: humans_and_agents
 ---
 
