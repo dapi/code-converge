@@ -148,8 +148,26 @@ func (a App) Run(ctx context.Context, args []string) int {
 			fmt.Fprintf(stderr, "code-converge init-document-review-prompt: %v\n", err)
 			return workflow.ExitOperational
 		}
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		parent := filepath.Dir(path)
+		if info, err := os.Lstat(parent); err == nil {
+			if !info.IsDir() {
+				fmt.Fprintf(stderr, "code-converge init-document-review-prompt: %s is not a real directory\n", parent)
+				return workflow.ExitOperational
+			}
+		} else if os.IsNotExist(err) {
+			if err := os.MkdirAll(parent, 0o700); err != nil {
+				fmt.Fprintf(stderr, "code-converge init-document-review-prompt: %v\n", err)
+				return workflow.ExitOperational
+			}
+		} else {
 			fmt.Fprintf(stderr, "code-converge init-document-review-prompt: %v\n", err)
+			return workflow.ExitOperational
+		}
+		if info, err := os.Lstat(parent); err != nil {
+			fmt.Fprintf(stderr, "code-converge init-document-review-prompt: %v\n", err)
+			return workflow.ExitOperational
+		} else if !info.IsDir() {
+			fmt.Fprintf(stderr, "code-converge init-document-review-prompt: %s is not a real directory\n", parent)
 			return workflow.ExitOperational
 		}
 		if err := writeDocumentReviewPrompt(path, []byte(config.DocumentReviewPrompt+"\n"), force); err != nil {
@@ -280,7 +298,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 		agentOutput = logger.AgentOutput
 	}
 	agent := codex.Adapter{Runner: processRunner, Config: cfg, ReviewScope: reviewScope, Output: agentOutput}
-	w := workflow.Workflow{Config: cfg, Agent: agent, Repository: repository.Status{Runner: processRunner}, Log: &logger, Err: stderr, Now: a.Now}
+	w := workflow.Workflow{Config: cfg, Agent: &agent, Repository: repository.Status{Runner: processRunner}, Log: &logger, Err: stderr, Now: a.Now}
 	return w.Run(runCtx)
 }
 

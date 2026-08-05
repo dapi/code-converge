@@ -62,13 +62,14 @@ type structuredLineRange struct {
 }
 
 type Adapter struct {
-	Runner      runner.Runner
-	Config      config.Config
-	ReviewScope *repository.ReviewScope
-	Output      func(source string, data []byte)
+	Runner        runner.Runner
+	Config        config.Config
+	ReviewScope   *repository.ReviewScope
+	Output        func(source string, data []byte)
+	documentPaths []string
 }
 
-func (a Adapter) Review(ctx context.Context) (ReviewResult, error) {
+func (a *Adapter) Review(ctx context.Context) (ReviewResult, error) {
 	if a.ReviewScope == nil {
 		return ReviewResult{}, errors.New("review scope is required")
 	}
@@ -79,6 +80,7 @@ func (a Adapter) Review(ctx context.Context) (ReviewResult, error) {
 	if strings.TrimSpace(target.BaseCommit) == "" || strings.TrimSpace(target.MergeBase) == "" {
 		return ReviewResult{}, errors.New("review target requires a selected base commit and merge base")
 	}
+	a.documentPaths = append(a.documentPaths[:0], target.DocumentPaths...)
 	if a.Config.DocumentReview && len(target.DocumentPaths) == 0 {
 		return ReviewResult{Clean: true, ScopeEmpty: true, Scope: target}, nil
 	}
@@ -237,8 +239,14 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
-func (a Adapter) FixFindings(ctx context.Context, report string) error {
+func (a *Adapter) FixFindings(ctx context.Context, report string) error {
 	prompt := a.Config.FixPrompt + "\n\nReview findings to address:\n\n" + report
+	if a.Config.DocumentReview {
+		if len(a.documentPaths) == 0 {
+			return errors.New("document review fix scope is unavailable")
+		}
+		prompt += "\n\nDocument fix scope:\nFix only confirmed findings in the eligible Markdown paths listed below. Do not inspect or modify any other file in the worktree.\n" + strings.Join(a.documentPaths, "\n")
+	}
 	_, err := a.Runner.Run(ctx, runner.Invocation{Args: append(modelArgs(a.Config.FixModel, a.Config.FixEffort), "exec", "-"), Stdin: prompt, Output: a.output()})
 	return err
 }

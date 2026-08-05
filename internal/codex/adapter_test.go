@@ -457,6 +457,31 @@ func TestDocumentReviewPromptScopesDiffToEligiblePaths(t *testing.T) {
 	}
 }
 
+func TestDocumentFixPromptScopesFixesToEligiblePaths(t *testing.T) {
+	r := &recordingRunner{}
+	a := Adapter{
+		Runner:        r,
+		Config:        config.Config{DocumentReview: true, FixPrompt: "fix documents"},
+		documentPaths: []string{"README.md", "docs/guide.md"},
+	}
+	if err := a.FixFindings(context.Background(), `{"findings":[]}`); err != nil {
+		t.Fatal(err)
+	}
+	invocations := codexInvocations(r.invocations)
+	if len(invocations) != 1 {
+		t.Fatalf("codex invocations = %#v", invocations)
+	}
+	for _, want := range []string{
+		"Fix only confirmed findings in the eligible Markdown paths listed below.",
+		"Do not inspect or modify any other file in the worktree.",
+		"README.md\ndocs/guide.md",
+	} {
+		if !strings.Contains(invocations[0].Stdin, want) {
+			t.Errorf("fix prompt does not contain %q:\n%s", want, invocations[0].Stdin)
+		}
+	}
+}
+
 func TestDocumentReviewEmptyScopeReturnsExplicitResultWithoutCodex(t *testing.T) {
 	r := &recordingRunner{}
 	a := newReviewAdapter(t, r, config.Config{DocumentReview: true})

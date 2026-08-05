@@ -166,6 +166,23 @@ func TestInitDocumentReviewPromptForceRejectsSymlink(t *testing.T) {
 	}
 }
 
+func TestInitDocumentReviewPromptRejectsSymlinkedDirectory(t *testing.T) {
+	root, home := testRepo(t)
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, ".code-converge")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home}).Run(context.Background(), []string{"init-document-review-prompt"})
+	if code != workflow.ExitOperational || !strings.Contains(stderr.String(), "not a real directory") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(outside, "default.md")); !os.IsNotExist(err) {
+		t.Fatalf("outside prompt exists or could not be checked: %v", err)
+	}
+}
+
 func TestRootHelpAliasesExitBeforeOperationalSetup(t *testing.T) {
 	for _, args := range [][]string{{"-h"}, {"--help"}} {
 		t.Run(args[0], func(t *testing.T) {
