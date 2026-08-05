@@ -207,7 +207,7 @@ func reviewPrompt(target repository.ReviewTarget, configuration config.Config) s
 	if configuration.DocumentReview {
 		pathspecs := make([]string, 0, len(target.DocumentPaths))
 		for _, path := range target.DocumentPaths {
-			pathspecs = append(pathspecs, shellQuote(":(literal)"+path))
+			pathspecs = append(pathspecs, shellQuote(":(top,literal)"+path))
 		}
 		diffCommand += " -- " + strings.Join(pathspecs, " ")
 		inspectionInstruction = "Inspect only the eligible paths listed below when needed"

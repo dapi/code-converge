@@ -445,7 +445,7 @@ func TestDocumentReviewPromptScopesDiffToEligiblePaths(t *testing.T) {
 	}, config.Config{DocumentReview: true})
 
 	for _, want := range []string{
-		"git diff --cached merge-base -- ':(literal)README.md' ':(literal)docs/it'\\''s.md'",
+		"git diff --cached merge-base -- ':(top,literal)README.md' ':(top,literal)docs/it'\\''s.md'",
 		"Eligible Markdown paths:\nREADME.md\ndocs/it's.md",
 	} {
 		if !strings.Contains(prompt, want) {
