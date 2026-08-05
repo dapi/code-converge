@@ -135,24 +135,24 @@ func (a App) Run(ctx context.Context, args []string) int {
 			return workflow.ExitOperational
 		}
 		path := filepath.Join(root, ".code-converge", "default.md")
-		if !force {
-			if _, err := os.Stat(path); err == nil {
-				fmt.Fprintf(stderr, "code-converge init-document-review-prompt: %s already exists; use --force to overwrite\n", path)
-				return workflow.ExitOperational
-			} else if !os.IsNotExist(err) {
-				fmt.Fprintf(stderr, "code-converge init-document-review-prompt: %v\n", err)
+		if info, err := os.Lstat(path); err == nil {
+			if !info.Mode().IsRegular() {
+				fmt.Fprintf(stderr, "code-converge init-document-review-prompt: %s is not a regular file\n", path)
 				return workflow.ExitOperational
 			}
+			if !force {
+				fmt.Fprintf(stderr, "code-converge init-document-review-prompt: %s already exists; use --force to overwrite\n", path)
+				return workflow.ExitOperational
+			}
+		} else if !os.IsNotExist(err) {
+			fmt.Fprintf(stderr, "code-converge init-document-review-prompt: %v\n", err)
+			return workflow.ExitOperational
 		}
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			fmt.Fprintf(stderr, "code-converge init-document-review-prompt: %v\n", err)
 			return workflow.ExitOperational
 		}
-		if err := os.WriteFile(path, []byte(config.DocumentReviewPrompt+"\n"), 0o600); err != nil {
-			fmt.Fprintf(stderr, "code-converge init-document-review-prompt: %v\n", err)
-			return workflow.ExitOperational
-		}
-		if err := os.Chmod(path, 0o600); err != nil {
+		if err := writeDocumentReviewPrompt(path, []byte(config.DocumentReviewPrompt+"\n"), force); err != nil {
 			fmt.Fprintf(stderr, "code-converge init-document-review-prompt: %v\n", err)
 			return workflow.ExitOperational
 		}
