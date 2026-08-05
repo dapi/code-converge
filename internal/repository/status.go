@@ -141,19 +141,18 @@ func (s Status) changedPaths(ctx context.Context, initialHead string) ([]string,
 	if strings.TrimSpace(initialHead) == "" {
 		return nil, errors.New("initial checkpoint head is empty")
 	}
-	tracked, err := s.Runner.Run(ctx, runner.Invocation{Executable: "git", Args: []string{"diff", "--name-only", "--no-renames", initialHead}})
+	tracked, err := s.Runner.Run(ctx, runner.Invocation{Executable: "git", Args: []string{"diff", "--name-only", "--no-renames", "-z", initialHead}})
 	if err != nil {
 		return nil, fmt.Errorf("list tracked checkpoint changes: %w", err)
 	}
-	untracked, err := s.Runner.Run(ctx, runner.Invocation{Executable: "git", Args: []string{"ls-files", "--others", "--exclude-standard"}})
+	untracked, err := s.Runner.Run(ctx, runner.Invocation{Executable: "git", Args: []string{"ls-files", "--others", "--exclude-standard", "-z"}})
 	if err != nil {
 		return nil, fmt.Errorf("list untracked checkpoint changes: %w", err)
 	}
 	seen := make(map[string]struct{})
 	var paths []string
 	for _, output := range []string{tracked.Stdout, untracked.Stdout} {
-		for _, path := range strings.Split(output, "\n") {
-			path = strings.TrimSpace(path)
+		for _, path := range strings.Split(output, "\x00") {
 			if path == "" {
 				continue
 			}
