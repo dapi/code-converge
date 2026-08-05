@@ -186,6 +186,37 @@ func TestDocumentReviewPromptResolution(t *testing.T) {
 	}
 }
 
+func TestDocumentReviewDanglingDefaultPromptFailsClosed(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	defaultPath := filepath.Join(root, ".code-converge", "default.md")
+	if err := os.MkdirAll(filepath.Dir(defaultPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("missing.md", defaultPath); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Load(root, home, Overrides{DocumentReview: true})
+	if err == nil || !strings.Contains(err.Error(), "read document review default") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestDocumentReviewNonRegularDefaultPromptFailsClosed(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	defaultPath := filepath.Join(root, ".code-converge", "default.md")
+	if err := os.MkdirAll(defaultPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Load(root, home, Overrides{DocumentReview: true})
+	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestDocumentReviewIgnoresOrdinaryFixPrompt(t *testing.T) {
 	cleanEnv(t)
 	root, home := repo(t)

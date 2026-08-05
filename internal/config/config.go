@@ -339,7 +339,11 @@ func resolveReviewPrompts(cwd, root string, o Overrides) (string, bool, string, 
 		return "", false, "", nil
 	}
 	prompt := DocumentReviewPrompt
-	if _, err := os.Stat(filepath.Join(root, ".code-converge", "default.md")); err == nil {
+	defaultPath := filepath.Join(root, ".code-converge", "default.md")
+	if info, err := os.Lstat(defaultPath); err == nil {
+		if !info.Mode().IsRegular() {
+			return "", false, "", fmt.Errorf("read document review default: %s is not a regular file", defaultPath)
+		}
 		var readErr error
 		prompt, _, readErr = readMarkdownPrompt(root, filepath.Join(".code-converge", "default.md"))
 		if readErr != nil {
