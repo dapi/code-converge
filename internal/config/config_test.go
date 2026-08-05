@@ -170,6 +170,35 @@ func TestDefaultsAndProfileResolution(t *testing.T) {
 	}
 }
 
+func TestDocumentReviewPromptResolution(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	write(t, filepath.Join(root, ".code-converge", "default.md"), "project document prompt")
+	cfg, err := Load(root, home, Overrides{DocumentReview: true})
+	if err != nil || !cfg.DocumentReview || cfg.ReviewPrompt != "project document prompt" || cfg.FixPrompt != DocumentFixPrompt {
+		t.Fatalf("cfg=%#v err=%v", cfg, err)
+	}
+	outside := filepath.Join(t.TempDir(), "custom.md")
+	write(t, outside, "custom")
+	cfg, err = Load(root, home, Overrides{ReviewPromptPath: OptionalString{Value: outside, Set: true}})
+	if err != nil || cfg.DocumentReview || cfg.ReviewPrompt != "custom" {
+		t.Fatalf("cfg=%#v err=%v", cfg, err)
+	}
+}
+
+func TestDocumentReviewPromptConflictsFailClosed(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	_, err := Load(root, home, Overrides{DocumentReview: true, ReviewPromptName: OptionalString{Value: "x", Set: true}})
+	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("err=%v", err)
+	}
+	_, err = Load(root, home, Overrides{DocumentFixPromptPath: OptionalString{Value: "x.md", Set: true}})
+	if err == nil || !strings.Contains(err.Error(), "requires") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func cleanEnv(t *testing.T) {
 	t.Helper()
 	for _, name := range codeConvergeEnv {

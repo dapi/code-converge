@@ -78,6 +78,9 @@ func (a Adapter) Review(ctx context.Context) (ReviewResult, error) {
 	if strings.TrimSpace(target.BaseCommit) == "" || strings.TrimSpace(target.MergeBase) == "" {
 		return ReviewResult{}, errors.New("review target requires a selected base commit and merge base")
 	}
+	if a.Config.DocumentReview && len(target.DocumentPaths) == 0 {
+		return ReviewResult{Clean: true, Scope: target}, nil
+	}
 	args, err := scopedReviewArgs(a.Config, target)
 	if err != nil {
 		return ReviewResult{}, err
@@ -102,7 +105,7 @@ func (a Adapter) Review(ctx context.Context) (ReviewResult, error) {
 		Args:     args,
 		Env:      target.Env,
 		UnsetEnv: target.UnsetEnv,
-		Stdin:    reviewPrompt(target),
+		Stdin:    reviewPrompt(target, a.Config),
 		Output:   a.output(),
 	}); err != nil {
 		return ReviewResult{}, err
@@ -195,8 +198,8 @@ func environmentValue(environment []string, name string) (string, bool) {
 	return "", false
 }
 
-func reviewPrompt(target repository.ReviewTarget) string {
-	return fmt.Sprintf(
+func reviewPrompt(target repository.ReviewTarget, configuration config.Config) string {
+	prompt := fmt.Sprintf(
 		`Review the changes in the prepared private Git index.
 
 Selected base commit: %s
@@ -209,6 +212,13 @@ Return actionable code-review findings. Use an empty findings array when there a
 		target.MergeBase,
 		target.MergeBase,
 	)
+	if configuration.ReviewPrompt != "" {
+		prompt += "\n\nAdditional review criteria:\n\n" + configuration.ReviewPrompt
+	}
+	if configuration.DocumentReview {
+		prompt += "\n\nEligible Markdown paths:\n" + strings.Join(target.DocumentPaths, "\n")
+	}
+	return prompt
 }
 
 func (a Adapter) FixFindings(ctx context.Context, report string) error {

@@ -27,25 +27,29 @@ type OptionalString struct {
 }
 
 type Overrides struct {
-	LogFormat           OptionalString
-	Heartbeat           OptionalString
-	Color               OptionalString
-	Mode                OptionalString
-	MaxCycles           OptionalString
-	MaxCIRecoveries     OptionalString
-	CITimeout           OptionalString
-	ReviewModel         OptionalString
-	ReviewEffort        OptionalString
-	FixModel            OptionalString
-	FixEffort           OptionalString
-	FixPromptPath       OptionalString
-	CIFixModel          OptionalString
-	CIFixEffort         OptionalString
-	CIFixPromptPath     OptionalString
-	ReviewBase          OptionalString
-	SessionLogDir       OptionalString
-	SessionLogRetention OptionalString
-	NoSessionLog        bool
+	LogFormat             OptionalString
+	Heartbeat             OptionalString
+	Color                 OptionalString
+	Mode                  OptionalString
+	MaxCycles             OptionalString
+	MaxCIRecoveries       OptionalString
+	CITimeout             OptionalString
+	ReviewModel           OptionalString
+	ReviewEffort          OptionalString
+	FixModel              OptionalString
+	FixEffort             OptionalString
+	FixPromptPath         OptionalString
+	ReviewPromptPath      OptionalString
+	ReviewPromptName      OptionalString
+	DocumentReview        bool
+	DocumentFixPromptPath OptionalString
+	CIFixModel            OptionalString
+	CIFixEffort           OptionalString
+	CIFixPromptPath       OptionalString
+	ReviewBase            OptionalString
+	SessionLogDir         OptionalString
+	SessionLogRetention   OptionalString
+	NoSessionLog          bool
 }
 
 type Setting struct {
@@ -72,6 +76,8 @@ type Config struct {
 	FixModel            string
 	FixEffort           string
 	FixPrompt           string
+	ReviewPrompt        string
+	DocumentReview      bool
 	CIFixModel          string
 	CIFixEffort         string
 	CIFixPrompt         string
@@ -152,6 +158,10 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 		if err != nil {
 			return Config{}, fmt.Errorf("resolve user home: %w", err)
 		}
+	}
+	reviewPrompt, documentReview, documentFixPrompt, err := resolveReviewPrompts(cwd, root, overrides)
+	if err != nil {
+		return Config{}, err
 	}
 	projectDir := filepath.Join(root, ".code-converge")
 	userDir := filepath.Join(home, ".code-converge")
@@ -269,14 +279,106 @@ func Load(cwd, home string, overrides Overrides) (Config, error) {
 		}
 	}
 
+	if documentReview {
+		values["fix-prompt"] = documentFixPrompt
+	}
 	return Config{
 		Root: root, LogFormat: logFormat, Heartbeat: heartbeat, Color: color,
 		Mode: mode, MaxCycles: maxCycles, MaxCIRecoveries: maxCI, CITimeout: ciTimeout,
 		ReviewModel: values["review-model"], ReviewEffort: values["review-reasoning-effort"],
-		FixModel: values["fix-model"], FixEffort: values["fix-reasoning-effort"], FixPrompt: values["fix-prompt"],
+		FixModel: values["fix-model"], FixEffort: values["fix-reasoning-effort"], FixPrompt: values["fix-prompt"], ReviewPrompt: reviewPrompt, DocumentReview: documentReview,
 		CIFixModel: values["ci-fix-model"], CIFixEffort: values["ci-fix-reasoning-effort"], CIFixPrompt: values["ci-fix-prompt"], Settings: settings,
 		ReviewBase: values["review-base"], SessionLogDir: sessionLogDir, SessionLogRetention: sessionLogRetention, NoSessionLog: overrides.NoSessionLog,
 	}, nil
+}
+
+const DocumentReviewPrompt = `Review only the listed changed Markdown documents. Check system-engineering consistency, contradictions, unresolved material questions, and compliance with Memory Bank principles. Report findings only for the eligible documents.`
+const DocumentFixPrompt = `Fix only confirmed findings in the changed Markdown documents. Preserve document intent, consistency, and Memory Bank principles.`
+
+func resolveReviewPrompts(cwd, root string, o Overrides) (string, bool, string, error) {
+	count := 0
+	for _, selected := range []bool{o.ReviewPromptPath.Set, o.ReviewPromptName.Set, o.DocumentReview} {
+		if selected {
+			count++
+		}
+	}
+	if count > 1 {
+		return "", false, "", fmt.Errorf("review prompt selectors are mutually exclusive")
+	}
+	if o.DocumentFixPromptPath.Set && !o.DocumentReview {
+		return "", false, "", fmt.Errorf("document-fix-prompt-file requires --document-review")
+	}
+	if o.DocumentFixPromptPath.Set && o.FixPromptPath.Set {
+		return "", false, "", fmt.Errorf("document-fix-prompt-file conflicts with fix-prompt-file")
+	}
+	if o.ReviewPromptPath.Set {
+		prompt, _, err := readMarkdownPrompt(cwd, o.ReviewPromptPath.Value)
+		return prompt, false, "", err
+	}
+	if o.ReviewPromptName.Set {
+		name := o.ReviewPromptName.Value
+		if !validPromptName(name) {
+			return "", false, "", fmt.Errorf("review-prompt must be a safe name without path separators")
+		}
+		prompt, _, err := readMarkdownPrompt(root, filepath.Join(".code-converge", name+".md"))
+		return prompt, false, "", err
+	}
+	if !o.DocumentReview {
+		return "", false, "", nil
+	}
+	prompt := DocumentReviewPrompt
+	if _, err := os.Stat(filepath.Join(root, ".code-converge", "default.md")); err == nil {
+		var readErr error
+		prompt, _, readErr = readMarkdownPrompt(root, filepath.Join(".code-converge", "default.md"))
+		if readErr != nil {
+			return "", false, "", readErr
+		}
+	} else if !os.IsNotExist(err) {
+		return "", false, "", fmt.Errorf("read document review default: %w", err)
+	}
+	fix := DocumentFixPrompt
+	if o.DocumentFixPromptPath.Set {
+		var err error
+		fix, _, err = readMarkdownPrompt(cwd, o.DocumentFixPromptPath.Value)
+		if err != nil {
+			return "", false, "", err
+		}
+	}
+	return prompt, true, fix, nil
+}
+
+func validPromptName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i, r := range name {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || (i > 0 && (r == '-' || r == '_'))) {
+			return false
+		}
+	}
+	return true
+}
+
+func readMarkdownPrompt(base, value string) (string, string, error) {
+	path := value
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(base, path)
+	}
+	if strings.ToLower(filepath.Ext(path)) != ".md" {
+		return "", "", fmt.Errorf("prompt file %s must be a Markdown (.md) file", path)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", "", fmt.Errorf("read prompt file %s: %w", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", "", fmt.Errorf("prompt file %s is not a regular file", path)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", "", fmt.Errorf("read prompt file %s: %w", path, err)
+	}
+	return string(content), path, nil
 }
 
 // rejectObsoleteFinalizeSettings makes the deliberate Finalize-stage removal

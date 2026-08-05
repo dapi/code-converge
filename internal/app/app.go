@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -42,6 +43,14 @@ var globalFlagSpecs = []globalFlagSpec{
 	{"fix-model", "Stage overrides", "Fix-findings model.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "fix-model", &o.FixModel) }},
 	{"fix-reasoning-effort", "Stage overrides", "Fix-findings reasoning effort.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "fix-reasoning-effort", &o.FixEffort) }},
 	{"fix-prompt-file", "Stage overrides", "Fix-findings prompt file.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "fix-prompt-file", &o.FixPromptPath) }},
+	{"review-prompt-file", "Stage overrides", "Explicit Markdown review prompt file.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "review-prompt-file", &o.ReviewPromptPath) }},
+	{"review-prompt", "Stage overrides", "Project-local review prompt name.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "review-prompt", &o.ReviewPromptName) }},
+	{"document-review", "Stage overrides", "Review changed Markdown documentation.", func(f *flag.FlagSet, o *config.Overrides) {
+		f.BoolVar(&o.DocumentReview, "document-review", false, "review changed Markdown documentation")
+	}},
+	{"document-fix-prompt-file", "Stage overrides", "Markdown fix prompt for document review.", func(f *flag.FlagSet, o *config.Overrides) {
+		bind(f, "document-fix-prompt-file", &o.DocumentFixPromptPath)
+	}},
 	{"ci-fix-model", "Stage overrides", "CI-fix model.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "ci-fix-model", &o.CIFixModel) }},
 	{"ci-fix-reasoning-effort", "Stage overrides", "CI-fix reasoning effort.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "ci-fix-reasoning-effort", &o.CIFixEffort) }},
 	{"ci-fix-prompt-file", "Stage overrides", "CI-fix prompt file.", func(f *flag.FlagSet, o *config.Overrides) { bind(f, "ci-fix-prompt-file", &o.CIFixPromptPath) }},
@@ -105,6 +114,46 @@ func (a App) Run(ctx context.Context, args []string) int {
 			updater = selfupdate.Service{Version: version.Version, Stdout: stdout, Stderr: stderr}
 		}
 		return updater.Run(ctx, assumeYes)
+	}
+	if len(args) > 0 && args[0] == "init-document-review-prompt" {
+		force, err := initDocumentReviewArgs(args[1:])
+		if err != nil {
+			fmt.Fprintf(stderr, "code-converge init-document-review-prompt: %v\n", err)
+			return workflow.ExitOperational
+		}
+		cwd := a.Cwd
+		if cwd == "" {
+			cwd, err = os.Getwd()
+			if err != nil {
+				fmt.Fprintf(stderr, "code-converge: current directory: %v\n", err)
+				return workflow.ExitOperational
+			}
+		}
+		root, err := config.FindGitRoot(cwd)
+		if err != nil {
+			fmt.Fprintf(stderr, "code-converge: %v\n", err)
+			return workflow.ExitOperational
+		}
+		path := filepath.Join(root, ".code-converge", "default.md")
+		if !force {
+			if _, err := os.Stat(path); err == nil {
+				fmt.Fprintf(stderr, "code-converge init-document-review-prompt: %s already exists; use --force to overwrite\n", path)
+				return workflow.ExitOperational
+			} else if !os.IsNotExist(err) {
+				fmt.Fprintf(stderr, "code-converge init-document-review-prompt: %v\n", err)
+				return workflow.ExitOperational
+			}
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			fmt.Fprintf(stderr, "code-converge init-document-review-prompt: %v\n", err)
+			return workflow.ExitOperational
+		}
+		if err := os.WriteFile(path, []byte(config.DocumentReviewPrompt+"\n"), 0o600); err != nil {
+			fmt.Fprintf(stderr, "code-converge init-document-review-prompt: %v\n", err)
+			return workflow.ExitOperational
+		}
+		fmt.Fprintln(stdout, path)
+		return workflow.ExitSuccess
 	}
 	cwd := a.Cwd
 	if cwd == "" {
@@ -220,7 +269,7 @@ func (a App) Run(ctx context.Context, args []string) int {
 			}
 		}
 	}
-	reviewScope := &repository.ReviewScope{Runner: processRunner, Base: cfg.ReviewBase, Root: cfg.Root}
+	reviewScope := &repository.ReviewScope{Runner: processRunner, Base: cfg.ReviewBase, Root: cfg.Root, DocumentReview: cfg.DocumentReview}
 	defer reviewScope.Close()
 	var agentOutput func(string, []byte)
 	if view != nil {
@@ -237,6 +286,7 @@ func rootUsage(out io.Writer) {
 	fmt.Fprintln(out, "Commands:")
 	fmt.Fprintln(out, "  config                 Show effective configuration and its sources.")
 	fmt.Fprintln(out, "  update [--yes|-y]      Check for and install a newer release.")
+	fmt.Fprintln(out, "  init-document-review-prompt [--force]  Write the editable document-review prompt.")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Global options:")
 	group := ""
@@ -270,9 +320,22 @@ func helpCommand(out io.Writer, args []string) bool {
 		fmt.Fprintln(out, "")
 		fmt.Fprintln(out, "Check for and install a newer release. --yes and -y skip confirmation.")
 		return true
+	case "init-document-review-prompt":
+		fmt.Fprintln(out, "usage: code-converge init-document-review-prompt [--force]")
+		return true
 	default:
 		return false
 	}
+}
+
+func initDocumentReviewArgs(args []string) (bool, error) {
+	if len(args) == 0 {
+		return false, nil
+	}
+	if len(args) == 1 && args[0] == "--force" {
+		return true, nil
+	}
+	return false, fmt.Errorf("usage: code-converge init-document-review-prompt [--force]")
 }
 
 func updateArgs(args []string) (bool, error) {
