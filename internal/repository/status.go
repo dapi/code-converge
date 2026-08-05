@@ -83,7 +83,12 @@ func (s Status) Head(ctx context.Context) (string, error) {
 // is checked before staging so document-mode fixes cannot make git add -A
 // capture unrelated worktree changes.
 func (s Status) Checkpoint(ctx context.Context, initialHead string, canCommit bool, eligiblePaths []string) (Checkpoint, error) {
-	if len(eligiblePaths) > 0 {
+	// A dirty baseline is deliberately not checkpointable. In that case the
+	// paths since initialHead include pre-existing user changes, so they cannot
+	// be used to determine whether this fix stage stayed within document scope.
+	// The workflow will skip committing this worktree; do not reject a valid
+	// document fix because an unrelated path was already dirty.
+	if canCommit && len(eligiblePaths) > 0 {
 		changed, err := s.changedPaths(ctx, initialHead)
 		if err != nil {
 			return Checkpoint{}, fmt.Errorf("inspect findings checkpoint scope: %w", err)

@@ -449,6 +449,29 @@ func TestStatusCheckpointRejectsOutOfScopeChangesBeforeStaging(t *testing.T) {
 	}
 }
 
+func TestStatusCheckpointAllowsOutOfScopePreExistingChangesWhenCommitIsDisabled(t *testing.T) {
+	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
+		switch strings.Join(inv.Args, " ") {
+		case "status --porcelain --untracked-files=all":
+			return runner.Result{Stdout: " M internal/app/app.go\n M README.md\n"}, nil
+		case "rev-parse HEAD":
+			return runner.Result{Stdout: "old-sha\n"}, nil
+		default:
+			t.Fatalf("unexpected invocation: %#v", inv)
+			return runner.Result{}, nil
+		}
+	}}
+	checkpoint, err := (Status{Runner: fake}).Checkpoint(context.Background(), "old-sha", false, []string{"README.md"})
+	if err != nil || checkpoint.Created {
+		t.Fatalf("checkpoint=%#v err=%v", checkpoint, err)
+	}
+	for _, invocation := range fake.invocations {
+		if strings.HasPrefix(strings.Join(invocation.Args, " "), "diff ") || strings.HasPrefix(strings.Join(invocation.Args, " "), "ls-files ") {
+			t.Fatalf("scope validation inspected pre-existing changes: %#v", fake.invocations)
+		}
+	}
+}
+
 func TestStatusCheckpointAllowsEligibleTrackedAndUntrackedChanges(t *testing.T) {
 	fake := &scriptedRunner{t: t, run: func(inv runner.Invocation) (runner.Result, error) {
 		switch strings.Join(inv.Args, " ") {
