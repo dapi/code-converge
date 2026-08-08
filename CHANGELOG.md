@@ -6,6 +6,10 @@ This project follows Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Configurable document review prompts: `--review-prompt-file`, `--review-prompt`, `--document-review`, `--document-fix-prompt-file`, and `init-document-review-prompt` for reviewing changed Markdown documents with a selectable or built-in prompt.
+
 ## [1.0.0] - 2026-07-31
 
 ### Changed
