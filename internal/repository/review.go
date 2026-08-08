@@ -31,12 +31,13 @@ const scopedGitNoIndexEnvironment = "CODE_CONVERGE_SCOPED_GIT_NO_INDEX"
 
 // ReviewTarget is the resolved base and scoped Git environment used for one review.
 type ReviewTarget struct {
-	Base       string
-	BaseCommit string
-	MergeBase  string
-	Source     string
-	Env        []string
-	UnsetEnv   []string
+	Base          string
+	BaseCommit    string
+	MergeBase     string
+	Source        string
+	Env           []string
+	UnsetEnv      []string
+	DocumentPaths []string
 }
 
 var gitTransportEnvironment = []string{
@@ -52,9 +53,10 @@ var gitTransportEnvironment = []string{
 // ReviewScope discovers a base once and refreshes a private index before each review.
 // It never changes the caller's real Git index or worktree.
 type ReviewScope struct {
-	Runner runner.Runner
-	Base   string
-	Root   string
+	Runner         runner.Runner
+	Base           string
+	Root           string
+	DocumentReview bool
 
 	base, baseCommit, mergeBase, source  string
 	tempDir, gitWrapperDir, gitHelperDir string
@@ -113,10 +115,32 @@ func (s *ReviewScope) Prepare(ctx context.Context) (ReviewTarget, error) {
 	if err := s.snapshotWorktree(ctx); err != nil {
 		return ReviewTarget{}, fmt.Errorf("snapshot worktree for review: %w", err)
 	}
+	var paths []string
+	if s.DocumentReview {
+		paths, err = s.documentPaths(ctx)
+		if err != nil {
+			return ReviewTarget{}, err
+		}
+	}
 	return ReviewTarget{
 		Base: s.base, BaseCommit: s.baseCommit, MergeBase: s.mergeBase, Source: s.source,
-		Env: env, UnsetEnv: reviewEnvironmentRemovals(),
+		Env: env, UnsetEnv: reviewEnvironmentRemovals(), DocumentPaths: paths,
 	}, nil
+}
+
+func (s *ReviewScope) documentPaths(ctx context.Context) ([]string, error) {
+	result, err := s.runGit(ctx, s.snapshotEnvironment(), s.rootGitArgs("diff", "--cached", "--name-only", "-z", s.mergeBase)...)
+	if err != nil {
+		return nil, fmt.Errorf("list review snapshot files: %w", err)
+	}
+	var paths []string
+	for _, path := range strings.Split(strings.TrimSuffix(result.Stdout, "\x00"), "\x00") {
+		if path == "" || !strings.HasSuffix(strings.ToLower(path), ".md") || strings.HasPrefix(path, "memory-bank/prompts/") {
+			continue
+		}
+		paths = append(paths, path)
+	}
+	return paths, nil
 }
 
 func (s *ReviewScope) snapshotWorktree(ctx context.Context) error {

@@ -508,6 +508,8 @@ func renderHuman(eventName string, fields []Field, maxCycles, maxCIRecoveries in
 		switch values["status"] {
 		case "clean":
 			return fmt.Sprintf("%s: clean (%s)", prefix, d), nil
+		case "scope_empty":
+			return fmt.Sprintf("%s: scope empty (%s)", prefix, d), nil
 		case "failed":
 			return fmt.Sprintf("%s failed (%s)", prefix, d), nil
 		case "findings":
@@ -605,6 +607,8 @@ func renderHuman(eventName string, fields []Field, maxCycles, maxCIRecoveries in
 		switch values["status"] {
 		case "success":
 			return fmt.Sprintf("Done (%s)", d), nil
+		case "scope_empty":
+			return fmt.Sprintf("Done: review scope was empty; publication was not reached (%s)", d), nil
 		case "findings_remaining":
 			switch values["checkpoint_status"] {
 			case "committed_local":

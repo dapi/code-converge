@@ -115,6 +115,74 @@ func TestVersionCommand(t *testing.T) {
 	}
 }
 
+func TestInitDocumentReviewPromptForceRepairsPermissions(t *testing.T) {
+	root, home := testRepo(t)
+	promptPath := filepath.Join(root, ".code-converge", "default.md")
+	if err := os.MkdirAll(filepath.Dir(promptPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(promptPath, []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home}).Run(context.Background(), []string{"init-document-review-prompt", "--force"})
+	if code != workflow.ExitSuccess || stderr.Len() != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	info, err := os.Stat(promptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("prompt mode = %o, want 600", got)
+	}
+	if got, err := os.ReadFile(promptPath); err != nil || string(got) != config.DocumentReviewPrompt+"\n" {
+		t.Fatalf("prompt = %q, error=%v", got, err)
+	}
+}
+
+func TestInitDocumentReviewPromptForceRejectsSymlink(t *testing.T) {
+	root, home := testRepo(t)
+	promptDir := filepath.Join(root, ".code-converge")
+	if err := os.MkdirAll(promptDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.md")
+	if err := os.WriteFile(outside, []byte("must remain\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	promptPath := filepath.Join(promptDir, "default.md")
+	if err := os.Symlink(outside, promptPath); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home}).Run(context.Background(), []string{"init-document-review-prompt", "--force"})
+	if code != workflow.ExitOperational || !strings.Contains(stderr.String(), "not a regular file") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if got, err := os.ReadFile(outside); err != nil || string(got) != "must remain\n" {
+		t.Fatalf("outside prompt = %q, error=%v", got, err)
+	}
+}
+
+func TestInitDocumentReviewPromptRejectsSymlinkedDirectory(t *testing.T) {
+	root, home := testRepo(t)
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, ".code-converge")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := (App{Stdout: &stdout, Stderr: &stderr, Cwd: root, Home: home}).Run(context.Background(), []string{"init-document-review-prompt"})
+	if code != workflow.ExitOperational || !strings.Contains(stderr.String(), "not a real directory") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(outside, "default.md")); !os.IsNotExist(err) {
+		t.Fatalf("outside prompt exists or could not be checked: %v", err)
+	}
+}
+
 func TestRootHelpAliasesExitBeforeOperationalSetup(t *testing.T) {
 	for _, args := range [][]string{{"-h"}, {"--help"}} {
 		t.Run(args[0], func(t *testing.T) {

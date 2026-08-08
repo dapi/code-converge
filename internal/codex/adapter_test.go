@@ -434,6 +434,66 @@ func TestReviewUsesOnlyFinalResponseAndPreservesTarget(t *testing.T) {
 	}
 }
 
+func TestDocumentReviewPromptScopesDiffToEligiblePaths(t *testing.T) {
+	prompt := reviewPrompt(repository.ReviewTarget{
+		BaseCommit: "base",
+		MergeBase:  "merge-base",
+		DocumentPaths: []string{
+			"README.md",
+			"docs/it's.md",
+		},
+	}, config.Config{DocumentReview: true})
+
+	for _, want := range []string{
+		"git diff --cached merge-base -- ':(top,literal)README.md' ':(top,literal)docs/it'\\''s.md'",
+		"Eligible Markdown paths:\nREADME.md\ndocs/it's.md",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("document review prompt does not contain %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "git diff --cached merge-base so") {
+		t.Fatalf("document review prompt contains an unscoped diff instruction:\n%s", prompt)
+	}
+}
+
+func TestDocumentFixPromptScopesFixesToEligiblePaths(t *testing.T) {
+	r := &recordingRunner{}
+	a := Adapter{
+		Runner:        r,
+		Config:        config.Config{DocumentReview: true, FixPrompt: "fix documents"},
+		documentPaths: []string{"README.md", "docs/guide.md"},
+	}
+	if err := a.FixFindings(context.Background(), `{"findings":[]}`); err != nil {
+		t.Fatal(err)
+	}
+	invocations := codexInvocations(r.invocations)
+	if len(invocations) != 1 {
+		t.Fatalf("codex invocations = %#v", invocations)
+	}
+	for _, want := range []string{
+		"Fix only confirmed findings in the eligible Markdown paths listed below.",
+		"Do not inspect or modify any other file in the worktree.",
+		"README.md\ndocs/guide.md",
+	} {
+		if !strings.Contains(invocations[0].Stdin, want) {
+			t.Errorf("fix prompt does not contain %q:\n%s", want, invocations[0].Stdin)
+		}
+	}
+}
+
+func TestDocumentReviewEmptyScopeReturnsExplicitResultWithoutCodex(t *testing.T) {
+	r := &recordingRunner{}
+	a := newReviewAdapter(t, r, config.Config{DocumentReview: true})
+	result, err := a.Review(context.Background())
+	if err != nil || !result.Clean || !result.ScopeEmpty {
+		t.Fatalf("review = %#v, %v", result, err)
+	}
+	if got := codexInvocations(r.invocations); len(got) != 0 {
+		t.Fatalf("codex invocations = %#v", got)
+	}
+}
+
 func TestReviewTargetValidation(t *testing.T) {
 	for _, test := range []struct {
 		name       string

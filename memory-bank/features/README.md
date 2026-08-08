@@ -50,3 +50,4 @@ audience: humans_and_agents
 - [`FT-036/README.md`](FT-036/README.md) — planned discoverable root and subcommand CLI help for issue #36.
 - [`FT-038/README.md`](FT-038/README.md) — strict YAML configuration delivery for issue #38.
 - [`FT-039/README.md`](FT-039/README.md) — active deterministic repository publication and CI orchestration for issue #39.
+- [`FT-042/README.md`](FT-042/README.md) — active configurable document-review prompt delivery for issue #42.

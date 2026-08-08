@@ -170,6 +170,84 @@ func TestDefaultsAndProfileResolution(t *testing.T) {
 	}
 }
 
+func TestDocumentReviewPromptResolution(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	write(t, filepath.Join(root, ".code-converge", "default.md"), "project document prompt")
+	cfg, err := Load(root, home, Overrides{DocumentReview: true})
+	if err != nil || !cfg.DocumentReview || cfg.ReviewPrompt != "project document prompt" || cfg.FixPrompt != DocumentFixPrompt {
+		t.Fatalf("cfg=%#v err=%v", cfg, err)
+	}
+	outside := filepath.Join(t.TempDir(), "custom.md")
+	write(t, outside, "custom")
+	cfg, err = Load(root, home, Overrides{ReviewPromptPath: OptionalString{Value: outside, Set: true}})
+	if err != nil || cfg.DocumentReview || cfg.ReviewPrompt != "custom" {
+		t.Fatalf("cfg=%#v err=%v", cfg, err)
+	}
+}
+
+func TestDocumentReviewDanglingDefaultPromptFailsClosed(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	defaultPath := filepath.Join(root, ".code-converge", "default.md")
+	if err := os.MkdirAll(filepath.Dir(defaultPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("missing.md", defaultPath); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Load(root, home, Overrides{DocumentReview: true})
+	if err == nil || !strings.Contains(err.Error(), "read document review default") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestDocumentReviewNonRegularDefaultPromptFailsClosed(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	defaultPath := filepath.Join(root, ".code-converge", "default.md")
+	if err := os.MkdirAll(defaultPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Load(root, home, Overrides{DocumentReview: true})
+	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestDocumentReviewIgnoresOrdinaryFixPrompt(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	writeConfig(t, root, "fix-prompt-file: prompts/missing.md\n")
+	t.Setenv("CODE_CONVERGE_FIX_PROMPT_FILE", filepath.Join(t.TempDir(), "missing.md"))
+
+	cfg, err := Load(root, home, Overrides{DocumentReview: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.FixPrompt != DocumentFixPrompt {
+		t.Fatalf("fix prompt = %q, want document prompt", cfg.FixPrompt)
+	}
+	if source(cfg, "fix-prompt") != "" {
+		t.Fatalf("ordinary fix prompt should not be reported in document mode: %#v", cfg.Settings)
+	}
+}
+
+func TestDocumentReviewPromptConflictsFailClosed(t *testing.T) {
+	cleanEnv(t)
+	root, home := repo(t)
+	_, err := Load(root, home, Overrides{DocumentReview: true, ReviewPromptName: OptionalString{Value: "x", Set: true}})
+	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("err=%v", err)
+	}
+	_, err = Load(root, home, Overrides{DocumentFixPromptPath: OptionalString{Value: "x.md", Set: true}})
+	if err == nil || !strings.Contains(err.Error(), "requires") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func cleanEnv(t *testing.T) {
 	t.Helper()
 	for _, name := range codeConvergeEnv {

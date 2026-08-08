@@ -33,7 +33,8 @@ type Repository interface {
 	HasChanges(context.Context) (bool, error)
 	IsClean(context.Context) (bool, error)
 	Head(context.Context) (string, error)
-	Checkpoint(context.Context, string, bool) (repository.Checkpoint, error)
+	ChangedPaths(context.Context) ([]string, error)
+	Checkpoint(context.Context, string, bool, []string, []string) (repository.Checkpoint, error)
 	Publish(context.Context, bool) (repository.Publication, error)
 	WaitCI(context.Context, repository.Publication) (repository.CIResult, error)
 }
@@ -127,6 +128,9 @@ func (w *Workflow) Run(ctx context.Context) int {
 		if review.Clean {
 			status = "clean"
 		}
+		if review.ScopeEmpty {
+			status = "scope_empty"
+		}
 		fields := []event.Field{event.F("stage", "review"), event.F("model", w.stageModel("review")), event.F("reasoning_effort", w.stageReasoningEffort("review")), intField("review_phase", phase), intField("cycle", cycle), event.F("status", status)}
 		if review.Scope.Source != "" {
 			fields = append(fields,
@@ -136,18 +140,23 @@ func (w *Workflow) Run(ctx context.Context) int {
 				event.F("review_base_source", review.Scope.Source),
 			)
 		}
-		fields = append(fields, countFields(review.Counts)...)
+		if !review.ScopeEmpty {
+			fields = append(fields, countFields(review.Counts)...)
+		}
 		fields = append(fields, duration)
 		if !w.emit("review_completed", fields...) {
 			return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 		}
-
+		if review.ScopeEmpty {
+			return w.complete("scope_empty", ExitSuccess, now().Sub(runStarted))
+		}
 		if !review.Clean {
 			if fixes >= w.Config.MaxCycles {
 				return w.completeFindingsRemaining(now().Sub(runStarted), lastCheckpoint, fixes > 0, checkpointSkipReason)
 			}
 			canCheckpoint := w.Repository != nil
 			initialHead := ""
+			var baselinePaths []string
 			if w.Repository != nil {
 				clean, err := w.Repository.IsClean(ctx)
 				if err != nil {
@@ -170,6 +179,16 @@ func (w *Workflow) Run(ctx context.Context) int {
 					}
 					w.diagnostic("checkpoint head failed", err)
 					return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+				}
+				if w.Config.DocumentReview {
+					baselinePaths, err = w.Repository.ChangedPaths(ctx)
+					if err != nil {
+						if ctx.Err() != nil {
+							return w.complete("cancelled", ExitInterrupted, now().Sub(runStarted))
+						}
+						w.diagnostic("checkpoint baseline failed", err)
+						return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
+					}
 				}
 			}
 			stageStarted = now()
@@ -221,7 +240,11 @@ func (w *Workflow) Run(ctx context.Context) int {
 				return w.complete("operational_failure", ExitOperational, now().Sub(runStarted))
 			}
 			if w.Repository != nil {
-				checkpoint, checkpointErr := w.Repository.Checkpoint(ctx, initialHead, canCheckpoint)
+				var eligiblePaths []string
+				if w.Config.DocumentReview {
+					eligiblePaths = review.Scope.DocumentPaths
+				}
+				checkpoint, checkpointErr := w.Repository.Checkpoint(ctx, initialHead, canCheckpoint, eligiblePaths, baselinePaths)
 				if checkpointErr != nil {
 					if ctx.Err() != nil {
 						return w.complete("cancelled", ExitInterrupted, now().Sub(runStarted))
@@ -237,6 +260,13 @@ func (w *Workflow) Run(ctx context.Context) int {
 			fixes++
 			cycle++
 			continue
+		}
+		if w.Config.DocumentReview {
+			// Document mode deliberately has no publication path. Its review
+			// snapshot is scoped to Markdown files, while the repository status
+			// and publication APIs operate on the whole worktree. Continuing here
+			// could therefore stage and publish unrelated source changes.
+			return w.complete("success", ExitSuccess, now().Sub(runStarted))
 		}
 
 		if w.Repository != nil {

@@ -29,10 +29,11 @@ type Counts struct {
 func (c Counts) Total() int { return c.Critical + c.High + c.Medium + c.Low + c.Unknown }
 
 type ReviewResult struct {
-	Clean  bool
-	Counts Counts
-	Report string
-	Scope  repository.ReviewTarget
+	Clean      bool
+	ScopeEmpty bool
+	Counts     Counts
+	Report     string
+	Scope      repository.ReviewTarget
 }
 
 type structuredReview struct {
@@ -61,13 +62,14 @@ type structuredLineRange struct {
 }
 
 type Adapter struct {
-	Runner      runner.Runner
-	Config      config.Config
-	ReviewScope *repository.ReviewScope
-	Output      func(source string, data []byte)
+	Runner        runner.Runner
+	Config        config.Config
+	ReviewScope   *repository.ReviewScope
+	Output        func(source string, data []byte)
+	documentPaths []string
 }
 
-func (a Adapter) Review(ctx context.Context) (ReviewResult, error) {
+func (a *Adapter) Review(ctx context.Context) (ReviewResult, error) {
 	if a.ReviewScope == nil {
 		return ReviewResult{}, errors.New("review scope is required")
 	}
@@ -77,6 +79,10 @@ func (a Adapter) Review(ctx context.Context) (ReviewResult, error) {
 	}
 	if strings.TrimSpace(target.BaseCommit) == "" || strings.TrimSpace(target.MergeBase) == "" {
 		return ReviewResult{}, errors.New("review target requires a selected base commit and merge base")
+	}
+	a.documentPaths = append(a.documentPaths[:0], target.DocumentPaths...)
+	if a.Config.DocumentReview && len(target.DocumentPaths) == 0 {
+		return ReviewResult{Clean: true, ScopeEmpty: true, Scope: target}, nil
 	}
 	args, err := scopedReviewArgs(a.Config, target)
 	if err != nil {
@@ -102,7 +108,7 @@ func (a Adapter) Review(ctx context.Context) (ReviewResult, error) {
 		Args:     args,
 		Env:      target.Env,
 		UnsetEnv: target.UnsetEnv,
-		Stdin:    reviewPrompt(target),
+		Stdin:    reviewPrompt(target, a.Config),
 		Output:   a.output(),
 	}); err != nil {
 		return ReviewResult{}, err
@@ -195,24 +201,52 @@ func environmentValue(environment []string, name string) (string, bool) {
 	return "", false
 }
 
-func reviewPrompt(target repository.ReviewTarget) string {
-	return fmt.Sprintf(
+func reviewPrompt(target repository.ReviewTarget, configuration config.Config) string {
+	diffCommand := fmt.Sprintf("git diff --cached %s", target.MergeBase)
+	inspectionInstruction := "Inspect related files when needed"
+	if configuration.DocumentReview {
+		pathspecs := make([]string, 0, len(target.DocumentPaths))
+		for _, path := range target.DocumentPaths {
+			pathspecs = append(pathspecs, shellQuote(":(top,literal)"+path))
+		}
+		diffCommand += " -- " + strings.Join(pathspecs, " ")
+		inspectionInstruction = "Inspect only the eligible paths listed below when needed"
+	}
+	prompt := fmt.Sprintf(
 		`Review the changes in the prepared private Git index.
 
 Selected base commit: %s
 Merge base and comparison start: %s
 
-A scoped Git helper exposes the private snapshot only to Git commands that target the reviewed repository. Review the equivalent of git diff --cached %s so the comparison covers the merge-base-to-private-snapshot change. Inspect related files when needed, but do not modify the repository, the real index, or the worktree.
+A scoped Git helper exposes the private snapshot only to Git commands that target the reviewed repository. Review the equivalent of %s so the comparison covers the merge-base-to-private-snapshot change. %s, but do not modify the repository, the real index, or the worktree.
 
 Return actionable code-review findings. Use an empty findings array when there are none. Return only the JSON object required by the supplied output schema.`,
 		target.BaseCommit,
 		target.MergeBase,
-		target.MergeBase,
+		diffCommand,
+		inspectionInstruction,
 	)
+	if configuration.ReviewPrompt != "" {
+		prompt += "\n\nAdditional review criteria:\n\n" + configuration.ReviewPrompt
+	}
+	if configuration.DocumentReview {
+		prompt += "\n\nEligible Markdown paths:\n" + strings.Join(target.DocumentPaths, "\n")
+	}
+	return prompt
 }
 
-func (a Adapter) FixFindings(ctx context.Context, report string) error {
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+func (a *Adapter) FixFindings(ctx context.Context, report string) error {
 	prompt := a.Config.FixPrompt + "\n\nReview findings to address:\n\n" + report
+	if a.Config.DocumentReview {
+		if len(a.documentPaths) == 0 {
+			return errors.New("document review fix scope is unavailable")
+		}
+		prompt += "\n\nDocument fix scope:\nFix only confirmed findings in the eligible Markdown paths listed below. Do not inspect or modify any other file in the worktree.\n" + strings.Join(a.documentPaths, "\n")
+	}
 	_, err := a.Runner.Run(ctx, runner.Invocation{Args: append(modelArgs(a.Config.FixModel, a.Config.FixEffort), "exec", "-"), Stdin: prompt, Output: a.output()})
 	return err
 }

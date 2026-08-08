@@ -76,8 +76,9 @@ func (r *workflowRepository) IsClean(context.Context) (bool, error) {
 	r.clean = r.clean[1:]
 	return value, nil
 }
-func (*workflowRepository) Head(context.Context) (string, error) { return "head", nil }
-func (*workflowRepository) Checkpoint(context.Context, string, bool) (repository.Checkpoint, error) {
+func (*workflowRepository) Head(context.Context) (string, error)           { return "head", nil }
+func (*workflowRepository) ChangedPaths(context.Context) ([]string, error) { return nil, nil }
+func (*workflowRepository) Checkpoint(context.Context, string, bool, []string, []string) (repository.Checkpoint, error) {
 	return repository.Checkpoint{}, nil
 }
 func (r *workflowRepository) Publish(context.Context, bool) (repository.Publication, error) {
@@ -124,6 +125,29 @@ func TestCleanReviewPublishesAndWaitsForCI(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("missing %q in:\n%s", want, output)
 		}
+	}
+}
+
+func TestEmptyDocumentReviewScopeDoesNotPublish(t *testing.T) {
+	repo := &workflowRepository{changes: []bool{true}, ci: []repository.CIResult{repository.CISuccess}}
+	result := codex.ReviewResult{Clean: true, ScopeEmpty: true}
+	code, output := runWorkflow(t, config.Config{CITimeout: time.Minute, DocumentReview: true}, &workflowAgent{reviews: []codex.ReviewResult{result}}, repo)
+	if code != ExitSuccess || repo.publishes != 0 || repo.ciWaits != 0 {
+		t.Fatalf("code=%d publishes=%d waits=%d", code, repo.publishes, repo.ciWaits)
+	}
+	if !strings.Contains(output, "status=scope_empty") || !strings.Contains(output, "event=run_completed status=scope_empty exit_code=0") {
+		t.Fatalf("output=%s", output)
+	}
+}
+
+func TestDocumentReviewDoesNotPublishAfterCleanScopedReview(t *testing.T) {
+	repo := &workflowRepository{changes: []bool{true}, ci: []repository.CIResult{repository.CISuccess}}
+	code, output := runWorkflow(t, config.Config{CITimeout: time.Minute, DocumentReview: true}, &workflowAgent{reviews: []codex.ReviewResult{cleanReview()}}, repo)
+	if code != ExitSuccess || repo.publishes != 0 || repo.ciWaits != 0 {
+		t.Fatalf("code=%d publishes=%d waits=%d", code, repo.publishes, repo.ciWaits)
+	}
+	if strings.Contains(output, "stage=publish") || strings.Contains(output, "stage=ci") {
+		t.Fatalf("document review reached publication or CI: %s", output)
 	}
 }
 
